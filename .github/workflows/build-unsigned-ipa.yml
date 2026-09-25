@@ -57,11 +57,15 @@ jobs:
           print(f'Building AT Music {version} (build {build})')
           PY
 
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+
       - name: Generate Xcode project
         run: |
           set -euo pipefail
-          chmod +x ./xcodegen/bin/xcodegen
-          ./xcodegen/bin/xcodegen generate
+          xcodegen generate
 
       - name: Build unsigned Release
         shell: bash
