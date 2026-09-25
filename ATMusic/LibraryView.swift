@@ -325,11 +325,11 @@ struct LibraryView: View {
     }
 
     private var librarySubtitle: String {
-        atmusicLocalized("最近播放 · 多平台歌单 · 本地音乐库", "Recent · Multi-platform playlists · Local library")
+        atmusicLocalized("平台同步 · 本地歌单 · 高级管理", "Platform sync · Local playlists · Advanced management")
     }
 
     private var libraryTitleButton: some View {
-        Text("歌单")
+        Text("歌单管理")
             .font(ATMusicFont.appFont(isNativeClean ? 34 : 30, .bold))
             .foregroundStyle(Color.atmusicLabel)
     }

@@ -61,6 +61,7 @@
 		9923D06E8E4BAB1F028CB61D /* QQMusicAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEB3C7462435ADDB41D2C14 /* QQMusicAuth.swift */; };
 		9BBEB9E6959E9D2EE16EDF5A /* SynologyMusicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E1482D17E6CAA32D05DB6E /* SynologyMusicView.swift */; };
 		A3964AEE73B96E53FB822A51 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810044AD24E71FD337BC8D03 /* Theme.swift */; };
+		A505A1378362ABA49061D083 /* MusicLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */; };
 		A79B05DFB8BE5616F27EF2E8 /* MusicCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC63BC06FD9B7C11B052AD31 /* MusicCacheManager.swift */; };
 		A84A3E92DCE58A652BBD1246 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2634BD6CE38C5E9B12783D55 /* PlayerView.swift */; };
 		AB0AA2261461BFBC9D570825 /* VinylPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCCF63778BCE2868BEEB0B5 /* VinylPlayerView.swift */; };
@@ -184,6 +185,7 @@
 		F39452605945742735AE2DFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedPlaylistOrderSheet.swift; sourceTree = "<group>"; };
 		FD81682400062D3794713DC5 /* LocalMusicSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMusicSection.swift; sourceTree = "<group>"; };
+		FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibraryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -233,6 +235,7 @@
 				6D8F9882B899BB6F9A68343D /* MiniPlayerView.swift */,
 				317645748BE52D51685C249B /* Models.swift */,
 				AC63BC06FD9B7C11B052AD31 /* MusicCacheManager.swift */,
+				FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */,
 				680C93617FE59252523B3567 /* NetEaseAPI.swift */,
 				B86C94266C456F24E23AB1D0 /* NetEaseCrypto.swift */,
 				610C10359085CFFFA3E49044 /* NetEaseWebLoginSheet.swift */,
@@ -406,6 +409,7 @@
 				8008D35367183B7BF9EE6A6E /* MiniPlayerView.swift in Sources */,
 				81AD67B3104FBD8701C13DFC /* Models.swift in Sources */,
 				A79B05DFB8BE5616F27EF2E8 /* MusicCacheManager.swift in Sources */,
+				A505A1378362ABA49061D083 /* MusicLibraryView.swift in Sources */,
 				6FDFD4350EF3F768762D5227 /* NetEaseAPI.swift in Sources */,
 				B9B1CAB25CDEAD7CF5F9E95C /* NetEaseCrypto.swift in Sources */,
 				C21E23BDE27BE44DF4DC5AA4 /* NetEaseWebLoginSheet.swift in Sources */,
@@ -472,13 +476,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 36;
+				CURRENT_PROJECT_VERSION = 37;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.5;
+				MARKETING_VERSION = 1.8.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
@@ -547,13 +551,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 36;
+				CURRENT_PROJECT_VERSION = 37;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.5;
+				MARKETING_VERSION = 1.8.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";

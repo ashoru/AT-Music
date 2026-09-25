@@ -16,7 +16,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         switch self {
         case .discover: return "主页"
         case .featured: return "精选"
-        case .library: return "歌单"
+        case .library: return "音乐库"
         case .profile: return "我的"
         case .search: return "搜索"
         }
@@ -26,7 +26,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         switch self {
         case .discover: return "house.fill"
         case .featured: return "square.grid.2x2.fill"
-        case .library: return "music.note.list"
+        case .library: return "rectangle.stack.badge.play"
         case .profile: return "person.crop.circle.fill"
         case .search: return "magnifyingglass"
         }
@@ -226,8 +226,8 @@ struct RootView: View {
             Tab("精选", systemImage: "square.grid.2x2", value: RootTab.featured) {
                 FeaturedView(onOpenProfile: { selection = .profile })
             }
-            Tab("歌单", systemImage: "music.note.list", value: RootTab.library) {
-                LibraryView(onOpenProfile: { selection = .profile })
+            Tab("音乐库", systemImage: "rectangle.stack.badge.play", value: RootTab.library) {
+                MusicLibraryHomeView(onOpenProfile: { selection = .profile })
             }
             Tab("我的", systemImage: "person.crop.circle", value: RootTab.profile) {
                 ProfileView()

@@ -895,7 +895,9 @@ struct SynologyAppleHomeSection: View {
                 synologyArtistSection
             }
         }
-        .task { await load() }
+        .task {
+            if synology.isLoggedIn { await load() }
+        }
     }
 
     @ViewBuilder
@@ -1524,7 +1526,11 @@ struct SynologyLibrarySection: View {
                 ForEach(folderItems) { item in
                     if item.kind == .folder {
                         NavigationLink {
-                            SynologyFolderView(folderID: item.id, title: item.name)
+                            SynologyFolderView(
+                                folderID: item.id,
+                                title: item.name,
+                                breadcrumbs: ["NAS", item.name]
+                            )
                         } label: {
                             SynologyLibraryRow(
                                 coverURL: folderPreviewSongs[item.id]?.coverURL,
@@ -1634,47 +1640,102 @@ struct SynologyFolderView: View {
 
     let folderID: String?
     let title: String
+    let breadcrumbs: [String]
     @State private var items: [SynologyFolderItem] = []
+
+    init(folderID: String?, title: String, breadcrumbs: [String] = ["NAS"]) {
+        self.folderID = folderID
+        self.title = title
+        self.breadcrumbs = breadcrumbs
+    }
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var query = ""
 
-    private var songs: [Song] { items.compactMap(\.song) }
+    private var displayedItems: [SynologyFolderItem] {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = keyword.isEmpty ? items : items.filter { item in
+            if item.name.lowercased().contains(keyword) { return true }
+            if let song = item.song {
+                return song.name.lowercased().contains(keyword)
+                    || song.artists.lowercased().contains(keyword)
+                    || song.album.lowercased().contains(keyword)
+            }
+            return false
+        }
+        return filtered.sorted { lhs, rhs in
+            if lhs.kind != rhs.kind {
+                return lhs.kind == .folder
+            }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var songs: [Song] {
+        displayedItems.compactMap(\.song)
+    }
 
     var body: some View {
         ZStack {
-            if isLoading {
+            GlassBackdrop()
+            if !synology.isLoggedIn {
+                EmptyStateView(icon: "externaldrive.badge.xmark", text: "请先在“我的”中连接群晖 NAS")
+            } else if isLoading {
                 LoadingStateView()
             } else if let errorMessage {
                 ErrorStateView(message: errorMessage) { Task { await load() } }
             } else {
                 List {
-                    if !songs.isEmpty {
-                        Button {
-                            ATMusicHaptics.tap()
-                            player.play(songs: songs, startAt: 0)
-                        } label: {
-                            Label("播放全部", systemImage: "play.fill")
-                        }
-                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                    Section {
+                        Text(breadcrumbs.joined(separator: " / "))
+                            .font(ATMusicFont.appFont(11, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+                            .lineLimit(1)
+                            .truncationMode(.head)
                     }
-                    ForEach(items) { item in
-                        if item.kind == .folder {
-                            NavigationLink {
-                                SynologyFolderView(folderID: item.id, title: item.name)
-                            } label: {
-                                SynologyLibraryRow(
-                                    coverURL: nil,
-                                    title: item.name,
-                                    subtitle: "文件夹",
-                                    systemImage: "folder.fill"
-                                )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    if !songs.isEmpty {
+                        Section {
+                            HStack(spacing: 10) {
+                                GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                    player.play(songs: songs, startAt: 0)
+                                }
+                                GlassButton(title: "随机播放", systemName: "shuffle") {
+                                    player.play(songs: songs.shuffled(), startAt: 0)
+                                }
                             }
-                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                        } else if let song = item.song {
-                            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: songs.firstIndex(of: song) ?? 0) {
-                                player.play(songs: songs, startAt: songs.firstIndex(of: song) ?? 0)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+
+                    Section {
+                        ForEach(displayedItems) { item in
+                            if item.kind == .folder {
+                                NavigationLink {
+                                    SynologyFolderView(
+                                        folderID: item.id,
+                                        title: item.name,
+                                        breadcrumbs: breadcrumbs + [item.name]
+                                    )
+                                } label: {
+                                    SynologyLibraryRow(
+                                        coverURL: nil,
+                                        title: item.name,
+                                        subtitle: "文件夹",
+                                        systemImage: "folder.fill"
+                                    )
+                                }
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                            } else if let song = item.song {
+                                let index = songs.firstIndex(of: song) ?? 0
+                                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                                    player.play(songs: songs, startAt: index)
+                                }
                             }
                         }
                     }
@@ -1685,10 +1746,17 @@ struct SynologyFolderView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .searchable(text: $query, prompt: "搜索当前文件夹")
+        .task { if synology.isLoggedIn { await load() } }
     }
 
     private func load() async {
+        guard synology.isLoggedIn else {
+            isLoading = false
+            return
+        }
+        isLoading = items.isEmpty
+        errorMessage = nil
         do {
             items = try await synology.folderItems(folderID: folderID, limit: 500)
             isLoading = false

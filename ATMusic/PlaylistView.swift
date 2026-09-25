@@ -24,6 +24,8 @@ struct PlaylistView: View {
     @State private var resolvedPopularity: Int?
     @State private var searchText = ""
     @State private var sortMode: PlaylistSortMode = .original
+    @State private var showSearch = false
+    @State private var showInfo = false
     @AppStorage("atmusic.homeHeaderHideSort") private var hideSortButton = false
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
 
@@ -115,96 +117,97 @@ struct PlaylistView: View {
             }
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
+            .modifier(PlaylistSearchModifier(enabled: showSearch, text: $searchText))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            ATMusicHaptics.tap()
+                            showSearch.toggle()
+                            if !showSearch { searchText = "" }
+                        } label: {
+                            Label(showSearch ? "关闭搜索" : "搜索歌单", systemImage: "magnifyingglass")
+                        }
+
+                        if !hideSortButton {
+                            Picker("排序", selection: $sortMode) {
+                                ForEach(PlaylistSortMode.allCases) { mode in
+                                    Text(LocalizedStringKey(mode.rawValue)).tag(mode)
+                                }
+                            }
+                        }
+
+                        if displayDescription != nil || playlistPopularityText != nil {
+                            Button {
+                                ATMusicHaptics.tap()
+                                showInfo = true
+                            } label: {
+                                Label("歌单信息", systemImage: "info.circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("更多")
+                }
+            }
+            .sheet(isPresented: $showInfo) {
+                PlaylistInfoSheet(
+                    name: playlist.name,
+                    source: playlist.source,
+                    creator: displayCreatorName,
+                    songCount: tracks.isEmpty ? playlist.trackCount : tracks.count,
+                    popularity: playlistPopularityText,
+                    description: displayDescription
+                )
+            }
         .task { await load() }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: isNativeClean ? 18 : 14) {
-                CoverImage(url: resolvedCoverURL ?? playlist.coverURL, size: 96, cornerRadius: 18)
-                VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: isNativeClean ? 14 : 12) {
+                CoverImage(url: resolvedCoverURL ?? playlist.coverURL, size: 80, cornerRadius: 14)
+
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
                         Text(playlist.name)
-                            .font(ATMusicFont.appFont(18, .bold))
+                            .font(ATMusicFont.appFont(17, .bold))
                             .foregroundStyle(Color.atmusicLabel)
                             .lineLimit(2)
                         SourceBadgeView(source: playlist.source)
                     }
+
                     Text(displayCreatorName)
-                        .font(ATMusicFont.appFont(12))
+                        .font(ATMusicFont.appFont(11))
                         .foregroundStyle(Color.atmusicComment)
                         .lineLimit(1)
-                    HStack(spacing: 8) {
-                        Text(atmusicSongCountText(tracks.isEmpty ? playlist.trackCount : tracks.count))
-                        if let playlistPopularityText {
-                            Text(playlistPopularityText)
-                        }
-                    }
-                    .font(ATMusicFont.appFont(12))
-                    .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(tracks.isEmpty ? playlist.trackCount : tracks.count))
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
                 }
                 Spacer(minLength: 0)
             }
-            if let description = displayDescription {
-                Text(description)
-                    .font(ATMusicFont.appFont(13))
-                    .foregroundStyle(Color.atmusicComment)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+
             HStack(spacing: 10) {
                 GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                    guard !displayedTracks.isEmpty else { return }
                     player.play(songs: displayedTracks, startAt: 0)
                 }
-                GlassButton(title: "随机播放", systemName: "shuffle") {
-                    if !displayedTracks.isEmpty {
-                        player.play(songs: displayedTracks, startAt: Int.random(in: 0..<displayedTracks.count))
-                    }
-                }
-            }
-            HStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.atmusicComment)
-                    TextField(atmusicLocalized("搜索歌单内歌曲", "Search songs in playlist"), text: $searchText)
-                        .font(ATMusicFont.appFont(14))
-                        .autocorrectionDisabled()
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous)) }
+                .disabled(displayedTracks.isEmpty)
 
-                if !hideSortButton {
-                    Menu {
-                        Picker("排序", selection: $sortMode) {
-                            ForEach(PlaylistSortMode.allCases) { mode in
-                                Text(LocalizedStringKey(mode.rawValue)).tag(mode)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 38, height: 38)
-                            .background { ATMusicSurface(shape: Circle()) }
-                    }
-                    .buttonStyle(GlassPressButtonStyle())
+                GlassIconButton(systemName: "shuffle", size: 42, active: false) {
+                    guard !displayedTracks.isEmpty else { return }
+                    player.play(songs: displayedTracks.shuffled(), startAt: 0)
                 }
+                .disabled(displayedTracks.isEmpty)
+                .accessibilityLabel("随机播放")
+
+                Spacer(minLength: 0)
             }
         }
-        .padding(14)
-        .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)) }
+        .padding(.vertical, 4)
     }
 
     /// 歌单内搜索 + 排序后的列表
@@ -281,6 +284,63 @@ struct PlaylistView: View {
             }
             ATMusicLogger.shared.log("歌单页面加载失败 source=\(playlist.source.rawValue) id=\(playlist.id) name=\(playlist.name) error=\(error.localizedDescription)", level: .error)
             loading = false
+        }
+    }
+}
+
+private struct PlaylistSearchModifier: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: LocalizedStringKey("搜索歌单内歌曲")
+            )
+        } else {
+            content
+        }
+    }
+}
+
+private struct PlaylistInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let name: String
+    let source: SongSource
+    let creator: String
+    let songCount: Int
+    let popularity: String?
+    let description: String?
+
+    var body: some View {
+        ATMusicNavigationStack {
+            List {
+                Section {
+                    LabeledContent("来源", value: source.atmusicDisplayName)
+                    LabeledContent("创建者", value: creator)
+                    LabeledContent("歌曲", value: "\(songCount) 首")
+                    if let popularity { LabeledContent("热度", value: popularity) }
+                }
+                if let description, !description.isEmpty {
+                    Section("简介") {
+                        Text(description)
+                            .font(ATMusicFont.appFont(13))
+                            .foregroundStyle(Color.atmusicLabel)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .atmusicScrollContentBackgroundHidden()
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }
