@@ -1,7 +1,7 @@
 import Foundation
 
 struct UpdateChecker {
-    static let repoPath = "XIaodou0416/AT-Music"
+    static let repoPath = "ashoru/AT-Music"
     static let releasePageURL = URL(string: "https://github.com/\(repoPath)/releases/latest")!
     private static let latestAPI = URL(string: "https://api.github.com/repos/\(repoPath)/releases/latest")!
     private static let suppressedVersionKey = "atmusic.updateCheck.suppressedVersion"

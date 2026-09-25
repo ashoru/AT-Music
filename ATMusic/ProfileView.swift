@@ -640,7 +640,7 @@ struct ProfileView: View {
         VStack(spacing: 0) {
             Button {
                 ATMusicHaptics.tap()
-                if let url = URL(string: "https://github.com/XIaodou0416/AT-Music") {
+                if let url = URL(string: "https://github.com/ashoru/AT-Music") {
                     UIApplication.shared.open(url)
                 }
             } label: {
@@ -653,7 +653,7 @@ struct ProfileView: View {
                         Text("更新地址")
                             .font(ATMusicFont.appFont(14, .semibold))
                             .foregroundStyle(Color.atmusicLabel)
-                        Text("GitHub：XIaodou0416/AT-Music")
+                        Text("GitHub：ashoru/AT-Music")
                             .font(ATMusicFont.appFont(11))
                             .foregroundStyle(Color.atmusicComment)
                             .lineLimit(1)
