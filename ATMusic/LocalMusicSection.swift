@@ -1239,6 +1239,7 @@ struct LocalSongMetadataEditorSheet: View {
                         Image(systemName: "pencil").font(.system(size: 13, weight: .medium)).foregroundStyle(Color.atmusicComment)
                     }
                     .padding(.horizontal, 20).padding(.vertical, 15)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

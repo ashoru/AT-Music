@@ -594,7 +594,6 @@ struct PlayerView: View {
                 .environmentObject(clock)
                 .environmentObject(auth)
                 .environmentObject(favorites)
-                .modifier(SettingsLiquidSheetPresentation())
         }
         .sheet(item: $shareFile, onDismiss: cleanupSharedFile) { item in
             ShareSheet(items: [item.url])
@@ -4125,7 +4124,7 @@ struct PlayerSettingsSheet: View {
         VStack(alignment: .leading, spacing: 9) {
             if let isExpanded {
                 Button {
-                    withAnimation {
+                    withAnimation(.snappy(duration: 0.16)) {
                         isExpanded.wrappedValue.toggle()
                     }
                     ATMusicHaptics.select()
@@ -4367,7 +4366,8 @@ struct PlayerSettingsSheet: View {
         }
     }
 
-    /// 歌词显示卡片：字号 / 行距 / 翻译
+    /// 歌词显示卡片：字号 / 行距 / 翻译。字号和行距与 PlayerView 共用 AppStorage，
+    /// 拖动后实时刷新当前歌词，不需要关闭设置页再生效。
     private var lyricOffsetText: String {
         if lyricOffset == 0 { return "同步" }
         return lyricOffset > 0

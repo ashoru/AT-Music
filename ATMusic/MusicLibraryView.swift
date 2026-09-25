@@ -200,6 +200,7 @@ struct MusicLibraryHomeView: View {
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
     @ObservedObject private var synology = SynologyAPI.shared
+    @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
 
     private var isNativeClean: Bool {
@@ -222,7 +223,13 @@ struct MusicLibraryHomeView: View {
         }
         if !localItems.isEmpty { groups.append(localItems) }
 
-        for group in [playlistStore.netease, playlistStore.qq, playlistStore.kugou, playlistStore.synology] where !group.isEmpty {
+        let remoteGroups: [[Playlist]] = [
+            platformPrefs.isEnabled(SearchProvider.netease) ? playlistStore.netease : [],
+            platformPrefs.isEnabled(SearchProvider.qq) ? playlistStore.qq : [],
+            platformPrefs.isEnabled(SearchProvider.kugou) ? playlistStore.kugou : [],
+            platformPrefs.isEnabled(SearchProvider.synology) ? playlistStore.synology : []
+        ]
+        for group in remoteGroups where !group.isEmpty {
             groups.append(group.map { playlist in
                 MusicLibraryPlaylistItem(
                     id: "\(playlist.source.rawValue)-\(playlist.id)",
@@ -542,6 +549,7 @@ struct MusicLibraryAllPlaylistsView: View {
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
+    @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
 
     @State private var filter: MusicLibraryPlaylistFilter = .all
     @State private var searchText = ""
@@ -577,10 +585,10 @@ struct MusicLibraryAllPlaylistsView: View {
             }
         }
 
-        append(playlistStore.netease, when: .netease)
-        append(playlistStore.qq, when: .qq)
-        append(playlistStore.kugou, when: .kugou)
-        append(playlistStore.synology, when: .synology)
+        if platformPrefs.isEnabled(SearchProvider.netease) { append(playlistStore.netease, when: .netease) }
+        if platformPrefs.isEnabled(SearchProvider.qq) { append(playlistStore.qq, when: .qq) }
+        if platformPrefs.isEnabled(SearchProvider.kugou) { append(playlistStore.kugou, when: .kugou) }
+        if platformPrefs.isEnabled(SearchProvider.synology) { append(playlistStore.synology, when: .synology) }
 
         let stableIndex = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         result.sort { lhs, rhs in

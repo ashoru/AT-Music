@@ -380,6 +380,7 @@ struct SynologyMetadataEditorSheet: View {
                         Image(systemName: "pencil").font(.system(size: 13, weight: .medium)).foregroundStyle(Color.atmusicComment)
                     }
                     .padding(.horizontal, 20).padding(.vertical, 15)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -625,11 +626,27 @@ struct SongCoverSearchGridSheet: View {
                                     AsyncImage(url: candidate.song.coverURL) { image in
                                         image.resizable().scaledToFill()
                                     } placeholder: { Color.atmusicCard.overlay(ProgressView()) }
-                                    Text(candidate.providerName)
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 6).padding(.vertical, 4)
-                                        .background(.black.opacity(0.58))
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            Spacer()
+                                            CoverResolutionBadge(url: candidate.song.coverURL)
+                                        }
+                                    }
+                                    .padding(6)
+
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            Text(candidate.providerName)
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .padding(.horizontal, 6).padding(.vertical, 4)
+                                                .background(.black.opacity(0.58), in: Capsule())
+                                            Spacer()
+                                        }
+                                    }
+                                    .padding(6)
                                 }
                                 .aspectRatio(1, contentMode: .fit)
                                 .clipped()
@@ -670,6 +687,45 @@ struct SongCoverSearchGridSheet: View {
         let seed = Song(id: 0, name: trimmed, artists: "", album: "", coverURL: nil, duration: song.duration, source: .synology)
         let found = await SynologyAPI.shared.metadataCandidates(for: seed)
         await MainActor.run { candidates = found; isLoading = false }
+    }
+}
+
+private struct CoverResolutionBadge: View {
+    let url: URL?
+    @State private var resolution: String?
+
+    var body: some View {
+        Group {
+            if let resolution {
+                Text(resolution)
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.68), in: Capsule())
+            }
+        }
+        .task(id: url) {
+            guard let url else {
+                resolution = nil
+                return
+            }
+            do {
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                let (data, _) = try await URLSession.shared.data(for: request)
+                guard !Task.isCancelled, let image = UIImage(data: data) else { return }
+                let scale = image.scale > 0 ? image.scale : 1
+                let width = Int((image.size.width * scale).rounded())
+                let height = Int((image.size.height * scale).rounded())
+                await MainActor.run {
+                    resolution = width > 0 && height > 0 ? "\(width)×\(height)" : nil
+                }
+            } catch {
+                await MainActor.run { resolution = nil }
+            }
+        }
     }
 }
 
