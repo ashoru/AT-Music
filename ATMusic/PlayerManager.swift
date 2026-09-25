@@ -122,6 +122,10 @@ final class PlayerManager: NSObject, ObservableObject {
     private var qqThirdPartyFallbackSongKey: String?
     private var playbackConfirmationWorkItem: DispatchWorkItem?
     private var playbackStallWorkItem: DispatchWorkItem?
+    /// 某些第三方直链在文件末尾不稳定发送 AVPlayerItemDidPlayToEndTime。
+    /// 用一个延迟校验作为兜底，且每个 loadGeneration 只允许推进一次。
+    private var playbackEndFallbackWorkItem: DispatchWorkItem?
+    private var completedPlaybackGeneration: Int?
     private static let nowPlayingArtworkCache = NSCache<NSURL, UIImage>()
 
     private let historyKey = "atmusic.history"
@@ -186,6 +190,67 @@ final class PlayerManager: NSObject, ObservableObject {
         Task { @MainActor in
             MusicCacheManager.shared.requestPrefetch(song: song, quality: quality)
         }
+    }
+
+
+    private func advanceAfterPlaybackEnd(
+        expectedSongKey: String,
+        generation: Int,
+        reason: String
+    ) {
+        guard playMode != .repeatOne,
+              queue.count > 1,
+              loadGeneration == generation,
+              currentSong?.identityKey == expectedSongKey,
+              completedPlaybackGeneration != generation else { return }
+
+        completedPlaybackGeneration = generation
+        playbackEndFallbackWorkItem?.cancel()
+        playbackEndFallbackWorkItem = nil
+        ATMusicLogger.shared.log("自动下一首：\(currentSong?.name ?? "?")｜触发=\(reason)", level: .debug)
+        advance()
+        loadCurrent()
+    }
+
+    private func schedulePlaybackEndFallback(
+        player: AVPlayer,
+        item: AVPlayerItem,
+        songKey: String,
+        generation: Int
+    ) {
+        guard playbackEndFallbackWorkItem == nil,
+              playMode != .repeatOne,
+              queue.count > 1 else { return }
+
+        let work = DispatchWorkItem { [weak self, weak player, weak item] in
+            guard let self,
+                  let player,
+                  let item,
+                  self.player === player,
+                  player.currentItem === item,
+                  self.loadGeneration == generation,
+                  self.currentSong?.identityKey == songKey,
+                  self.completedPlaybackGeneration != generation else { return }
+
+            let current = player.currentTime().seconds
+            let itemDuration = item.duration
+            guard current.isFinite,
+                  itemDuration.isNumeric,
+                  itemDuration.seconds.isFinite,
+                  itemDuration.seconds > 1,
+                  current >= itemDuration.seconds - 0.45 else {
+                self.playbackEndFallbackWorkItem = nil
+                return
+            }
+            self.playbackEndFallbackWorkItem = nil
+            self.advanceAfterPlaybackEnd(
+                expectedSongKey: songKey,
+                generation: generation,
+                reason: "第三方音源末尾兜底"
+            )
+        }
+        playbackEndFallbackWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
     }
 
     override init() {
@@ -576,6 +641,8 @@ final class PlayerManager: NSObject, ObservableObject {
         let cacheQuality = playbackCacheQuality()
         loadGeneration += 1
         let generation = loadGeneration
+        playbackEndFallbackWorkItem?.cancel()
+        playbackEndFallbackWorkItem = nil
         thirdPartyRetryExcludedHostsBySong.removeValue(forKey: song.identityKey)
         attemptedThirdPartyQualitiesBySong.removeValue(forKey: song.identityKey)
         attemptedQQOfficialBRsBySong.removeValue(forKey: song.identityKey)
@@ -1085,6 +1152,7 @@ final class PlayerManager: NSObject, ObservableObject {
         fromPlaybackCache: Bool = false
     ) {
         guard ensurePlaybackAllowed(), let loadedSong = currentSong else { return }
+        let playbackGeneration = loadGeneration
         if isThirdParty {
             let quality = thirdPartyQuality ?? ThirdPartyAudioQuality.current
             activeThirdPartyQuality = quality
@@ -1218,6 +1286,11 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
                 self.playbackStallWorkItem?.cancel()
                 self.playbackStallWorkItem = nil
+                if player.timeControlStatus == .playing {
+                    // 第三方音源也要在真正进入 playing 时立刻预取下一首，
+                    // 不再依赖 1.2 秒后的单一确认回调。
+                    self.refreshPrefetchTarget()
+                }
                 guard player.timeControlStatus == .playing, !self.playbackConfirmed else { return }
                 self.playbackConfirmationWorkItem?.cancel()
                 let confirmation = DispatchWorkItem { [weak self, weak player, weak item] in
@@ -1252,6 +1325,8 @@ final class PlayerManager: NSObject, ObservableObject {
         isPlaying = true
         isBuffering = false
         loadFailed = false
+        // 开始当前歌曲后即可后台解析/下载下一首；MusicCacheManager 会自动去重。
+        refreshPrefetchTarget()
         // 修复：播放次数原先在 loadCurrent 里预计数，URL 加载失败/手动重试也会 +1，
         // 导致统计异常；改为真正开始播放时计数，且同一首歌同一会话只计一次。
         if let song = currentSong, lastCountedSongID != song.identityKey {
@@ -1292,6 +1367,23 @@ final class PlayerManager: NSObject, ObservableObject {
                     self.duration = seconds
                 }
             }
+            if isThirdParty,
+               self.playMode != .repeatOne,
+               self.queue.count > 1,
+               let itemDuration = player.currentItem?.duration,
+               itemDuration.isNumeric,
+               itemDuration.seconds.isFinite,
+               itemDuration.seconds > 1,
+               time.seconds.isFinite,
+               time.seconds >= itemDuration.seconds - 0.65 {
+                self.schedulePlaybackEndFallback(
+                    player: player,
+                    item: item,
+                    songKey: loadedSong.identityKey,
+                    generation: playbackGeneration
+                )
+            }
+
             let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
             if waiting != self.isBuffering {
                 self.isBuffering = waiting
@@ -1302,8 +1394,11 @@ final class PlayerManager: NSObject, ObservableObject {
             if self.playMode == .repeatOne {
                 self.restartCurrent()
             } else {
-                self.advance()
-                self.loadCurrent()
+                self.advanceAfterPlaybackEnd(
+                    expectedSongKey: loadedSong.identityKey,
+                    generation: playbackGeneration,
+                    reason: "AVPlayerItemDidPlayToEndTime"
+                )
             }
         }
         failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -1377,8 +1472,8 @@ final class PlayerManager: NSObject, ObservableObject {
         let failureMessage: String
         if shouldAutoSkip && queue.count > 1 {
             failureMessage = atmusicLocalized(
-                "播放失败，10秒后自动切换到下一首",
-                "Playback failed. The next song will start in 10 seconds."
+                "播放失败，2秒后自动切换到下一首",
+                "Playback failed. The next song will start in 2 seconds."
             )
         } else {
             failureMessage = message ?? atmusicLocalized(
@@ -1405,7 +1500,7 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         failureAutoSkipWorkItem?.cancel()
         failureAutoSkipWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: workItem)
     }
 
     private func ensurePlaybackAllowed() -> Bool {
@@ -1551,6 +1646,8 @@ final class PlayerManager: NSObject, ObservableObject {
         failureAutoSkipWorkItem = nil
         playbackStallWorkItem?.cancel()
         playbackStallWorkItem = nil
+        playbackEndFallbackWorkItem?.cancel()
+        playbackEndFallbackWorkItem = nil
         playbackConfirmed = false
         pendingThirdPartyVIPNotice = nil
         lastPublishedProgress = -1

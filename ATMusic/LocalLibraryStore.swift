@@ -198,14 +198,43 @@ final class LocalLibraryStore: ObservableObject {
         importedSongs.append(contentsOf: songs.filter { $0.source == .local && seen.insert($0.identityKey).inserted })
     }
 
-    func updateImportedSong(_ song: Song) {
-        guard let index = importedSongs.firstIndex(where: { $0.identityKey == song.identityKey }) else { return }
+    @discardableResult
+    func updateImportedSong(_ song: Song) -> Bool {
+        guard song.source == .local,
+              let index = importedSongs.firstIndex(where: { $0.identityKey == song.identityKey }) else {
+            return false
+        }
+
         importedSongs[index] = song
-        for playlistIndex in playlists.indices {
-            for songIndex in playlists[playlistIndex].songs.indices where playlists[playlistIndex].songs[songIndex].identityKey == song.identityKey {
-                playlists[playlistIndex].songs[songIndex] = song
+
+        var updatedPlaylists = playlists
+        var playlistChanged = false
+        for playlistIndex in updatedPlaylists.indices {
+            for songIndex in updatedPlaylists[playlistIndex].songs.indices
+            where updatedPlaylists[playlistIndex].songs[songIndex].identityKey == song.identityKey {
+                updatedPlaylists[playlistIndex].songs[songIndex] = song
+                playlistChanged = true
             }
         }
+        if playlistChanged {
+            playlists = updatedPlaylists
+        }
+
+        // 显式落盘，不只依赖 @Published/didSet 的隐式触发；随后读回确认核心字段。
+        saveImportedSongs()
+        if playlistChanged { save() }
+
+        guard let persisted = importedSongs.first(where: { $0.identityKey == song.identityKey }) else {
+            return false
+        }
+        return persisted.name == song.name
+            && persisted.artists == song.artists
+            && persisted.album == song.album
+            && persisted.coverURL == song.coverURL
+            && persisted.albumArtist == song.albumArtist
+            && persisted.genre == song.genre
+            && persisted.year == song.year
+            && persisted.comment == song.comment
     }
 
     @discardableResult

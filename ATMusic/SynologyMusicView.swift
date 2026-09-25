@@ -1747,22 +1747,71 @@ struct SynologyFolderView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索当前文件夹")
-        .task { if synology.isLoggedIn { await load() } }
+        .task { if synology.isLoggedIn { await load(force: false) } }
+        .refreshable {
+            await load(force: true)
+        }
     }
 
-    private func load() async {
+    private func load(force: Bool = false) async {
         guard synology.isLoggedIn else {
             isLoading = false
             return
         }
-        isLoading = items.isEmpty
+
         errorMessage = nil
+
+        if force {
+            synology.invalidateFolderCache(folderID: folderID)
+        } else if let fresh = synology.cachedFolderItems(folderID: folderID, allowStale: false) {
+            items = fresh
+            isLoading = false
+            return
+        } else if let stale = synology.cachedFolderItems(folderID: folderID, allowStale: true) {
+            // 旧缓存先展示，网络刷新在后面静默进行。
+            items = stale
+            isLoading = false
+        }
+
+        isLoading = items.isEmpty
+        let pageSize = 120
+        var loaded: [SynologyFolderItem] = []
+        var offset = 0
+
         do {
-            items = try await synology.folderItems(folderID: folderID, limit: 500)
+            while !Task.isCancelled, offset < 10_000 {
+                let page = try await synology.folderItems(
+                    folderID: folderID,
+                    offset: offset,
+                    limit: pageSize
+                )
+                guard !Task.isCancelled else { return }
+                if page.isEmpty { break }
+
+                loaded.append(contentsOf: page)
+                var seen = Set<String>()
+                loaded = loaded.filter { seen.insert("\($0.kind.rawValue)|\($0.id)").inserted }
+                items = loaded
+                isLoading = false
+
+                offset += page.count
+                if page.count < pageSize { break }
+            }
+
+            if !loaded.isEmpty {
+                synology.cacheFolderItems(loaded, folderID: folderID)
+            } else if items.isEmpty {
+                synology.cacheFolderItems([], folderID: folderID)
+            }
             isLoading = false
         } catch {
             isLoading = false
-            errorMessage = error.localizedDescription
+            // 有旧缓存时保持可浏览，不用错误页覆盖已有内容。
+            if items.isEmpty {
+                errorMessage = error.localizedDescription
+            } else {
+                ATMusicLogger.shared.log("NAS 文件夹后台刷新失败：\(error.localizedDescription)", level: .debug)
+            }
         }
     }
 }

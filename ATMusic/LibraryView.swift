@@ -57,6 +57,8 @@ private extension LibraryProvider {
 
 struct LibraryView: View {
     var onOpenProfile: () -> Void = {}
+    var showsCloseButton: Bool = false
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
@@ -211,6 +213,16 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .atmusicKugouLoginDidUpdate)) { _ in
             guard platformPrefs.isEnabled(SearchProvider.kugou) else { return }
             Task { await loadKugouPlaylists(force: true) }
+        }
+        .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") {
+                        ATMusicHaptics.tap()
+                        dismiss()
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()

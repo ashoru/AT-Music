@@ -208,3 +208,12 @@ xcrun devicectl device install app --device <device-id> /path/to/ATMusic.app
 - NAS 文件使用 SynologyFolderView 递归浏览，增加面包屑与未连接空态；文件夹始终排在歌曲之前。
 - 多平台歌单使用缓存先展示 + MainActor 安全的渐进并发刷新，任一来源先返回就先更新。
 - 歌单详情首屏进一步瘦身：80pt 封面 + 核心信息 + 播放/随机；搜索按需展开，排序与简介/热度进入右上角更多菜单。
+
+## 2026-09-25 / 1.8.7 build 38
+
+- 歌单管理 Sheet 通过 `LibraryView(showsCloseButton: true)` 提供明确“完成”退出，不依赖下拉手势。
+- `MusicLibraryAllPlaylistsView` 增加常驻歌单名搜索；统一排序为本地红心 → 平台红心 → 最近活动；`PlaylistActivityStore` 持久化最近打开时间。
+- `MusicLibraryPlaylistRow` 删除手写 chevron，NavigationLink 只显示一个系统箭头。
+- 本地歌曲元数据保存改为 `LocalLibraryStore.updateImportedSong -> Bool`，显式持久化并读回核心字段；成功后 `PlayerManager.replaceSong` 同步队列/历史/Now Playing。自定义封面使用新的受管文件 URL，避免旧图片缓存。
+- 第三方音源播放开始立即 `refreshPrefetchTarget()`；曲末增加 generation 防重的延迟兜底，解决部分第三方直链不发结束通知导致无法自动下一首。全部重试失败后自动跳歌等待缩短到 2 秒。
+- `SynologyFolderView` 改为缓存先展示 + 120 条分页渐进加载；`SynologyAPI` 新增按服务器/目录隔离的持久化文件夹缓存，新鲜 TTL 5 分钟、旧缓存可先展示 24 小时，下拉刷新强制失效当前目录缓存。

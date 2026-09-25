@@ -1,5 +1,28 @@
 import SwiftUI
 
+
+@MainActor
+final class PlaylistActivityStore: ObservableObject {
+    static let shared = PlaylistActivityStore()
+
+    @Published private(set) var activity: [String: TimeInterval]
+    private let defaults = UserDefaults.standard
+    private let key = "atmusic.musicLibrary.playlistActivity.v1"
+
+    private init() {
+        activity = defaults.dictionary(forKey: key) as? [String: TimeInterval] ?? [:]
+    }
+
+    func mark(_ playlistID: String, at date: Date = Date()) {
+        activity[playlistID] = date.timeIntervalSince1970
+        defaults.set(activity, forKey: key)
+    }
+
+    func timestamp(for playlistID: String) -> TimeInterval {
+        activity[playlistID] ?? 0
+    }
+}
+
 @MainActor
 final class MusicLibraryPlaylistStore: ObservableObject {
     static let shared = MusicLibraryPlaylistStore()
@@ -141,6 +164,30 @@ private struct MusicLibraryPlaylistItem: Identifiable {
     let coverURL: URL?
     let source: SongSource
     let kind: Kind
+    var fallbackActivity: TimeInterval = 0
+
+    var semanticPriority: Int {
+        switch kind {
+        case .local:
+            let value = title.lowercased()
+            return Self.looksLikeFavorite(value) ? 0 : 2
+        case .remote(let playlist):
+            if playlist.isNetEaseLikedPlaylist { return 1 }
+            if playlist.source == .qq, playlist.id == QQMusicAPI.qqLikedPlaylistID { return 1 }
+            return Self.looksLikeFavorite(playlist.name.lowercased()) ? 1 : 2
+        }
+    }
+
+    private static func looksLikeFavorite(_ value: String) -> Bool {
+        value.contains("红心")
+            || value.contains("我喜欢")
+            || value.contains("我的喜欢")
+            || value.contains("喜欢的音乐")
+            || value.contains("我的收藏")
+            || value.contains("收藏歌单")
+            || value.contains("liked")
+            || value.contains("favorite")
+    }
 }
 
 struct MusicLibraryHomeView: View {
@@ -151,6 +198,7 @@ struct MusicLibraryHomeView: View {
     @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
+    @ObservedObject private var activityStore = PlaylistActivityStore.shared
     @ObservedObject private var synology = SynologyAPI.shared
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
 
@@ -168,7 +216,8 @@ struct MusicLibraryHomeView: View {
                 subtitle: "本地 · \(atmusicLocalSongCountText($0.songs.count))",
                 coverURL: $0.songs.first?.coverURL,
                 source: .local,
-                kind: .local($0.id)
+                kind: .local($0.id),
+                fallbackActivity: $0.createdAt.timeIntervalSince1970
             )
         }
         if !localItems.isEmpty { groups.append(localItems) }
@@ -356,6 +405,7 @@ struct MusicLibraryHomeView: View {
                 MusicLibraryPlaylistRow(item: item)
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
         case .local(let id):
             NavigationLink {
                 LocalPlaylistBrowserView(playlistID: id)
@@ -363,6 +413,7 @@ struct MusicLibraryHomeView: View {
                 MusicLibraryPlaylistRow(item: item)
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
         }
     }
 }
@@ -426,9 +477,6 @@ private struct MusicLibraryPlaylistRow: View {
             if item.source != .local {
                 SourceBadgeView(source: item.source, compact: true)
             }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.atmusicComment.opacity(0.5))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -493,8 +541,10 @@ struct MusicLibraryAllPlaylistsView: View {
     @EnvironmentObject private var player: PlayerManager
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
+    @ObservedObject private var activityStore = PlaylistActivityStore.shared
 
     @State private var filter: MusicLibraryPlaylistFilter = .all
+    @State private var searchText = ""
     @State private var showAdvancedManagement = false
 
     private var items: [MusicLibraryPlaylistItem] {
@@ -507,7 +557,8 @@ struct MusicLibraryAllPlaylistsView: View {
                     subtitle: "本地 · \(atmusicLocalSongCountText($0.songs.count))",
                     coverURL: $0.songs.first?.coverURL,
                     source: .local,
-                    kind: .local($0.id)
+                    kind: .local($0.id),
+                    fallbackActivity: $0.createdAt.timeIntervalSince1970
                 )
             }
         }
@@ -530,7 +581,26 @@ struct MusicLibraryAllPlaylistsView: View {
         append(playlistStore.qq, when: .qq)
         append(playlistStore.kugou, when: .kugou)
         append(playlistStore.synology, when: .synology)
-        return result
+
+        let stableIndex = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
+        result.sort { lhs, rhs in
+            if lhs.semanticPriority != rhs.semanticPriority {
+                return lhs.semanticPriority < rhs.semanticPriority
+            }
+            let leftActivity = max(activityStore.timestamp(for: lhs.id), lhs.fallbackActivity)
+            let rightActivity = max(activityStore.timestamp(for: rhs.id), rhs.fallbackActivity)
+            if leftActivity != rightActivity {
+                return leftActivity > rightActivity
+            }
+            return (stableIndex[lhs.id] ?? 0) < (stableIndex[rhs.id] ?? 0)
+        }
+
+        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !keyword.isEmpty else { return result }
+        return result.filter { item in
+            item.title.lowercased().contains(keyword)
+                || item.subtitle.lowercased().contains(keyword)
+        }
     }
 
     var body: some View {
@@ -578,6 +648,7 @@ struct MusicLibraryAllPlaylistsView: View {
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
+                                .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
                             case .local(let id):
                                 NavigationLink {
                                     LocalPlaylistBrowserView(playlistID: id)
@@ -587,6 +658,7 @@ struct MusicLibraryAllPlaylistsView: View {
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
+                                .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
                             }
                         }
                     }
@@ -597,6 +669,11 @@ struct MusicLibraryAllPlaylistsView: View {
         }
         .navigationTitle("全部歌单")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索歌单名称"
+        )
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -611,7 +688,7 @@ struct MusicLibraryAllPlaylistsView: View {
             }
         }
         .sheet(isPresented: $showAdvancedManagement) {
-            LibraryView()
+            LibraryView(showsCloseButton: true)
                 .environmentObject(player)
                 .environmentObject(auth)
                 .environmentObject(theme)

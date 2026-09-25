@@ -1075,7 +1075,9 @@ struct LocalMusicManagementSheet: View {
             }
             .sheet(item: $editingSong) { song in
                 LocalSongMetadataEditorSheet(song: song) { updated in
-                    store.updateImportedSong(updated)
+                    let saved = store.updateImportedSong(updated)
+                    if saved { player.replaceSong(updated) }
+                    return saved
                 }
             }
             .confirmationDialog("删除本地歌曲？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
@@ -1109,7 +1111,7 @@ struct LocalMusicManagementSheet: View {
 struct LocalSongMetadataEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     let song: Song
-    let onSave: (Song) -> Void
+    let onSave: (Song) -> Bool
 
     @State private var title: String
     @State private var artist: String
@@ -1125,7 +1127,7 @@ struct LocalSongMetadataEditorSheet: View {
     @State private var saving = false
     @State private var message = ""
 
-    init(song: Song, onSave: @escaping (Song) -> Void) {
+    init(song: Song, onSave: @escaping (Song) -> Bool) {
         self.song = song
         self.onSave = onSave
         _title = State(initialValue: song.name)
@@ -1278,10 +1280,14 @@ struct LocalSongMetadataEditorSheet: View {
                let jpeg = image.jpegData(compressionQuality: 0.92),
                let relativePath = song.localRelativePath {
                 let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                let previousCoverURL = coverURL
                 updatedCoverURL = try LocalAudioFileManager.shared.writeSupportData(
                     jpeg,
-                    relativePath: "ATMusicAudio/Artwork/\(baseName).jpg"
+                    relativePath: "ATMusicAudio/Artwork/\(baseName)-\(UUID().uuidString).jpg"
                 )
+                if let previousCoverURL, previousCoverURL != updatedCoverURL {
+                    LocalAudioFileManager.shared.removeManagedArtworkIfNeeded(previousCoverURL)
+                }
             }
             let updated = Song(
                 id: song.id,
@@ -1298,7 +1304,18 @@ struct LocalSongMetadataEditorSheet: View {
                 comment: comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : comment.trimmingCharacters(in: .whitespacesAndNewlines),
                 fee: song.fee
             )
-            onSave(updated)
+            guard onSave(updated) else {
+                saving = false
+                message = "保存失败：本地音乐库未能读回新标签"
+                return
+            }
+            if let updatedCoverURL, updatedCoverURL.isFileURL,
+               !FileManager.default.fileExists(atPath: updatedCoverURL.path) {
+                saving = false
+                message = "保存失败：新封面文件校验失败"
+                return
+            }
+            ATMusicHaptics.success()
             ToastCenter.shared.show("本地歌曲信息已更新")
             dismiss()
         } catch {
@@ -1426,6 +1443,16 @@ final class LocalAudioImportService: @unchecked Sendable {
 }
 
 extension LocalAudioFileManager {
+    func removeManagedArtworkIfNeeded(_ url: URL) {
+        guard url.isFileURL else { return }
+        let root = ManagedAudioPath.documents
+            .appendingPathComponent("ATMusicAudio/Artwork", isDirectory: true)
+            .standardizedFileURL
+        let target = url.standardizedFileURL
+        guard target.path.hasPrefix(root.path + "/") else { return }
+        try? FileManager.default.removeItem(at: target)
+    }
+
     func writeSupportData(_ data: Data, relativePath: String) throws -> URL {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try data.write(to: temp, options: .atomic)

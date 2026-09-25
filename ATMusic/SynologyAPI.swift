@@ -2,8 +2,8 @@ import Foundation
 import CryptoKit
 import UIKit
 
-struct SynologyFolderItem: Identifiable, Hashable {
-    enum Kind: String, Hashable {
+struct SynologyFolderItem: Identifiable, Hashable, Codable {
+    enum Kind: String, Hashable, Codable {
         case folder
         case song
     }
@@ -94,6 +94,18 @@ final class SynologyAPI: ObservableObject {
     private var librarySongsLoadingTask: Task<[Song], Error>?
     private let librarySongsCacheTTL: TimeInterval = 600
     private var didRestorePersistentLibraryIndex = false
+
+    private struct FolderCacheEntry: Codable {
+        let serverScope: String
+        let folderID: String
+        let updatedAt: Date
+        let items: [SynologyFolderItem]
+    }
+
+    private let folderCacheLock = NSLock()
+    private var folderMemoryCache: [String: FolderCacheEntry] = [:]
+    private let folderCacheFreshTTL: TimeInterval = 300
+    private let folderCacheStaleTTL: TimeInterval = 86_400
 
     private struct LibraryIndexSnapshot: Codable {
         let version: Int
@@ -562,6 +574,83 @@ final class SynologyAPI: ObservableObject {
             artists: artists,
             albums: albums
         )
+    }
+
+    private func folderCacheKey(folderID: String?) -> String {
+        currentServerScope + "|" + (folderID?.isEmpty == false ? folderID! : "__root__")
+    }
+
+    private func folderCacheURL(folderID: String?) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let scopeHash = SHA256.hash(data: Data(currentServerScope.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let folderKey = folderID?.isEmpty == false ? folderID! : "__root__"
+        let folderHash = SHA256.hash(data: Data(folderKey.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return caches
+            .appendingPathComponent("ATMusicSynologyFolderCache", isDirectory: true)
+            .appendingPathComponent(scopeHash, isDirectory: true)
+            .appendingPathComponent(folderHash + ".json")
+    }
+
+    func cachedFolderItems(folderID: String?, allowStale: Bool = false) -> [SynologyFolderItem]? {
+        let maxAge = allowStale ? folderCacheStaleTTL : folderCacheFreshTTL
+        let key = folderCacheKey(folderID: folderID)
+
+        folderCacheLock.lock()
+        if let entry = folderMemoryCache[key],
+           entry.serverScope == currentServerScope,
+           Date().timeIntervalSince(entry.updatedAt) <= maxAge {
+            folderCacheLock.unlock()
+            return entry.items
+        }
+        folderCacheLock.unlock()
+
+        let url = folderCacheURL(folderID: folderID)
+        guard let data = try? Data(contentsOf: url),
+              let entry = try? JSONDecoder().decode(FolderCacheEntry.self, from: data),
+              entry.serverScope == currentServerScope,
+              Date().timeIntervalSince(entry.updatedAt) <= maxAge else {
+            return nil
+        }
+
+        folderCacheLock.lock()
+        folderMemoryCache[key] = entry
+        folderCacheLock.unlock()
+        return entry.items
+    }
+
+    func cacheFolderItems(_ items: [SynologyFolderItem], folderID: String?) {
+        let key = folderCacheKey(folderID: folderID)
+        let entry = FolderCacheEntry(
+            serverScope: currentServerScope,
+            folderID: folderID ?? "",
+            updatedAt: Date(),
+            items: items
+        )
+        folderCacheLock.lock()
+        folderMemoryCache[key] = entry
+        folderCacheLock.unlock()
+
+        let url = folderCacheURL(folderID: folderID)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(entry)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            ATMusicLogger.shared.log("NAS 文件夹缓存写入失败：\(error.localizedDescription)", level: .debug)
+        }
+    }
+
+    func invalidateFolderCache(folderID: String? = nil) {
+        let key = folderCacheKey(folderID: folderID)
+        folderCacheLock.lock()
+        folderMemoryCache.removeValue(forKey: key)
+        folderCacheLock.unlock()
+        try? FileManager.default.removeItem(at: folderCacheURL(folderID: folderID))
     }
 
     /// 获取 Audio Station 文件夹内容。根目录不传 id，子目录传入 folder id。

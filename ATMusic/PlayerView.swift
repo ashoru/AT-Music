@@ -613,7 +613,9 @@ struct PlayerView: View {
         .sheet(isPresented: $showLocalMetadataEditor) {
             if let song, song.source == .local {
                 LocalSongMetadataEditorSheet(song: song) { updated in
-                    localLibrary.updateImportedSong(updated)
+                    let saved = localLibrary.updateImportedSong(updated)
+                    if saved { player.replaceSong(updated) }
+                    return saved
                 }
             }
         }
