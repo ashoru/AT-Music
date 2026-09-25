@@ -1,0 +1,39 @@
+build/
+build_temp/
+ci-logs/
+.DS_Store
+version.txt
+*.ipa
+Payload/
+Payload.ipa
+work/
+backup*/
+docs/backup_*/
+_*.swift
+_*.py
+_*.ps1
+_*.js
+_*.txt
+
+# Local / CI generated
+DerivedData/
+dist/
+*.xcarchive
+xcodegen/
+xcodegen.zip
+**/xcuserdata/
+*.xcuserstate
+
+# Signing / local secrets
+*.mobileprovision
+*.p12
+*.cer
+*.key
+.env
+.env.*
+!.env.example
+
+# Local CI / generated tool archives
+xcodebuild.log
+release_body.md
+xcodegen.zip
