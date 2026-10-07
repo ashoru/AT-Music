@@ -693,39 +693,41 @@ struct SongCoverSearchGridSheet: View {
 private struct CoverResolutionBadge: View {
     let url: URL?
     @State private var resolution: String?
+    @State private var isLoading = false
 
     var body: some View {
-        Group {
-            if let resolution {
-                Text(resolution)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.black.opacity(0.68), in: Capsule())
-            }
-        }
-        .task(id: url) {
-            guard let url else {
+        // 即使分辨率还没读完，也固定显示在右下角，避免用户误以为没有该信息。
+        Text(resolution ?? (isLoading ? "读取中…" : "分辨率未知"))
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.72), in: Capsule())
+            .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 0.5))
+            .task(id: url) {
                 resolution = nil
-                return
-            }
-            do {
-                var request = URLRequest(url: url)
-                request.cachePolicy = .returnCacheDataElseLoad
-                let (data, _) = try await URLSession.shared.data(for: request)
-                guard !Task.isCancelled, let image = UIImage(data: data) else { return }
-                let scale = image.scale > 0 ? image.scale : 1
-                let width = Int((image.size.width * scale).rounded())
-                let height = Int((image.size.height * scale).rounded())
-                await MainActor.run {
-                    resolution = width > 0 && height > 0 ? "\(width)×\(height)" : nil
+                guard let url else {
+                    isLoading = false
+                    return
                 }
-            } catch {
-                await MainActor.run { resolution = nil }
+                isLoading = true
+                defer { isLoading = false }
+                do {
+                    var request = URLRequest(url: url)
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    let (data, _) = try await URLSession.shared.data(for: request)
+                    guard !Task.isCancelled, let image = UIImage(data: data) else { return }
+                    let scale = image.scale > 0 ? image.scale : 1
+                    let width = Int((image.size.width * scale).rounded())
+                    let height = Int((image.size.height * scale).rounded())
+                    if width > 0 && height > 0 {
+                        resolution = "\(width)×\(height)"
+                    }
+                } catch {
+                    // 保留“分辨率未知”提示，不让角标消失。
+                }
             }
-        }
     }
 }
 

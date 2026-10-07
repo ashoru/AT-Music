@@ -196,6 +196,7 @@ struct MusicLibraryHomeView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
@@ -271,7 +272,7 @@ struct MusicLibraryHomeView: View {
                     .padding(.horizontal, isNativeClean ? 24 : 16)
                     .padding(.top, isNativeClean ? 18 : 10)
                     .padding(.bottom, 190)
-                    .frame(maxWidth: 860)
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
                     .frame(maxWidth: .infinity)
                 }
                 .atmusicScrollIndicatorsHidden()
@@ -385,6 +386,12 @@ struct MusicLibraryHomeView: View {
                 }
                 .padding(14)
                 .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+            } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16), spacing: 18) {
+                    ForEach(homePlaylists) { item in
+                        iPadPlaylistItemCard(item)
+                    }
+                }
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(homePlaylists) { item in
@@ -399,6 +406,50 @@ struct MusicLibraryHomeView: View {
                 .padding(.vertical, 4)
                 .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func iPadPlaylistItemCard(_ item: MusicLibraryPlaylistItem) -> some View {
+        switch item.kind {
+        case .remote(let playlist):
+            NavigationLink {
+                PlaylistView(playlist: playlist)
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    CoverImage(url: item.coverURL, size: 180, cornerRadius: 14)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                    Text(item.title)
+                        .font(ATMusicFont.appFont(14, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(1)
+                    Text(item.subtitle)
+                        .font(ATMusicFont.appFont(12))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+        case .local(let id):
+            NavigationLink {
+                LocalPlaylistBrowserView(playlistID: id)
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    CoverImage(url: item.coverURL, size: 180, cornerRadius: 14)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                    Text(item.title)
+                        .font(ATMusicFont.appFont(14, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(1)
+                    Text(item.subtitle)
+                        .font(ATMusicFont.appFont(12))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1218,4 +1269,3 @@ struct SynologyFileLibraryView: View {
         }
     }
 }
-

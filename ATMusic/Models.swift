@@ -372,6 +372,12 @@ struct Song: Identifiable, Hashable, Codable {
     }
 }
 
+extension Song {
+    /// Compatibility names used by the iPad and watch companion views.
+    var title: String { name }
+    var artist: String { artists }
+}
+
 /// 歌手搜索结果（网易云 / QQ音乐通用）
 struct Artist: Identifiable, Hashable {
     let id: String

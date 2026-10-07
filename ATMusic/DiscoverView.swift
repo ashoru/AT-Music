@@ -14,6 +14,7 @@ struct DiscoverView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
 
     @State private var topLists: [TopList] = []
@@ -130,7 +131,7 @@ struct DiscoverView: View {
                     .padding(.horizontal, isNativeClean ? 24 : 16)
                     .padding(.top, isNativeClean ? 32 : 8)
                     .padding(.bottom, 190)
-                    .frame(maxWidth: 860)
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -987,7 +988,7 @@ struct DiscoverView: View {
                     .padding(.vertical, 2)
                 }
             } else {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 14), spacing: 14) {
                     ForEach(visiblePersonalizedPlaylists, id: \.identityKey) { playlist in
                         Button {
                             openRoute(DiscoverRoute.playlist(playlist))
@@ -1081,7 +1082,7 @@ struct DiscoverView: View {
 
                         if isExpanded {
                             LazyVGrid(
-                                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                                columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 14),
                                 spacing: 18
                             ) {
                                 ForEach(group.1, id: \.identityKey) { playlist in

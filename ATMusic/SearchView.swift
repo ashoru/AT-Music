@@ -104,6 +104,7 @@ struct SearchView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
     @State private var keyword = ""
     @AppStorage("atmusic.search.provider") private var providerRaw = SearchProvider.netease.rawValue
@@ -1076,7 +1077,7 @@ struct SearchView: View {
                 EmptyStateView(icon: "music.note.list", text: "未找到相关歌单")
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 22) {
+                    LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 18), spacing: 22) {
                         ForEach(playlistResults, id: \.identityKey) { playlist in
                             Button {
                                 ATMusicHaptics.tap()
@@ -1602,7 +1603,7 @@ struct SearchView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)], spacing: 24) {
+                        LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 220, spacing: 18), spacing: 24) {
                             ForEach(artistResults, id: \.identityKey) { artist in
                                 Button {
                                     ATMusicHaptics.tap()
@@ -1665,7 +1666,7 @@ struct SearchView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 22) {
+                        LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 18), spacing: 22) {
                             ForEach(albumResults, id: \.identityKey) { album in
                                 Button {
                                     ATMusicHaptics.tap()

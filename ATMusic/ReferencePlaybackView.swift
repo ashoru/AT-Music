@@ -35,6 +35,8 @@ struct ReferencePlaybackView: View {
     let onSongInfo: () -> Void
 
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
+    @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
     @AppStorage("atmusic.appleMusic.showVolume") private var showVolumeControl = false
     @AppStorage("atmusic.appleMusic.primaryHex") private var primaryHex = ""
     @AppStorage("atmusic.appleMusic.secondaryHex") private var secondaryHex = ""
@@ -218,10 +220,9 @@ struct ReferencePlaybackView: View {
                 emptyLyricsView
             } else if #available(iOS 18.0, *) {
                 GeometryReader { viewport in
-                    let slotHeight: CGFloat = 86
-                    let edgeSpacer = max(72, viewport.size.height * 0.50 - slotHeight * 0.50)
+                    let edgeSpacer = max(72, viewport.size.height * 0.50 - lyricRowHeight * 0.50)
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 26) {
+                        LazyVStack(alignment: .leading, spacing: CGFloat(lyricLineSpacing)) {
                             Color.clear.frame(height: edgeSpacer)
                             ForEach(lyrics) { line in
                                 lyricLine(line, isFocused: line.id == currentVisualLyricID)
@@ -267,12 +268,18 @@ struct ReferencePlaybackView: View {
                         withAnimation { lyricScrollTarget = newID }
                         focusedLyricID = newID
                     }
+                    .onChange(of: lyricFontSize) { _, _ in
+                        recenterNativeLyricsAfterStyleChange()
+                    }
+                    .onChange(of: lyricLineSpacing) { _, _ in
+                        recenterNativeLyricsAfterStyleChange()
+                    }
                 }
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 26) {
-                            Color.clear.frame(height: max(110, lyricsViewportHeight * 0.50))
+                        LazyVStack(alignment: .leading, spacing: CGFloat(lyricLineSpacing)) {
+                            Color.clear.frame(height: max(72, lyricsViewportHeight * 0.50 - lyricRowHeight * 0.50))
                             ForEach(lyrics) { line in
                                 lyricLine(line, isFocused: line.id == currentVisualLyricID)
                                     .id(line.id)
@@ -285,7 +292,7 @@ struct ReferencePlaybackView: View {
                                         }
                                     }
                             }
-                            Color.clear.frame(height: max(110, lyricsViewportHeight * 0.50))
+                            Color.clear.frame(height: max(72, lyricsViewportHeight * 0.50 - lyricRowHeight * 0.50))
                         }
                         .padding(.horizontal, 28)
                     }
@@ -311,6 +318,12 @@ struct ReferencePlaybackView: View {
                     .onChange(of: currentPlaybackLyricID) { _, _ in
                         guard !isDraggingLyrics else { return }
                         scrollToPlaybackLyric(proxy: proxy, animated: true)
+                    }
+                    .onChange(of: lyricFontSize) { _, _ in
+                        recenterLegacyLyricsAfterStyleChange(proxy: proxy)
+                    }
+                    .onChange(of: lyricLineSpacing) { _, _ in
+                        recenterLegacyLyricsAfterStyleChange(proxy: proxy)
                     }
                 }
             }
@@ -508,6 +521,8 @@ struct ReferencePlaybackView: View {
                 .frame(width: 38, height: 38)
                 .contentShape(Rectangle())
         }
+        .accessibilityLabel("播放器更多")
+        .accessibilityHint("打开播放器更多操作，包括播放器设置")
         .menuStyle(.borderlessButton)
     }
 
@@ -586,11 +601,23 @@ struct ReferencePlaybackView: View {
         return parts.isEmpty ? "未知歌曲" : parts.joined(separator: " · ")
     }
 
+    private var lyricRowHeight: CGFloat {
+        let primary = CGFloat(lyricFontSize)
+        let primaryLineHeight = primary * 1.30
+        let translationLineHeight = max(14, primary * 0.68 * 1.20)
+        // 主歌词允许两行，槽位必须按两行预留，否则长歌词会突破固定槽位并破坏居中。
+        return max(64, primaryLineHeight * 2 + translationLineHeight + 5 + 8)
+    }
+
     private func lyricLine(_ line: LyricLine, isFocused: Bool) -> some View {
         // 关键：高亮前后必须保持完全相同的布局尺寸。
         // 不能通过切换字号/插入翻译行改变 row geometry，否则 scrollPosition(.center)
         // 会在每次换行时重新计算中心，视觉上就会出现“高亮位置逐渐往下走”。
         let translation = (line.translation?.isEmpty == false) ? line.translation! : " "
+        // Apple Music 风格必须与播放器设置共享同一套字号/行距参数。
+        // 行槽高度跟随实际字号计算，但保持每一行固定槽位，确保 scrollPosition(.center) 不漂移。
+        let primarySize = CGFloat(lyricFontSize)
+        let translationSize = max(11, primarySize * 0.68)
 
         return Button {
             ATMusicHaptics.tap()
@@ -599,7 +626,7 @@ struct ReferencePlaybackView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(line.text.isEmpty ? " " : line.text)
-                        .font(ATMusicFont.appFont(23, .semibold))
+                        .font(ATMusicFont.appFont(primarySize, .semibold))
                         .foregroundStyle(primaryColor.opacity(isFocused ? 1 : 0.36))
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
@@ -616,13 +643,13 @@ struct ReferencePlaybackView: View {
 
                 // 翻译区域始终存在。没有翻译或不是当前行时只透明，不移出布局。
                 Text(translation)
-                    .font(ATMusicFont.appFont(15, .medium))
+                    .font(ATMusicFont.appFont(translationSize, .medium))
                     .foregroundStyle(secondaryColor.opacity(isFocused && line.translation?.isEmpty == false ? 0.72 : 0))
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                     .accessibilityHidden(!(isFocused && line.translation?.isEmpty == false))
             }
-            .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: lyricRowHeight, maxHeight: lyricRowHeight, alignment: .leading)
             .contentShape(Rectangle())
             // 视觉缩放不会参与 SwiftUI 布局计算，因此不会改变滚动目标的中心点。
             .scaleEffect(isFocused ? 1.06 : 0.84, anchor: .leading)
@@ -644,6 +671,23 @@ struct ReferencePlaybackView: View {
             withAnimation { action() }
         } else {
             action()
+        }
+    }
+
+    private func recenterNativeLyricsAfterStyleChange() {
+        guard !isDraggingLyrics, let current = currentPlaybackLyricID else { return }
+        DispatchQueue.main.async {
+            guard !self.isDraggingLyrics else { return }
+            self.lyricScrollTarget = current
+            self.focusedLyricID = current
+        }
+    }
+
+    private func recenterLegacyLyricsAfterStyleChange(proxy: ScrollViewProxy) {
+        guard !isDraggingLyrics else { return }
+        DispatchQueue.main.async {
+            guard !self.isDraggingLyrics else { return }
+            self.scrollToPlaybackLyric(proxy: proxy, animated: false)
         }
     }
 

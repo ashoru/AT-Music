@@ -27,9 +27,17 @@ enum PlayMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum PlayerLoopMode {
+    case off
+    case single
+    case all
+}
+
 final class PlaybackClock: ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published private(set) var duration: Double = 0
+
+    var currentTime: Double { progress }
 
     func update(progress: Double? = nil, duration: Double? = nil) {
         let apply = {
@@ -63,6 +71,37 @@ final class PlayerManager: NSObject, ObservableObject {
     var duration: Double = 0 {
         didSet { clock.update(duration: duration) }
     }
+
+    var volume: Float {
+        get { player?.volume ?? 1.0 }
+        set {
+            player?.volume = newValue
+            objectWillChange.send()
+        }
+    }
+
+    var isShuffled: Bool { playMode == .shuffle }
+
+    var loopMode: PlayerLoopMode {
+        switch playMode {
+        case .repeatOne: return .single
+        case .sequential, .shuffle: return .off
+        }
+    }
+
+    func toggleShuffle() {
+        setPlayMode(playMode == .shuffle ? .sequential : .shuffle)
+    }
+
+    func toggleLoopMode() {
+        switch playMode {
+        case .repeatOne: setPlayMode(.sequential)
+        default: setPlayMode(.repeatOne)
+        }
+    }
+
+    func nextTrack() { next() }
+    func previousTrack() { previous() }
     @Published var playMode: PlayMode = .sequential {
         didSet {
             guard oldValue != playMode else { return }
@@ -1767,6 +1806,7 @@ final class PlayerManager: NSObject, ObservableObject {
         observeInterruptions()
         observeRouteChanges()
         setupRemoteCommands()
+        WatchSyncService.shared.configure(player: self)
     }
 
     private func observeRouteChanges() {
@@ -1935,6 +1975,7 @@ final class PlayerManager: NSObject, ObservableObject {
             lastNowPlayingArtworkKey = nil
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        WatchSyncService.shared.syncCurrentPlaybackState()
     }
 
     /// 使用原始封面尺寸响应系统的多个请求，锁屏和控制中心就能拿到足够大的方形 artwork。
@@ -2013,6 +2054,35 @@ final class PlayerManager: NSObject, ObservableObject {
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             self?.performOnMain { [weak self] in self?.seek(to: event.positionTime) }
+            return .success
+        }
+        center.likeCommand.isEnabled = true
+        center.likeCommand.localizedTitle = "收藏"
+        center.likeCommand.addTarget { [weak self] _ in
+            self?.performOnMain { [weak self] in
+                guard let song = self?.currentSong else { return }
+                Task {
+                    _ = await FavoritesStore.shared.toggle(song)
+                }
+            }
+            return .success
+        }
+        center.skipForwardCommand.isEnabled = true
+        center.skipForwardCommand.preferredIntervals = [15]
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            self?.performOnMain { [weak self] in
+                guard let self else { return }
+                self.seek(to: min(self.progress + 15, self.duration))
+            }
+            return .success
+        }
+        center.skipBackwardCommand.isEnabled = true
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            self?.performOnMain { [weak self] in
+                guard let self else { return }
+                self.seek(to: max(self.progress - 15, 0))
+            }
             return .success
         }
     }

@@ -10,6 +10,7 @@ struct PlayerView: View {
     @EnvironmentObject private var favorites: FavoritesStore
     @ObservedObject private var localLibrary = LocalLibraryStore.shared
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var isPresented: Bool
     private let previewShowLyrics: Bool?
@@ -307,11 +308,19 @@ struct PlayerView: View {
     }
 
     private func openPlayerSettings() {
-        showPlayerSettings = true
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            showPlayerSettings = true
+        }
     }
 
     private func closePlayerSettings() {
-        showPlayerSettings = false
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            showPlayerSettings = false
+        }
     }
 
     /// 当前行歌词颜色（可自定义；配色模式关闭时自动跟随封面取色）
@@ -390,6 +399,39 @@ struct PlayerView: View {
         Group {
             if showPlayerSettings {
                 Color.clear.ignoresSafeArea()
+            } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                IPadPlayerView(
+                    song: song,
+                    lyrics: lyrics,
+                    onFavorite: {
+                        guard let song else { return }
+                        toggleLocalFavorite(song)
+                    },
+                    onQueue: {
+                        showQueue = true
+                    },
+                    onComments: {
+                        if song != nil { showComments = true }
+                    },
+                    onSleepTimer: {
+                        showSleepTimer = true
+                    },
+                    onAddToLocalPlaylist: {
+                        showAddToLocalPlaylist = true
+                    },
+                    onDownload: {
+                        showDownloadPicker = true
+                    },
+                    onPlayerSettings: {
+                        openPlayerSettings()
+                    },
+                    onSearchLyrics: {
+                        showLyricSearch = true
+                    },
+                    onDismiss: {
+                        isPresented = false
+                    }
+                )
             } else if coverPlayerStyle == .appleMusic {
                 ZStack {
                     ReferencePlaybackView(
@@ -589,6 +631,7 @@ struct PlayerView: View {
         }
         .sheet(isPresented: $showPlayerSettings) {
             PlayerSettingsSheet(onDismiss: closePlayerSettings)
+                .transaction { transaction in transaction.animation = nil }
                 .environmentObject(theme)
                 .environmentObject(player)
                 .environmentObject(clock)
@@ -607,6 +650,7 @@ struct PlayerView: View {
         .sheet(isPresented: $showSynologyMetadataEditor) {
             if let song, song.source == .synology {
                 SynologyMetadataEditorSheet(song: song)
+                    .transaction { transaction in transaction.animation = nil }
             }
         }
         .sheet(isPresented: $showLocalMetadataEditor) {
@@ -2568,9 +2612,13 @@ struct PlayerView: View {
         guard let song else { return }
         switch song.source {
         case .synology:
-            showSynologyMetadataEditor = true
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) { showSynologyMetadataEditor = true }
         case .local:
-            showLocalMetadataEditor = true
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) { showLocalMetadataEditor = true }
         default:
             ToastCenter.shared.show("在线歌曲信息由平台维护，NAS 或本地歌曲支持手动编辑")
         }
@@ -4075,6 +4123,7 @@ struct PlayerSettingsSheet: View {
                     LazyVStack(spacing: 12) {
                         layoutEditorCard
                         coverStyleCard
+                        lyricDisplayCard
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 34)
@@ -4378,21 +4427,21 @@ struct PlayerSettingsSheet: View {
     private var lyricDisplayCard: some View {
         settingCard("歌词显示", isExpanded: $lyricDisplayExpanded) {
             settingSlider("歌词字号", valueText: "\(fontSize) pt") {
-                Slider(
-                    value: Binding(get: { Double(fontSize) }, set: { fontSize = Int($0) }),
-                    in: 12...28,
-                    step: 1
+                ATMusicInteractiveValueSlider(
+                    value: Binding(get: { CGFloat(fontSize) }, set: { fontSize = Int($0.rounded()) }),
+                    range: 12...28,
+                    step: 1,
+                    accessibilityLabel: "歌词字号"
                 )
-                .tint(Color.atmusicAmber)
             }
             Divider().opacity(0.5)
             settingSlider("歌词行距", valueText: "\(lineSpacing) pt") {
-                Slider(
-                    value: Binding(get: { Double(lineSpacing) }, set: { lineSpacing = Int($0) }),
-                    in: 14...40,
-                    step: 1
+                ATMusicInteractiveValueSlider(
+                    value: Binding(get: { CGFloat(lineSpacing) }, set: { lineSpacing = Int($0.rounded()) }),
+                    range: 14...40,
+                    step: 1,
+                    accessibilityLabel: "歌词行距"
                 )
-                .tint(Color.atmusicAmber)
             }
             Divider().opacity(0.5)
             settingSlider("歌词进度偏移", valueText: lyricOffsetText) {
@@ -4728,8 +4777,11 @@ private struct PlayerLayoutEditorSheet: View {
     @AppStorage("atmusic.appleMusic.volumeHex") private var volumeHex = ""
     @AppStorage("atmusic.circularCover") private var circularCover = true
     @AppStorage("atmusic.playerLayout.referencePresetV6") private var referencePresetV6Applied = false
+    @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
+    @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
 
-    @State private var previewMode = 0
+    // 默认直接展示歌词预览，避免拖动歌词滑块时切换预览导致手势被打断。
+    @State private var previewMode = 1
     @State private var selectedApplePart: AppleMusicLayoutPart = .cover
     @State private var selectedLegacyPart: PlayerLayoutPart = .cover
     @State private var legacyLayoutData: [String: PlayerLayoutEntry] = PlayerLayoutStore.load()
@@ -4787,6 +4839,7 @@ private struct PlayerLayoutEditorSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     stylePicker
                     previewSection
+                    lyricLiveAdjustments
                     Picker("预览页面", selection: $previewMode) {
                         Text("封面").tag(0)
                         Text("歌词").tag(1)
@@ -5050,6 +5103,65 @@ private struct PlayerLayoutEditorSheet: View {
         }
     }
 
+    /// 歌词实时调节：滑块使用与真实播放器完全相同的 AppStorage 参数。
+    /// 第一次触碰任一歌词滑块时自动切换到上方“歌词”预览，后续拖动即时刷新预览。
+    private var lyricLiveAdjustments: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("歌词实时预览")
+                    .font(ATMusicFont.appFont(13, .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                Spacer()
+                Text("调节即同步")
+                    .font(ATMusicFont.appFont(11, .medium, .monospaced))
+                    .foregroundStyle(Color.atmusicAmber)
+            }
+
+            lyricEditorSlider(
+                "字号",
+                value: Binding(
+                    get: { CGFloat(lyricFontSize) },
+                    set: { lyricFontSize = Int($0.rounded()) }
+                ),
+                range: 12...28
+            )
+            lyricEditorSlider(
+                "行距",
+                value: Binding(
+                    get: { CGFloat(lyricLineSpacing) },
+                    set: { lyricLineSpacing = Int($0.rounded()) }
+                ),
+                range: 14...40
+            )
+
+            HStack {
+                Spacer()
+                Button("恢复默认值") {
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        lyricFontSize = 17
+                        lyricLineSpacing = 24
+                        previewMode = 1
+                    }
+                    ATMusicHaptics.select()
+                }
+                .font(ATMusicFont.appFont(12, .semibold))
+                .foregroundStyle(Color.atmusicAmber)
+                .buttonStyle(.plain)
+            }
+
+            Text("上方预览当前显示歌词；拖动字号或行距会实时同步到实际播放器。")
+                .font(ATMusicFont.appFont(11))
+                .foregroundStyle(.white.opacity(0.58))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background {
+            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
     private var previewLyricsBinding: Binding<Bool> {
         Binding(
             get: { previewMode == 1 },
@@ -5157,6 +5269,25 @@ private struct PlayerLayoutEditorSheet: View {
         .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
     }
 
+    private func lyricEditorSlider(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>) -> some View {
+        HStack(spacing: 9) {
+            Text(title)
+                .font(ATMusicFont.appFont(13, .medium))
+                .foregroundStyle(.white.opacity(0.76))
+                .frame(width: 52, alignment: .leading)
+            ATMusicInteractiveValueSlider(
+                value: value,
+                range: range,
+                step: 1,
+                accessibilityLabel: title
+            )
+            Text(String(format: "%.0f", value.wrappedValue))
+                .font(ATMusicFont.appFont(11, .regular, .monospaced))
+                .foregroundStyle(.white.opacity(0.62))
+                .frame(width: 38, alignment: .trailing)
+        }
+    }
+
     private func editorSlider(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>, step: CGFloat = 1, format: String = "%.0f") -> some View {
         HStack(spacing: 9) {
             Text(title)
@@ -5165,6 +5296,8 @@ private struct PlayerLayoutEditorSheet: View {
                 .frame(width: 52, alignment: .leading)
             Slider(value: value, in: range, step: step)
                 .tint(Color.atmusicAmber)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
                 .transaction { $0.animation = nil }
             Text(String(format: format, value.wrappedValue))
                 .font(ATMusicFont.appFont(11, .regular, .monospaced))
@@ -5197,6 +5330,80 @@ private struct PlayerLayoutEditorSheet: View {
             get: { raw.wrappedValue.hasPrefix("#") ? (Color(hex: raw.wrappedValue) ?? fallback) : fallback },
             set: { raw.wrappedValue = "#" + UIColor($0).hexString }
         )
+    }
+}
+
+private struct ATMusicInteractiveValueSlider: View {
+    @Binding var value: CGFloat
+    let range: ClosedRange<CGFloat>
+    let step: CGFloat
+    let accessibilityLabel: String
+
+    private let trackHeight: CGFloat = 5
+    private let thumbDiameter: CGFloat = 22
+
+    private var clampedValue: CGFloat {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private func stepped(_ raw: CGFloat) -> CGFloat {
+        guard step > 0 else { return min(max(raw, range.lowerBound), range.upperBound) }
+        let n = ((raw - range.lowerBound) / step).rounded()
+        return min(max(range.lowerBound + n * step, range.lowerBound), range.upperBound)
+    }
+
+    private func setFromLocation(_ x: CGFloat, width: CGFloat) {
+        let usableWidth = max(width - thumbDiameter, 1)
+        let position = min(max(x - thumbDiameter / 2, 0), usableWidth)
+        let fraction = position / usableWidth
+        value = stepped(range.lowerBound + (range.upperBound - range.lowerBound) * fraction)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let usableWidth = max(width - thumbDiameter, 1)
+            let fraction = (clampedValue - range.lowerBound) / max(range.upperBound - range.lowerBound, 0.0001)
+            let thumbX = thumbDiameter / 2 + usableWidth * fraction
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.16))
+                    .frame(height: trackHeight)
+                    .frame(maxWidth: .infinity)
+                Capsule()
+                    .fill(Color.atmusicAmber)
+                    .frame(width: max(thumbX, thumbDiameter / 2), height: trackHeight)
+                Circle()
+                    .fill(Color.atmusicAmber)
+                    .frame(width: thumbDiameter, height: thumbDiameter)
+                    .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 0.7))
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .offset(x: thumbX - thumbDiameter / 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        setFromLocation(gesture.location.x, width: width)
+                    }
+            )
+        }
+        .frame(minHeight: 34)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityValue(Text(String(format: "%.0f", value)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                value = stepped(value + step)
+            case .decrement:
+                value = stepped(value - step)
+            @unknown default:
+                break
+            }
+        }
     }
 }
 

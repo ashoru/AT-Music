@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-enum RootTab: String, CaseIterable, Identifiable {
+enum RootTab: String, CaseIterable, Identifiable, Hashable {
     case discover
     case featured
     case library
@@ -38,6 +38,7 @@ struct RootView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var favorites: FavoritesStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @AppStorage("atmusic.themeMode") private var themeModeRaw = ATMusicThemeMode.system.rawValue
 
@@ -69,7 +70,17 @@ struct RootView: View {
 
     var body: some View {
         let _ = theme.accent
-        modernSystemTabs
+        Group {
+            if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                IPadRootView(
+                    selection: $selection,
+                    showPlayer: $showPlayer,
+                    nowPlayingTransition: nowPlayingTransition
+                )
+            } else {
+                modernSystemTabs
+            }
+        }
         .preferredColorScheme(themeMode.colorScheme)
         .confirmationDialog("主页平台", isPresented: $showHomePlatformMenu, titleVisibility: .visible) {
             platformSelectionMenu

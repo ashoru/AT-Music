@@ -822,6 +822,8 @@ struct CoverImage: View {
 // MARK: - 音源标识
 
 extension SongSource {
+    var displayName: String { atmusicDisplayName }
+
     var atmusicDisplayName: String {
         switch self {
         case .netease: return "网易云"
