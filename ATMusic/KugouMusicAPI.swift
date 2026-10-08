@@ -841,18 +841,29 @@ final class KugouMusicAPI {
     }
 
     /// 酷狗官方歌单广场（移动站点 JSON）。
+    /// 酷狗歌单广场：支持 offset 分页，可一直下拉。
+    /// 首屏优先上游 special_recommend（更丰富），后续页用移动站歌单广场分页兜底。
     func recommendPlaylists(limit: Int = 12, offset: Int = 0) async throws -> [Playlist] {
         let page = max(1, offset / max(limit, 1) + 1)
-        if let upstream = try? await upstreamRecommendPlaylists(limit: limit, page: page), !upstream.isEmpty {
+        if page == 1,
+           let upstream = try? await upstreamRecommendPlaylists(limit: limit, page: page),
+           !upstream.isEmpty {
             ATMusicLogger.shared.log("酷狗 special_recommend：返回 \(upstream.count) 个歌单", level: .debug)
             return upstream
         }
-        // 官网正则 / 移动站只有第一页，翻页时不再兜底，返回空以结束分页。
-        guard page == 1 else { return [] }
-        if let playlists = try? await officialWebPlaylists(limit: limit), !playlists.isEmpty {
+        if let playlists = try? await mobilePlazaPlaylists(limit: limit, page: page), !playlists.isEmpty {
             return playlists
         }
-        guard let url = URL(string: "https://m.kugou.com/plist/index?json=true&page=1") else {
+        // 首屏最后一招：官网正则兜底
+        if page == 1, let playlists = try? await officialWebPlaylists(limit: limit), !playlists.isEmpty {
+            return playlists
+        }
+        return []
+    }
+
+    /// 酷狗移动站歌单广场 JSON 分页接口（可一直下拉）。
+    private func mobilePlazaPlaylists(limit: Int, page: Int) async throws -> [Playlist] {
+        guard let url = URL(string: "https://m.kugou.com/plist/index?json=true&page=\(page)") else {
             throw NetEaseError.unknown("酷狗歌单广场地址无效")
         }
         let json = try await getJSON(url, ua: Self.browserUA)

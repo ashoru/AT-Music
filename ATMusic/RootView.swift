@@ -747,7 +747,7 @@ struct FeaturedView: View {
         case "精品歌单":
             return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)
         case "全部", "推荐歌单":
-            return try await QQMusicAPI.shared.hotPlaylists(limit: pageSize)
+            return try await QQMusicAPI.shared.allPlaylists(limit: pageSize, offset: nextOffset)
         default:
             return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)
         }
@@ -774,7 +774,7 @@ struct FeaturedView: View {
             async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
             async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
-            return n + q + k
+            return interleave(n, q, k)
         }
         switch selectedCategory {
         case "精品歌单":
@@ -782,22 +782,33 @@ struct FeaturedView: View {
             async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
             async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
-            return n + q + k
+            return interleave(n, q, k)
         case "全部", "推荐歌单":
             async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: pageSize, offset: nextOffset)) ?? []
-            async let qq: [Playlist] = nextOffset == 0 ? ((try? await QQMusicAPI.shared.hotPlaylists(limit: pageSize)) ?? []) : []
+            async let qq: [Playlist] = (try? await QQMusicAPI.shared.allPlaylists(limit: pageSize, offset: nextOffset)) ?? []
             async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
-            return n + q + k
+            return interleave(n, q, k)
         default:
             async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: pageSize, offset: nextOffset)) ?? []
             async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
             async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
-            return n + q + k
+            return interleave(n, q, k)
         }
     }
 
+    /// 聚合歌单各平台交叉轮流显示：网易 → QQ → 酷狗 → 网易 → …
+    private func interleave(_ arrays: [Playlist]...) -> [Playlist] {
+        var result: [Playlist] = []
+        let maxCount = arrays.map(\.count).max() ?? 0
+        for i in 0..<maxCount {
+            for arr in arrays where i < arr.count {
+                result.append(arr[i])
+            }
+        }
+        return result
+    }
     /// 网易云来源远程分类丰富：接口正常时使用服务端全部分类；失败时保留通用分类兜底。
     private func enrichCategoriesFromNetEase() async {
         guard featuredSource == .netease else { return }

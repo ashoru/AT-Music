@@ -408,6 +408,59 @@ final class QQMusicAPI {
         return playlist
     }
 
+    /// QQ 歌单广场分页（musicu GetPlayList，categoryId=-1 全部），供精选页无限下拉。
+    /// 优先使用官方歌单广场接口；接口异常时首屏回退热门歌单，翻页回退搜索歌单。
+    func allPlaylists(limit: Int = 40, offset: Int = 0) async throws -> [Playlist] {
+        if let plaza = try? await plazaPlaylists(limit: limit, offset: offset), !plaza.isEmpty {
+            return plaza
+        }
+        if offset == 0 {
+            return try await hotPlaylists(limit: limit)
+        }
+        return try await searchPlaylists(keyword: "热门", limit: limit, offset: offset)
+    }
+
+    /// QQ 音乐馆「歌单广场」分页接口（musicu playlist.PlayListPlazaServer / GetPlayList）。
+    private func plazaPlaylists(limit: Int, offset: Int) async throws -> [Playlist] {
+        let payload: [String: Any] = [
+            "getPlayList": [
+                "module": "playlist.PlayListPlazaServer",
+                "method": "GetPlayList",
+                "param": [
+                    "num": min(max(limit, 1), 50),
+                    "start": offset,
+                    "order": 1,
+                    "categoryId": -1
+                ]
+            ]
+        ]
+        let json = try await musicu(payload)
+        let paths: [[String]] = [
+            ["getPlayList", "data", "v_playlist"],
+            ["getPlayList", "data", "playlist"],
+            ["getPlayList", "data", "v_playlist", "list"],
+        ]
+        var rows: [[String: Any]] = []
+        for path in paths {
+            var current: Any = json
+            for key in path {
+                guard let dict = current as? [String: Any], let next = dict[key] else {
+                    current = NSNull()
+                    break
+                }
+                current = next
+            }
+            if let list = current as? [[String: Any]], !list.isEmpty {
+                rows = list
+                break
+            }
+        }
+        var seen = Set<Int>()
+        return rows.compactMap { item in
+            guard let playlist = Self.searchPlaylist(from: item), seen.insert(playlist.id).inserted else { return nil }
+            return playlist
+        }
+    }
     /// QQ 音乐热搜词
     func hotKeys(limit: Int = 10) async throws -> [String] {
         let url = "https://c.y.qq.com/splcloud/fcgi-bin/gethotkey.fcg?format=json&inCharset=utf8&outCharset=utf-8"

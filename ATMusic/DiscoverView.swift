@@ -935,6 +935,17 @@ struct DiscoverView: View {
 
     /// 当前主页显示的最近播放歌曲：
     /// 聚合页按播放顺序展示所有平台的最近播放；单平台主页只显示本平台的最近播放。
+    /// 合并多个歌曲数组并按 identityKey 去重，保持输入顺序（推荐栏合并每日推荐 / 红心 / 私人FM）。
+    private static func mergeDaily(_ arrays: [[Song]]) -> [Song] {
+        var seen = Set<String>()
+        var result: [Song] = []
+        for arr in arrays {
+            for song in arr where seen.insert(song.identityKey).inserted {
+                result.append(song)
+            }
+        }
+        return Array(result.prefix(60))
+    }
     private var recentPlayedSongs: [Song] {
         if isHomeAggregate { return player.history }
         let songSource = source.songSource
@@ -1072,7 +1083,9 @@ struct DiscoverView: View {
             case .qq:
                 group.addTask {
                     var part = DiscoverCache.Snapshot()
-                    part.dailySongs = (try? await QQMusicAPI.shared.recommendSongs(limit: 30)) ?? []
+                    let rec = (try? await QQMusicAPI.shared.recommendSongs(limit: 30)) ?? []
+                    let fav = (try? await QQMusicAPI.shared.favoriteSongs()) ?? []
+                    part.dailySongs = Self.mergeDaily([rec, fav])
                     return part
                 }
                 group.addTask {
@@ -1089,8 +1102,9 @@ struct DiscoverView: View {
             case .kugou:
                 group.addTask {
                     var part = DiscoverCache.Snapshot()
+                    let fm = (try? await KugouMusicAPI.shared.personalFM(limit: 12)) ?? []
                     if let songs = try? await KugouMusicAPI.shared.everydayRecommend(limit: 30), !songs.isEmpty {
-                        part.dailySongs = songs
+                        part.dailySongs = Self.mergeDaily([songs, fm])
                     } else {
                         part.dailySongs = (try? await KugouMusicAPI.shared.searchSongs(keyword: "热门歌曲", limit: 30)) ?? []
                     }
@@ -1314,11 +1328,12 @@ struct DiscoverView: View {
             async let a: [Song] = (try? await QQMusicAPI.shared.recommendSongs(limit: 30)) ?? []
             async let b: [QQTopInfo] = (try? await QQMusicAPI.shared.topLists()) ?? []
             async let c: [Playlist] = (try? await QQMusicAPI.shared.hotPlaylists(limit: 18)) ?? []
-            let (dr, tl, pp) = await (a, b, c)
+            async let d: [Song] = (try? await QQMusicAPI.shared.favoriteSongs()) ?? []
+            let (dr, tl, pp, fav) = await (a, b, c, d)
             if pp.isEmpty {
                 ATMusicLogger.shared.log("QQ音乐热门歌单为空：保留板块并显示空状态", level: .warn)
             }
-            snapshot.dailySongs = dr
+            snapshot.dailySongs = Self.mergeDaily([dr, fav])
             snapshot.qqTopLists = tl
             snapshot.personalized = pp
         case .netease:
@@ -1356,8 +1371,9 @@ struct DiscoverView: View {
     }
 
     private func loadKugouDailySongs(limit: Int) async -> [Song] {
+        let fm = (try? await KugouMusicAPI.shared.personalFM(limit: 12)) ?? []
         if let songs = try? await KugouMusicAPI.shared.everydayRecommend(limit: limit), !songs.isEmpty {
-            return songs
+            return Self.mergeDaily([songs, fm])
         }
         return (try? await KugouMusicAPI.shared.searchSongs(keyword: "热门歌曲", limit: limit)) ?? []
     }
