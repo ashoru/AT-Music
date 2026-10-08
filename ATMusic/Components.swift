@@ -764,6 +764,9 @@ struct CoverImage: View {
     var cornerRadius: CGFloat = 12
     /// 封面未加载时的提示文字（播放器大封面用：等待开始播放）；nil 显示中性图标
     var emptyHint: String? = nil
+    /// 独立宽高覆盖（默认 nil 用 size 正方形；宽版 2:1 卡片传 width/height）
+    var width: CGFloat? = nil
+    var height: CGFloat? = nil
     @StateObject private var loader = ATMusicCoverImageLoader()
 
     private var displayedImage: UIImage? {
@@ -775,15 +778,17 @@ struct CoverImage: View {
     // 布局尺寸完全由外层固定容器决定；AsyncImage 只放在 overlay 中渲染，
     // 图片加载完成与否都不会改变任何布局尺寸（根治"封面加载后错乱"）。
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let w = width ?? size
+        let h = height ?? size
+        return RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(Color.atmusicGlassFill)
-            .frame(width: size, height: size)
+            .frame(width: w, height: h)
             .overlay {
                 if let displayedImage {
                     Image(uiImage: displayedImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: size, height: size)
+                        .frame(width: w, height: h)
                         .clipped()
                 } else {
                     placeholderIcon

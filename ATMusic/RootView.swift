@@ -717,7 +717,12 @@ struct FeaturedView: View {
         } catch {
             isLoading = false
             isLoadingMore = false
-            errorMessage = error.localizedDescription
+            if reset {
+                errorMessage = error.localizedDescription
+            } else {
+                // 翻页失败：静默停止翻页，保留已加载内容，不打断滚动体验
+                hasMorePlaylists = false
+            }
         }
     }
 

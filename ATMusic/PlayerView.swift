@@ -3703,7 +3703,7 @@ struct PlayerSettingsSheet: View {
     @AppStorage("atmusic.progressAccentHex") private var progressAccentHex = ""
     @AppStorage("atmusic.playback.autoSkipOnFailure") private var autoSkipOnFailure = true
     @AppStorage("atmusic.lyricFontSize") private var fontSize = 17
-    @AppStorage("atmusic.lyricSpacing") private var lineSpacing = 24
+    @AppStorage("atmusic.lyricSpacing") private var lineSpacing = 16
     @AppStorage("atmusic.lyricGlow") private var glowLevel = 1
     @AppStorage("atmusic.lyricColor") private var currentColorRaw = "accent"
     @AppStorage("atmusic.lyricDimColor") private var dimColorRaw = "dim"
@@ -4438,7 +4438,7 @@ struct PlayerSettingsSheet: View {
             settingSlider("歌词行距", valueText: "\(lineSpacing) pt") {
                 ATMusicInteractiveValueSlider(
                     value: Binding(get: { CGFloat(lineSpacing) }, set: { lineSpacing = Int($0.rounded()) }),
-                    range: 14...40,
+                    range: 4...40,
                     step: 1,
                     accessibilityLabel: "歌词行距"
                 )

@@ -349,9 +349,24 @@ final class QQMusicAPI {
         return albums
     }
 
-    /// 搜索公开歌单（musicu search_type=3）。不同 QQ 客户端版本会把列表放在
-    /// playlist.list 或 v_playlist.list，统一做多路径解析，避免聚合搜索只返回歌曲。
+    /// 搜索公开歌单。主用 client_search_cp t=3（与歌曲/专辑搜索同源、数据中心/移动网络均可用，
+    /// 不受 musicu 风控影响，保证精选页歌单可无限翻页）；musicu search_type=3 作为兜底。
     func searchPlaylists(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Playlist] {
+        let pageSize = max(limit, 1)
+        let page = max(offset, 0) / pageSize + 1
+        if let url = clientSearchURL(keyword: keyword, limit: pageSize, type: 3, page: page),
+           let json = try? await get(url.absoluteString, referer: "https://y.qq.com/portal/player.html") {
+            let data = json["data"] as? [String: Any] ?? [:]
+            let playlistDict = data["playlist"] as? [String: Any] ?? [:]
+            let list = (playlistDict["list"] as? [[String: Any]]) ?? (data["playlist"] as? [[String: Any]] ?? [])
+            if !list.isEmpty {
+                var seen = Set<Int>()
+                return list.compactMap { item in
+                    guard let playlist = Self.searchPlaylist(from: item), seen.insert(playlist.id).inserted else { return nil }
+                    return playlist
+                }
+            }
+        }
         let json = try await musicu(musicuSearchPayload(keyword: keyword, limit: limit, offset: offset, type: .playlist))
         let paths = [
             ["req_1", "data", "body", "playlist", "list"],

@@ -643,7 +643,7 @@ struct DiscoverView: View {
                         }
                     }
 
-                    if !homeProviders.contains(.netease), homeProviders.contains(.kugou) {
+                    if homeProviders.contains(.kugou) {
                         recommendationCard(
                             title: "私人漫游",
                             subtitle: "酷狗音乐 · 个性推荐",
@@ -673,7 +673,8 @@ struct DiscoverView: View {
                         icon: "calendar",
                         coverURL: dailySongs.first?.coverURL,
                         gradient: [Color(red: 0.95, green: 0.36, blue: 0.28), Color(red: 0.96, green: 0.68, blue: 0.30)],
-                        loadingKey: nil
+                        loadingKey: nil,
+                        isWide: source == .qq
                     ) {
                         openDailyRecommendations()
                     }
@@ -735,13 +736,16 @@ struct DiscoverView: View {
         gradient: [Color],
         loadingKey: String?,
         cardSize: CGFloat? = nil,
+        isWide: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         let resolvedCardSize = cardSize ?? (isNativeClean ? 160 : 168)
+        let cardWidth = isWide ? resolvedCardSize * 2 : resolvedCardSize
+        let cardHeight = resolvedCardSize
         return Button(action: action) {
             ZStack(alignment: .bottomLeading) {
                 if let coverURL {
-                    CoverImage(url: coverURL, size: resolvedCardSize, cornerRadius: isNativeClean ? 16 : 18)
+                    CoverImage(url: coverURL, size: resolvedCardSize, cornerRadius: isNativeClean ? 16 : 18, width: cardWidth, height: cardHeight)
                         .overlay {
                             LinearGradient(
                                 colors: [.black.opacity(0.05), .black.opacity(0.62)],
@@ -752,6 +756,7 @@ struct DiscoverView: View {
                 } else {
                     RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous)
                         .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: cardWidth, height: cardHeight)
                         .overlay(alignment: .topTrailing) {
                             Circle()
                                 .fill(.white.opacity(0.16))
@@ -791,7 +796,7 @@ struct DiscoverView: View {
                 }
                 .padding(14)
             }
-            .frame(width: resolvedCardSize, height: resolvedCardSize)
+            .frame(width: cardWidth, height: cardHeight)
             .clipShape(RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous))
             .shadow(color: Color.black.opacity(isNativeClean ? 0.06 : 0.12), radius: 16, x: 0, y: 8)
             .contentShape(RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous))
