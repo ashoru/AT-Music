@@ -285,14 +285,14 @@ final class KugouMusicAPI {
     }
 
     /// 酷狗公开歌单搜索。与歌曲搜索使用独立的 special 接口，返回结果按酷狗默认热度/相关性排序。
-    func searchPlaylists(keyword: String, limit: Int = 30) async throws -> [Playlist] {
+    func searchPlaylists(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Playlist] {
         // mobilecdn.kugou.com 的证书在部分 iOS 网络环境下与域名不匹配；
         // 同一接口通过 mobileservice.kugou.com 提供，返回结构一致且可正常校验证书。
         var components = URLComponents(string: "https://mobileservice.kugou.com/api/v3/search/special")!
         components.queryItems = [
             URLQueryItem(name: "format", value: "json"),
             URLQueryItem(name: "keyword", value: keyword),
-            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "page", value: "\(max(1, offset / max(limit, 1) + 1))"),
             URLQueryItem(name: "pagesize", value: "\(min(max(limit, 1), 100))"),
         ]
         guard let url = components.url else {
@@ -841,11 +841,14 @@ final class KugouMusicAPI {
     }
 
     /// 酷狗官方歌单广场（移动站点 JSON）。
-    func recommendPlaylists(limit: Int = 12) async throws -> [Playlist] {
-        if let upstream = try? await upstreamRecommendPlaylists(limit: limit), !upstream.isEmpty {
+    func recommendPlaylists(limit: Int = 12, offset: Int = 0) async throws -> [Playlist] {
+        let page = max(1, offset / max(limit, 1) + 1)
+        if let upstream = try? await upstreamRecommendPlaylists(limit: limit, page: page), !upstream.isEmpty {
             ATMusicLogger.shared.log("酷狗 special_recommend：返回 \(upstream.count) 个歌单", level: .debug)
             return upstream
         }
+        // 官网正则 / 移动站只有第一页，翻页时不再兜底，返回空以结束分页。
+        guard page == 1 else { return [] }
         if let playlists = try? await officialWebPlaylists(limit: limit), !playlists.isEmpty {
             return playlists
         }
@@ -872,7 +875,7 @@ final class KugouMusicAPI {
         }
     }
 
-    private func upstreamRecommendPlaylists(limit: Int) async throws -> [Playlist] {
+    private func upstreamRecommendPlaylists(limit: Int, page: Int = 1) async throws -> [Playlist] {
         let auth = KugouMusicAuth.shared
         let clientTime = Int(Date().timeIntervalSince1970)
         let specialRecommend: [String: Any] = [
@@ -896,7 +899,7 @@ final class KugouMusicAPI {
                 "clienttime": clientTime,
                 "userid": Int(auth.userId) ?? 0,
                 "module_id": 1,
-                "page": 1,
+                "page": page,
                 "pagesize": min(max(limit, 1), 30),
                 "key": upstreamParamsKey("\(clientTime)"),
                 "special_recommend": specialRecommend,

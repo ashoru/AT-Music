@@ -58,10 +58,6 @@ struct DiscoverView: View {
 
     @State private var qqTopLists: [QQTopInfo] = []
     @State private var kugouTopLists: [KugouTopInfo] = []
-    /// 歌单广场展开状态：收起显示前 6，展开显示全部
-    @State private var playlistsExpanded = false
-    /// 聚合首页各平台歌单独立展开；展开后直接在当前页面双列显示。
-    @State private var expandedAggregatePlaylistSources = Set<SongSource>()
     /// 首页加载去重：SwiftUI 视图刷新时 .task 可能被重复触发，避免网络请求风暴。
     @State private var activeLoadKey: String?
     @State private var lastLoadedKey = ""
@@ -118,10 +114,8 @@ struct DiscoverView: View {
                                     }
                                 case "排行榜":
                                     if hasRankData { topListsSection }
-                                case "歌单广场":
-                                    if isHomeAggregate || !personalized.isEmpty {
-                                        personalizedSection
-                                    }
+                                case "最近播放":
+                                    recentPlayedSection
                                 default:
                                     EmptyView()
                                 }
@@ -937,252 +931,66 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: - 歌单广场（官方分类 + 双列网格）
+    // MARK: - 最近播放（原“歌单广场”栏改为最近播放歌曲，方块横滑）
 
-
-    @ViewBuilder
-    private var personalizedSection: some View {
-        if isHomeAggregate {
-            aggregatePersonalizedSection
-        } else {
-            singlePersonalizedSection
-        }
+    /// 当前主页显示的最近播放歌曲：
+    /// 聚合页按播放顺序展示所有平台的最近播放；单平台主页只显示本平台的最近播放。
+    private var recentPlayedSongs: [Song] {
+        if isHomeAggregate { return player.history }
+        let songSource = source.songSource
+        return player.history.filter { $0.source == songSource }
     }
 
-    private var singlePersonalizedSection: some View {
+    @ViewBuilder
+    private var recentPlayedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: playlistSectionTitle)
-            if visiblePersonalizedPlaylists.isEmpty {
-                EmptyStateView(icon: "music.note.list", text: playlistEmptyText)
-            } else if isNativeClean && !playlistsExpanded {
+            SectionHeader(title: "最近播放")
+            if recentPlayedSongs.isEmpty {
+                EmptyStateView(icon: "clock.arrow.circlepath", text: "暂无最近播放")
+            } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 16) {
-                        ForEach(visiblePersonalizedPlaylists, id: \.identityKey) { (playlist: Playlist) in
-                            Button {
-                                ATMusicHaptics.tap()
-                                openRoute(DiscoverRoute.playlist(playlist))
-                            } label: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    CoverImage(url: playlist.coverURL, size: 166, cornerRadius: 16)
-                                    HStack(spacing: 6) {
-                                        Text(playlist.name)
-                                            .font(ATMusicFont.appFont(15, .bold))
-                                            .foregroundStyle(Color.primary)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.leading)
-                                        SourceBadgeView(source: playlist.source, compact: true)
-                                    }
-                                    .frame(width: 166, alignment: .leading)
-                                    if playlist.trackCount > 0 {
-                                        Text(atmusicSongCountText(playlist.trackCount))
-                                            .font(ATMusicFont.appFont(12, .medium))
-                                            .foregroundStyle(Color.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .frame(width: 166, alignment: .leading)
-                            }
-                            .buttonStyle(GlassPressButtonStyle(scale: 0.96))
+                    LazyHStack(spacing: 14) {
+                        ForEach(Array(recentPlayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                            recentSongCard(song, index: index)
                         }
                     }
                     .padding(.vertical, 2)
+                    .padding(.trailing, isNativeClean ? 24 : 4)
                 }
-            } else {
-                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 14), spacing: 14) {
-                    ForEach(visiblePersonalizedPlaylists, id: \.identityKey) { playlist in
-                        Button {
-                            openRoute(DiscoverRoute.playlist(playlist))
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                CoverImage(url: playlist.coverURL, size: 144, cornerRadius: 18)
-                                    .frame(maxWidth: .infinity)
-                                HStack(spacing: 6) {
-                                    Text(playlist.name)
-                                        .font(ATMusicFont.appFont(12, .medium))
-                                        .foregroundStyle(Color.atmusicLabel)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                    SourceBadgeView(source: playlist.source, compact: true)
-                                }
-                            }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background {
-                                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            }
-                        }
-                        .buttonStyle(GlassPressButtonStyle(scale: 0.96))
-                    }
-                }
-            }
-            if personalized.count > collapsedPlaylistCount {
-                Button {
-                    ATMusicHaptics.select()
-                    withAnimation {
-                        playlistsExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(playlistsExpanded
-                             ? atmusicLocalized("收起歌单广场", "Collapse Playlist Square")
-                             : atmusicLocalized("展开全部（\(personalized.count)）", "Show all (\(personalized.count))"))
-                            .font(ATMusicFont.appFont(13, .semibold))
-                        Image(systemName: playlistsExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.atmusicAmber)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background {
-                        if isNativeClean {
-                            Capsule().fill(Color.primary.opacity(0.045))
-                        } else {
-                            ATMusicGlass(shape: Capsule())
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                .atmusicScrollIndicatorsHidden()
             }
         }
     }
 
-    /// 聚合首页的歌单按音源分组，每个平台独占一行，避免不同平台的歌单混排。
-    private var aggregatePersonalizedSection: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            SectionHeader(title: "聚合歌单")
-            if aggregatePlaylistGroups.isEmpty {
-                EmptyStateView(icon: "music.note.list", text: playlistEmptyText)
-            } else {
-                ForEach(Array(aggregatePlaylistGroups.enumerated()), id: \.element.0) { _, group in
-                    let isExpanded = expandedAggregatePlaylistSources.contains(group.0)
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button {
-                            ATMusicHaptics.select()
-                            if isExpanded {
-                                expandedAggregatePlaylistSources.remove(group.0)
-                            } else {
-                                expandedAggregatePlaylistSources.insert(group.0)
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(aggregateSourceTitle(group.0))
-                                    .font(ATMusicFont.appFont(16, .bold))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                Spacer(minLength: 8)
-                                SourceBadgeView(source: group.0, compact: true)
-                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(Color.atmusicComment)
-                                    .frame(width: 28, height: 28)
-                                    .background(Color.atmusicSecondary.opacity(0.10), in: Circle())
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        if isExpanded {
-                            LazyVGrid(
-                                columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 150, maxWidth: 240, spacing: 14),
-                                spacing: 18
-                            ) {
-                                ForEach(group.1, id: \.identityKey) { playlist in
-                                    aggregatePlaylistCard(playlist, expanded: true)
-                                }
-                            }
-                        } else {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 14) {
-                                    ForEach(Array(group.1.prefix(collapsedPlaylistCount).enumerated()), id: \.element.identityKey) { _, playlist in
-                                        aggregatePlaylistCard(playlist, expanded: false)
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                            }
-                            .padding(.trailing, isNativeClean ? -24 : 0)
-                        }
-                    }
-                }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func aggregatePlaylistCard(_ playlist: Playlist, expanded: Bool) -> some View {
-        let size: CGFloat = expanded ? 164 : (isNativeClean ? 156 : 136)
-        Button {
+    private func recentSongCard(_ song: Song, index: Int) -> some View {
+        let size: CGFloat = isNativeClean ? 156 : 136
+        return Button {
             ATMusicHaptics.tap()
-            openRoute(DiscoverRoute.playlist(playlist))
+            player.play(songs: recentPlayedSongs, startAt: index)
         } label: {
             VStack(alignment: .leading, spacing: 7) {
-                CoverImage(url: playlist.coverURL, size: size, cornerRadius: 16)
-                Text(playlist.name)
-                    .font(ATMusicFont.appFont(isNativeClean ? 14 : 12, .medium))
-                    .foregroundStyle(Color.atmusicLabel)
-                    .lineLimit(2)
-                    .frame(width: size, alignment: .leading)
-                if playlist.trackCount > 0 {
-                    Text(atmusicSongCountText(playlist.trackCount))
-                        .font(ATMusicFont.appFont(11, .medium))
-                        .foregroundStyle(Color.atmusicComment)
+                CoverImage(url: song.coverURL, size: size, cornerRadius: 16)
+                HStack(spacing: 5) {
+                    Text(song.name)
+                        .font(ATMusicFont.appFont(isNativeClean ? 14 : 12, .medium))
+                        .foregroundStyle(Color.atmusicLabel)
                         .lineLimit(1)
+                    if isHomeAggregate {
+                        SourceBadgeView(source: song.source, compact: true)
+                    }
                 }
+                .frame(width: size, alignment: .leading)
+                Text(song.artists)
+                    .font(ATMusicFont.appFont(isNativeClean ? 12 : 11, .medium))
+                    .foregroundStyle(Color.atmusicComment)
+                    .lineLimit(1)
+                    .frame(width: size, alignment: .leading)
             }
             .frame(width: size, alignment: .leading)
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.96))
     }
 
-    private var aggregatePlaylistGroups: [(SongSource, [Playlist])] {
-        let order: [SongSource] = [.netease, .qq, .kugou, .synology]
-        let enabledSources = Set(homeProviders.map(\.songSource))
-        var grouped: [SongSource: [Playlist]] = [:]
-        for item in personalized {
-            if enabledSources.contains(item.source) {
-                grouped[item.source, default: []].append(item)
-            }
-        }
-        return order.compactMap { source in
-            guard let items = grouped[source], !items.isEmpty else { return nil }
-            return (source, items)
-        }
-    }
-
-    private func aggregateSourceTitle(_ source: SongSource) -> String {
-        switch source {
-        case .netease: return "网易云音乐"
-        case .qq: return "QQ音乐"
-        case .kugou: return "酷狗音乐"
-        case .local: return "本地音乐"
-        case .synology: return "群晖 NAS"
-        }
-    }
-
-    private var playlistSectionTitle: String {
-        if isHomeAggregate { return "聚合歌单" }
-        switch source {
-        case .netease: return "推荐歌单"
-        case .qq: return "QQ音乐热门歌单"
-        case .kugou: return "歌单广场"
-        case .synology: return "群晖 Audio Station"
-        }
-    }
-
-    private var playlistEmptyText: String {
-        if isHomeAggregate { return "暂时没有获取到聚合歌单" }
-        switch source {
-        case .netease: return "推荐歌单暂时没有内容"
-        case .qq: return "QQ音乐热门歌单暂未加载成功\n下拉刷新可重新获取"
-        case .kugou: return "歌单广场暂时没有内容"
-        case .synology: return "群晖音乐库请在音乐库页面查看"
-        }
-    }
-
-    private var collapsedPlaylistCount: Int { 6 }
-
-    private var visiblePersonalizedPlaylists: [Playlist] {
-        playlistsExpanded ? personalized : Array(personalized.prefix(collapsedPlaylistCount))
-    }
 
     // MARK: - 动作
 

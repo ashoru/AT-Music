@@ -170,8 +170,9 @@ final class QQMusicAPI {
             ?? value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
     }
 
-    private func musicuSearchPayload(keyword: String, limit: Int, type: QQSearchType) -> [String: Any] {
-        [
+    private func musicuSearchPayload(keyword: String, limit: Int, offset: Int = 0, type: QQSearchType) -> [String: Any] {
+        let page = max(1, offset / max(limit, 1) + 1)
+        return [
             "comm": ["ct": 19, "cv": 1859, "uin": "0", "format": "json"],
             "req_1": [
                 "module": "music.search.SearchCgiService",
@@ -179,7 +180,7 @@ final class QQMusicAPI {
                 "param": [
                     "query": keyword,
                     "num_per_page": limit,
-                    "page_num": 1,
+                    "page_num": page,
                     "search_type": type.rawValue,
                     "grp": 1,
                 ],
@@ -350,8 +351,8 @@ final class QQMusicAPI {
 
     /// 搜索公开歌单（musicu search_type=3）。不同 QQ 客户端版本会把列表放在
     /// playlist.list 或 v_playlist.list，统一做多路径解析，避免聚合搜索只返回歌曲。
-    func searchPlaylists(keyword: String, limit: Int = 30) async throws -> [Playlist] {
-        let json = try await musicu(musicuSearchPayload(keyword: keyword, limit: limit, type: .playlist))
+    func searchPlaylists(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Playlist] {
+        let json = try await musicu(musicuSearchPayload(keyword: keyword, limit: limit, offset: offset, type: .playlist))
         let paths = [
             ["req_1", "data", "body", "playlist", "list"],
             ["req_1", "data", "body", "v_playlist", "list"],

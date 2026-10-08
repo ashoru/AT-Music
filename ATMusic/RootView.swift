@@ -709,8 +709,9 @@ struct FeaturedView: View {
                 seen.insert("\($0.source.rawValue)|\($0.id)").inserted
             })
             nextOffset += loaded.count
-            // 仅网易云接口支持 offset 分页；QQ / 酷狗 / 聚合一次拉取足够的一页，不再无限翻页。
-            hasMorePlaylists = featuredSource == .netease && !loaded.isEmpty && playlists.count > countBeforeMerge
+            // 网易 / QQ / 酷狗搜索与分类、酷狗歌单广场均支持 offset 分页；
+            // QQ 热门歌单（官网推荐位）一次取完，返回空页或重复页即停止翻页。
+            hasMorePlaylists = !loaded.isEmpty && playlists.count > countBeforeMerge
             isLoading = false
             isLoadingMore = false
         } catch {
@@ -740,58 +741,58 @@ struct FeaturedView: View {
 
     private func loadQQ(keyword: String) async throws -> [Playlist] {
         if !keyword.isEmpty {
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize)
+            return try await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)
         }
         switch selectedCategory {
         case "精品歌单":
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize)
+            return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)
         case "全部", "推荐歌单":
             return try await QQMusicAPI.shared.hotPlaylists(limit: pageSize)
         default:
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize)
+            return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)
         }
     }
 
     private func loadKugou(keyword: String) async throws -> [Playlist] {
         if !keyword.isEmpty {
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize)
+            return try await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)
         }
         switch selectedCategory {
         case "精品歌单":
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize)
+            return try await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)
         case "全部", "推荐歌单":
-            return try await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize)
+            return try await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize, offset: nextOffset)
         default:
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize)
+            return try await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)
         }
     }
 
     /// 聚合：三平台并行拉取后合并，单卡附带平台徽标。
     private func loadAggregate(keyword: String) async throws -> [Playlist] {
         if !keyword.isEmpty {
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: 0)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize)) ?? []
+            async let netease: [Playlist] = (try? await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
+            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
+            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
             return n + q + k
         }
         switch selectedCategory {
         case "精品歌单":
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: pageSize, offset: 0)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize)) ?? []
+            async let netease: [Playlist] = (try? await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: pageSize, offset: nextOffset)) ?? []
+            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
+            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
             return n + q + k
         case "全部", "推荐歌单":
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: pageSize, offset: 0)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.hotPlaylists(limit: pageSize)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize)) ?? []
+            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: pageSize, offset: nextOffset)) ?? []
+            async let qq: [Playlist] = nextOffset == 0 ? ((try? await QQMusicAPI.shared.hotPlaylists(limit: pageSize)) ?? []) : []
+            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
             return n + q + k
         default:
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: pageSize, offset: 0)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize)) ?? []
+            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: pageSize, offset: nextOffset)) ?? []
+            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
+            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
             let (n, q, k) = try await (netease, qq, kugou)
             return n + q + k
         }
