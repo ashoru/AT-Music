@@ -197,7 +197,7 @@ struct PlayerView: View {
     }
 
     private var legacyLayoutStyle: ATMusicCoverPlayerStyle {
-        coverPlayerStyle == .vinyl ? .vinyl : .classic
+        coverPlayerStyle == .vinyl ? .vinyl : (coverPlayerStyle == .immersive ? .immersive : .classic)
     }
 
     private func vinylLayoutEntry(_ part: PlayerLayoutPart) -> PlayerLayoutEntry {
@@ -430,6 +430,30 @@ struct PlayerView: View {
                     },
                     onDismiss: {
                         isPresented = false
+                    }
+                )
+            } else if coverPlayerStyle == .immersive {
+                ImmersivePlayerView(
+                    song: song,
+                    lyrics: lyrics,
+                    isPresented: $isPresented,
+                    onOpenSettings: {
+                        openPlayerSettings()
+                    },
+                    onSleepTimer: {
+                        showSleepTimer = true
+                    },
+                    onSongInfo: {
+                        openSongInfo()
+                    },
+                    onSearchLyrics: {
+                        showLyricSearch = true
+                    },
+                    onAddToLocalPlaylist: {
+                        showAddToLocalPlaylist = true
+                    },
+                    onDownload: {
+                        showDownloadPicker = true
                     }
                 )
             } else if coverPlayerStyle == .appleMusic {
@@ -957,6 +981,8 @@ struct PlayerView: View {
             classicAlbumPanel(geo: geo)
         case .vinyl:
             vinylAlbumPanel(geo: geo)
+        case .immersive:
+            classicAlbumPanel(geo: geo)
         }
     }
 
@@ -4805,6 +4831,12 @@ private struct PlayerLayoutEditorSheet: View {
             return [.topBack, .topTitle, .topFavorite, .cover, .title, .previewLyric, .progress, .previous, .playPause, .next, .queue, .grabber]
         case .appleMusic:
             return []
+        case .immersive:
+            if previewMode == 0 {
+                return [.cover, .title, .progress, .controls, .loop, .previous, .playPause, .next, .queue]
+            } else {
+                return [.topTitle, .lyric, .progress, .controls, .loop, .previous, .playPause, .next, .queue]
+            }
         }
     }
 
@@ -4813,7 +4845,7 @@ private struct PlayerLayoutEditorSheet: View {
     }
 
     private var activeLegacyStyle: ATMusicCoverPlayerStyle {
-        activeStyle == .vinyl ? .vinyl : .classic
+        activeStyle == .vinyl ? .vinyl : (activeStyle == .immersive ? .immersive : .classic)
     }
 
     var body: some View {
@@ -4919,6 +4951,8 @@ private struct PlayerLayoutEditorSheet: View {
             case .vinyl:
                 legacyLayoutData = PlayerLayoutStore.load(for: .vinyl)
                 selectedLegacyPart = .vinylAlbum
+            case .immersive:
+                break
             }
         }
         .onChange(of: previewMode) { _, mode in
@@ -4948,6 +4982,8 @@ private struct PlayerLayoutEditorSheet: View {
                             playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
                         case .vinyl:
                             playerButtonStyleRaw = ATMusicPlayerButtonStyle.glass.rawValue
+                        case .immersive:
+                            playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
                         }
                         ATMusicHaptics.select()
                     } label: {

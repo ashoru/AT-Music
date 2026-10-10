@@ -278,6 +278,7 @@ enum ATMusicCoverPlayerStyle: String, CaseIterable, Identifiable {
     case classic
     case appleMusic
     case vinyl
+    case immersive
 
     var id: String { rawValue }
 
@@ -286,6 +287,7 @@ enum ATMusicCoverPlayerStyle: String, CaseIterable, Identifiable {
         case .classic: return "经典封面"
         case .appleMusic: return "Apple Music"
         case .vinyl: return atmusicLocalized("唱片模式", "Record Mode")
+        case .immersive: return "沉浸式专辑"
         }
     }
 
@@ -294,6 +296,7 @@ enum ATMusicCoverPlayerStyle: String, CaseIterable, Identifiable {
         case .classic: return "封面、歌名和预览歌词分层显示"
         case .appleMusic: return "大封面、细进度条和简洁播放控制"
         case .vinyl: return atmusicLocalized("参考唱片界面、歌词、队列和播放控制", "Record-style lyrics, queue, and playback controls")
+        case .immersive: return "全宽 1:1 封面铺满全屏，极简无边框设计"
         }
     }
 
@@ -302,6 +305,7 @@ enum ATMusicCoverPlayerStyle: String, CaseIterable, Identifiable {
         case .classic: return "square.stack"
         case .appleMusic: return "music.note.list"
         case .vinyl: return "opticaldisc"
+        case .immersive: return "rectangle.expand.vertical"
         }
     }
 }

@@ -92,12 +92,14 @@ enum PlayerLayoutStore {
     private static let legacyDataKey = "atmusic.playerLayoutData"
     private static let classicDataKey = "atmusic.playerLayoutData.classic"
     private static let vinylDataKey = "atmusic.playerLayoutData.vinyl"
+    private static let immersiveDataKey = "atmusic.playerLayoutData.immersive"
     private static var pendingSaves: [String: DispatchWorkItem] = [:]
 
     private static func storageKey(for style: ATMusicCoverPlayerStyle) -> String {
         switch style {
         case .vinyl: return vinylDataKey
         case .classic, .appleMusic: return classicDataKey
+        case .immersive: return immersiveDataKey
         }
     }
 
@@ -191,6 +193,9 @@ enum PlayerLayoutStore {
 
     /// 各播放器风格自己的参考基线。真实播放页与布局编辑器都只从这里取默认值。
     static func defaultEntry(for part: PlayerLayoutPart, style: ATMusicCoverPlayerStyle = .classic) -> PlayerLayoutEntry {
+        if style == .immersive {
+            return PlayerLayoutEntry(x: 0, y: 0, scale: 1)
+        }
         if style == .vinyl {
             switch part {
             case .vinylAlbum:

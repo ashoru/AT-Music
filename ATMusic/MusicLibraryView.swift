@@ -199,6 +199,7 @@ struct MusicLibraryHomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
+    @ObservedObject private var favPlaylistStore = FavoritePlaylistStore.shared
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
     @ObservedObject private var synology = SynologyAPI.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
@@ -267,6 +268,7 @@ struct MusicLibraryHomeView: View {
                     VStack(alignment: .leading, spacing: isNativeClean ? 26 : 22) {
                         header
                         quickAccess
+                        favoritePlaylistsSection
                         playlistsPreview
                     }
                     .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -338,6 +340,97 @@ struct MusicLibraryHomeView: View {
         }
     }
 
+
+    private var favoritePlaylistsSection: some View {
+        Group {
+            if !favPlaylistStore.playlists.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("收藏歌单")
+                            .font(ATMusicFont.appFont(18, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text("\(favPlaylistStore.playlists.count)")
+                            .font(ATMusicFont.appFont(12, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+                        Spacer()
+                    }
+
+                    if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                        LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16), spacing: 18) {
+                            ForEach(favPlaylistStore.playlists, id: \.identityKey) { playlist in
+                                NavigationLink {
+                                    PlaylistView(playlist: playlist)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        CoverImage(url: playlist.coverURL, size: 180, cornerRadius: 14)
+                                            .aspectRatio(1, contentMode: .fit)
+                                            .frame(maxWidth: .infinity)
+                                        Text(playlist.name)
+                                            .font(ATMusicFont.appFont(14, .semibold))
+                                            .foregroundStyle(Color.atmusicLabel)
+                                            .lineLimit(1)
+                                        HStack(spacing: 4) {
+                                            SourceBadgeView(source: playlist.source)
+                                            Text(playlist.creatorName.isEmpty ? playlist.source.atmusicDisplayName : playlist.creatorName)
+                                                .font(ATMusicFont.appFont(12))
+                                                .foregroundStyle(Color.atmusicComment)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        favPlaylistStore.remove(playlist)
+                                    } label: {
+                                        Label("取消收藏", systemImage: "heart.slash")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 14) {
+                                ForEach(favPlaylistStore.playlists, id: \.identityKey) { playlist in
+                                    NavigationLink {
+                                        PlaylistView(playlist: playlist)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            CoverImage(url: playlist.coverURL, size: 124, cornerRadius: 12)
+                                                .frame(width: 124, height: 124)
+                                                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                                            Text(playlist.name)
+                                                .font(ATMusicFont.appFont(13, .semibold))
+                                                .foregroundStyle(Color.atmusicLabel)
+                                                .lineLimit(1)
+                                                .frame(width: 124, alignment: .leading)
+                                            HStack(spacing: 4) {
+                                                SourceBadgeView(source: playlist.source)
+                                                Text(playlist.creatorName.isEmpty ? playlist.source.atmusicDisplayName : playlist.creatorName)
+                                                    .font(ATMusicFont.appFont(11.5, .medium))
+                                                    .foregroundStyle(Color.atmusicComment)
+                                                    .lineLimit(1)
+                                            }
+                                            .frame(width: 124, alignment: .leading)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button(role: .destructive) {
+                                            favPlaylistStore.remove(playlist)
+                                        } label: {
+                                            Label("取消收藏", systemImage: "heart.slash")
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private var playlistsPreview: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -535,6 +628,7 @@ private struct MusicLibraryPlaylistRow: View {
 
 private enum MusicLibraryPlaylistFilter: String, CaseIterable, Identifiable {
     case all = "全部"
+    case favorites = "收藏"
     case local = "本地"
     case netease = "网易云"
     case qq = "QQ"
@@ -599,6 +693,19 @@ struct MusicLibraryAllPlaylistsView: View {
 
     private var items: [MusicLibraryPlaylistItem] {
         var result: [MusicLibraryPlaylistItem] = []
+        if filter == .all || filter == .favorites {
+            result += FavoritePlaylistStore.shared.playlists.map {
+                MusicLibraryPlaylistItem(
+                    id: "fav-\($0.identityKey)",
+                    title: $0.name,
+                    subtitle: "收藏 · \($0.source.atmusicDisplayName) · \(atmusicSongCountText($0.trackCount))",
+                    coverURL: $0.coverURL,
+                    source: $0.source,
+                    kind: .remote($0)
+                )
+            }
+        }
+
         if filter == .all || filter == .local {
             result += localStore.playlists.map {
                 MusicLibraryPlaylistItem(

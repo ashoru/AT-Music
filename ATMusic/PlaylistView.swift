@@ -14,6 +14,7 @@ struct PlaylistView: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var favorites = FavoritesStore.shared
+    @ObservedObject private var favoritePlaylists = FavoritePlaylistStore.shared
 
     let playlist: Playlist
     @State private var tracks: [Song] = []
@@ -122,7 +123,16 @@ struct PlaylistView: View {
             .navigationBarTitleDisplayMode(.inline)
             .modifier(PlaylistSearchModifier(enabled: showSearch, text: $searchText))
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        favoritePlaylists.toggle(playlist)
+                    } label: {
+                        let isFav = favoritePlaylists.isFavorite(playlist)
+                        Image(systemName: isFav ? "heart.fill" : "heart")
+                            .foregroundStyle(isFav ? Color.red : Color.primary)
+                    }
+                    .accessibilityLabel(favoritePlaylists.isFavorite(playlist) ? "取消收藏歌单" : "收藏歌单")
+
                     Menu {
                         Button {
                             ATMusicHaptics.tap()

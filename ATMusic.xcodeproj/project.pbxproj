@@ -48,6 +48,7 @@
 		8008D35367183B7BF9EE6A6E /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D8F9882B899BB6F9A68343D /* MiniPlayerView.swift */; };
 		817F2B75418BA9519791FEA4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B6B38928CB266BEBA49D0E /* RootView.swift */; };
 		81AD67B3104FBD8701C13DFC /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317645748BE52D51685C249B /* Models.swift */; };
+		828DE3C3CD07DDFE70F324B6 /* FavoritePlaylistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */; };
 		844E24A478CEEA6FEE4FCCBD /* ReferencePlaybackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925AAFA68A3B19335C3C09BC /* ReferencePlaybackView.swift */; };
 		85D45B30F9EEB3DF0708B32C /* QQWebLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1459FCC51AA2F14DD5D12CCB /* QQWebLoginSheet.swift */; };
 		862BC8A92285FE921FFDB043 /* PlayerLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3123252340404F4D56DB878E /* PlayerLayout.swift */; };
@@ -81,6 +82,7 @@
 		C3042256C079CBC926A74020 /* PlayerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D680CC248A855457AE97AF53 /* PlayerManager.swift */; };
 		C675D312A18C071A4D733028 /* ArtistHomeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BF3895B7BDFF151A72A4C0 /* ArtistHomeSheet.swift */; };
 		C81DCF3A3DA458EAFEA83E0B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594BBCBA148DC9CCF21B5EC1 /* LoginView.swift */; };
+		C8C7589CECEF2E3C353F2EE2 /* ImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F81D6A2B207CB097B16AA10C /* ImmersivePlayerView.swift */; };
 		C992973B53442356C09CCFD2 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BAAC519FF2AA96597951C5A /* UpdateChecker.swift */; };
 		CA583E602921D5AEADB9C059 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70D37FF8E088C4DEBED0FC3 /* ProfileView.swift */; };
 		D0B4F1CE8639583B09042267 /* AppEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2784CF75A1F383979FF8E15E /* AppEvents.swift */; };
@@ -155,6 +157,7 @@
 		8E791FF8CB1DF14CEDCE4193 /* FavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesStore.swift; sourceTree = "<group>"; };
 		8F0B9AB6EB336FB974DB0825 /* IPADownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPADownloader.swift; sourceTree = "<group>"; };
 		925AAFA68A3B19335C3C09BC /* ReferencePlaybackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferencePlaybackView.swift; sourceTree = "<group>"; };
+		95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritePlaylistStore.swift; sourceTree = "<group>"; };
 		9676442732A09AD59868CC4F /* UnblockSourceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnblockSourceStore.swift; sourceTree = "<group>"; };
 		96D777FC5F8A9F728B289BB5 /* PlatformPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformPreferenceStore.swift; sourceTree = "<group>"; };
 		99D096F472149597B4BEC187 /* SectionOrderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionOrderStore.swift; sourceTree = "<group>"; };
@@ -194,6 +197,7 @@
 		F1754D4A96A6C0292E55E1EC /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		F39452605945742735AE2DFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedPlaylistOrderSheet.swift; sourceTree = "<group>"; };
+		F81D6A2B207CB097B16AA10C /* ImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersivePlayerView.swift; sourceTree = "<group>"; };
 		FD81682400062D3794713DC5 /* LocalMusicSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMusicSection.swift; sourceTree = "<group>"; };
 		FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibraryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -226,11 +230,13 @@
 				C85AF1A1169E446F5B96FC2B /* DiscoverView.swift */,
 				66BD7AAAA5F5713CAF045448 /* DJVisualView.swift */,
 				7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */,
+				95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */,
 				8E791FF8CB1DF14CEDCE4193 /* FavoritesStore.swift */,
 				3C440DC1ACFF6C8F26F28BA2 /* FontManager.swift */,
 				6DB148C7425FBC4602176295 /* HighRefreshKeeper.swift */,
 				2DE201D82DC395218749E6CF /* HistoryView.swift */,
 				AE2E2991179C7A363B0D4BA2 /* ImageFileCache.swift */,
+				F81D6A2B207CB097B16AA10C /* ImmersivePlayerView.swift */,
 				C27911D6F7004B023C9758ED /* Info.plist */,
 				8F0B9AB6EB336FB974DB0825 /* IPADownloader.swift */,
 				46F5262D10001EC6AE2FC7B1 /* IPadPlayerView.swift */,
@@ -406,6 +412,7 @@
 				91F79CDC29A93AB8413F386B /* DiscoverCache.swift in Sources */,
 				E67286851BAD3BD891AEDAFC /* DiscoverView.swift in Sources */,
 				37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */,
+				828DE3C3CD07DDFE70F324B6 /* FavoritePlaylistStore.swift in Sources */,
 				F8483EDD015C5B9F0405AE44 /* FavoritesStore.swift in Sources */,
 				9207FE230AAF916D0BFBB421 /* FontManager.swift in Sources */,
 				4CFB4FEC3DB9B1A93B67B957 /* HighRefreshKeeper.swift in Sources */,
@@ -414,6 +421,7 @@
 				0A9D187FA3968412956E6B4A /* IPadPlayerView.swift in Sources */,
 				B4DA0D6855EB6D43FEEAF50A /* IPadRootView.swift in Sources */,
 				0D4C1843D29035D574804130 /* ImageFileCache.swift in Sources */,
+				C8C7589CECEF2E3C353F2EE2 /* ImmersivePlayerView.swift in Sources */,
 				0A06151D6383A4E5CDC45906 /* KugouLoginSheet.swift in Sources */,
 				3982D30F2F74623D7080F63C /* KugouMusicAPI.swift in Sources */,
 				8FC8CD992DAC9AEE1DD9C623 /* KugouMusicAuth.swift in Sources */,
@@ -496,13 +504,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
@@ -571,13 +579,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 48;
+				CURRENT_PROJECT_VERSION = 49;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.0;
+				MARKETING_VERSION = 1.9.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
