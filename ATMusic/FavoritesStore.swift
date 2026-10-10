@@ -58,6 +58,8 @@ final class FavoritesStore: ObservableObject {
         case .netease:
             let liked = !isLiked(song)
             updateNetease(song, liked: liked)
+            // 未登录：只加本地红心，不同步云端。
+            guard NetEaseAPI.shared.isLoggedIn else { return true }
             do {
                 let ok = try await NetEaseAPI.shared.like(id: song.id, liked: liked)
                 if !ok {

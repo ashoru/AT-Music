@@ -20,6 +20,13 @@ struct SynologySearchResult {
     let albums: [Album]
 }
 
+/// 文件夹直接内容概要：是否含歌曲/子文件夹、取到的第一首歌（封面预览用）。
+struct SynologyFolderOverview {
+    var hasSong = false
+    var hasFolder = false
+    var previewSong: Song?
+}
+
 /// NAS 文件当前在编辑器中展示的标签快照。
 struct SynologyTagMetadata: Equatable {
     var title: String
@@ -684,6 +691,21 @@ final class SynologyAPI: ObservableObject {
             guard let song = self.parseSong(item) else { return nil }
             return SynologyFolderItem(id: id, name: title, kind: .song, song: song)
         }
+    }
+
+    /// 返回文件夹直接内容概要（供“隐藏无音乐文件夹”与“文件夹封面预览”使用）。
+    /// 有歌曲或子文件夹则保留（避免误隐藏深层音乐目录），全空则视为无音乐。
+    func folderOverview(folderID: String) async -> SynologyFolderOverview {
+        let items = (try? await folderItems(folderID: folderID, limit: 200)) ?? []
+        var ov = SynologyFolderOverview()
+        for item in items {
+            if item.kind == .folder { ov.hasFolder = true }
+            if let song = item.song {
+                ov.hasSong = true
+                if ov.previewSong == nil { ov.previewSong = song }
+            }
+        }
+        return ov
     }
 
     /// 获取歌单列表 (SYNO.AudioStation.Playlist)

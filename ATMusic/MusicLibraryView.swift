@@ -294,15 +294,6 @@ struct MusicLibraryHomeView: View {
                     .foregroundStyle(Color.atmusicComment)
             }
             Spacer()
-            Button(action: onOpenProfile) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Color.atmusicComment.opacity(0.76))
-                    .frame(width: 38, height: 38)
-                    .background { ATMusicGlass(shape: Circle()) }
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-            .accessibilityLabel("我的")
         }
     }
 
@@ -459,19 +450,19 @@ struct MusicLibraryHomeView: View {
         case .remote(let playlist):
             NavigationLink {
                 PlaylistView(playlist: playlist)
+                    .onAppear { activityStore.mark(item.id) }
             } label: {
                 MusicLibraryPlaylistRow(item: item)
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
         case .local(let id):
             NavigationLink {
                 LocalPlaylistBrowserView(playlistID: id)
+                    .onAppear { activityStore.mark(item.id) }
             } label: {
                 MusicLibraryPlaylistRow(item: item)
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
         }
     }
 }
@@ -701,23 +692,23 @@ struct MusicLibraryAllPlaylistsView: View {
                             case .remote(let playlist):
                                 NavigationLink {
                                     PlaylistView(playlist: playlist)
+                                        .onAppear { activityStore.mark(item.id) }
                                 } label: {
                                     MusicLibraryPlaylistRow(item: item)
                                 }
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
                             case .local(let id):
                                 NavigationLink {
                                     LocalPlaylistBrowserView(playlistID: id)
+                                        .onAppear { activityStore.mark(item.id) }
                                 } label: {
                                     MusicLibraryPlaylistRow(item: item)
                                 }
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .simultaneousGesture(TapGesture().onEnded { activityStore.mark(item.id) })
                             }
                         }
                     }

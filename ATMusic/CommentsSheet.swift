@@ -83,12 +83,6 @@ struct CommentsSheet: View {
 
     private func neteaseCommentList(_ page: NetEaseAPI.SongCommentPage) -> some View {
         List {
-            Section {
-                Text(atmusicCommentCountText(songName: song.name, count: page.total))
-                    .font(ATMusicFont.appFont(12))
-                    .foregroundStyle(Color.atmusicComment)
-            }
-            .listRowBackground(Color.clear)
             if !page.hot.isEmpty {
                 Picker("评论分类", selection: $selectedCommentTab) {
                     ForEach(CommentTab.allCases) { tab in
@@ -96,6 +90,7 @@ struct CommentsSheet: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowBackground(Color.clear)
             } else if !page.comments.isEmpty {
                 Picker("评论分类", selection: $selectedCommentTab) {
@@ -193,18 +188,13 @@ struct CommentsSheet: View {
                 EmptyStateView(icon: "bubble.left", text: "暂无评论")
             } else {
                 List {
-                    Section {
-                        Text(atmusicCommentCountText(songName: song.name, platform: "QQ 音乐", count: qqTotal > 0 ? qqTotal : qqComments.count))
-                            .font(ATMusicFont.appFont(12))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                    .listRowBackground(Color.clear)
                     Picker("评论分类", selection: $selectedCommentTab) {
                         ForEach(CommentTab.allCases) { tab in
                             Text(tab.rawValue).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowBackground(Color.clear)
                     Section(selectedCommentTab == .hot ? "热门评论" : "最新评论") {
                         ForEach(selectedCommentTab == .hot ? qqHotComments : qqComments) { comment in
@@ -243,18 +233,13 @@ struct CommentsSheet: View {
                 EmptyStateView(icon: "bubble.left", text: "暂无评论")
             } else {
                 List {
-                    Section {
-                        Text(atmusicCommentCountText(songName: song.name, platform: "酷狗音乐", count: kugouTotal > 0 ? kugouTotal : kugouComments.count))
-                            .font(ATMusicFont.appFont(12))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                    .listRowBackground(Color.clear)
                     Picker("评论分类", selection: $selectedCommentTab) {
                         ForEach(CommentTab.allCases) { tab in
                             Text(tab.rawValue).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowBackground(Color.clear)
                     Section(selectedCommentTab == .hot ? "热门评论" : "最新评论") {
                         ForEach(selectedCommentTab == .hot ? kugouHotComments : kugouComments) { comment in

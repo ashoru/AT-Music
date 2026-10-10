@@ -441,6 +441,10 @@ struct FeaturedView: View {
     @State private var errorMessage: String?
     @State private var nextOffset = 0
     @State private var hasMorePlaylists = true
+    /// 精选歌单网格滚动锚点：从详情页返回时恢复原浏览位置，不回到顶部。
+    @State private var scrollID: String?
+    /// 最近一次已执行的加载键，避免返回页面时重复重载列表。
+    @State private var lastLoadedTaskID = ""
 
     private let pageSize = 40
 
@@ -489,6 +493,7 @@ struct FeaturedView: View {
                         }
                     }
                     .atmusicScrollIndicatorsHidden()
+                    .atmusicScrollPosition($scrollID)
                     .refreshable { await load(reset: true) }
                 }
             }
@@ -500,6 +505,7 @@ struct FeaturedView: View {
                 query = ""
                 categories = FeaturedSource.defaultCategories(for: newValue)
                 playlists = []
+                scrollID = nil
                 isLoading = true
                 errorMessage = nil
                 if newValue == .netease {
@@ -512,6 +518,10 @@ struct FeaturedView: View {
                 }
             }
             .task(id: reloadTaskID) {
+                // 从歌单详情返回时任务会重新启动；来源/分类/关键词没变则不重载，
+                // 避免列表被重置回顶部（配合滚动锚点保持浏览位置）。
+                guard lastLoadedTaskID != reloadTaskID else { return }
+                lastLoadedTaskID = reloadTaskID
                 if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     try? await Task.sleep(nanoseconds: 350_000_000)
                     guard !Task.isCancelled else { return }
@@ -559,16 +569,6 @@ struct FeaturedView: View {
             .accessibilityLabel("切换精选平台")
 
             Spacer(minLength: 0)
-            Button(action: onOpenProfile) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Color.atmusicComment.opacity(0.72))
-                    .frame(width: 36, height: 36)
-                    .background { ATMusicGlass(shape: Circle()) }
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("我的")
         }
         .padding(.horizontal, 24)
         .padding(.top, 10)
@@ -655,6 +655,7 @@ struct FeaturedView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .id(playlist.identityKey)
                 .onAppear {
                     guard playlist.identityKey == playlists.last?.identityKey else { return }
                     Task { await loadMoreIfNeeded() }
@@ -684,6 +685,7 @@ struct FeaturedView: View {
             nextOffset = 0
             hasMorePlaylists = true
             playlists = []
+            scrollID = nil
         } else {
             guard !isLoading, !isLoadingMore, hasMorePlaylists else { return }
             isLoadingMore = true
@@ -1123,6 +1125,18 @@ struct TabBarAppearanceConfigurator: UIViewControllerRepresentable {
             guard gesture.state == .began else { return }
             ATMusicHaptics.select()
             onHomeLongPress?()
+        }
+    }
+}
+
+private extension View {
+    /// 精选页滚动位置保持：返回列表页时恢复到原锚点（iOS 17+）。
+    @ViewBuilder
+    func atmusicScrollPosition(_ id: Binding<String?>) -> some View {
+        if #available(iOS 17.0, *) {
+            scrollPosition(id: id)
+        } else {
+            self
         }
     }
 }

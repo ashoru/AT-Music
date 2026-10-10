@@ -415,10 +415,6 @@ final class PlayerManager: NSObject, ObservableObject {
     func next(manual: Bool = true) {
         guard ensurePlaybackAllowed() else { return }
         guard !queue.isEmpty else { return }
-        if playMode == .repeatOne && manual {
-            restartCurrent()
-            return
-        }
         advance()
         loadCurrent()
     }
@@ -1970,6 +1966,9 @@ final class PlayerManager: NSObject, ObservableObject {
             } else if lastNowPlayingArtworkKey != artworkKey {
                 lastNowPlayingArtworkKey = artworkKey
                 loadNowPlayingArtwork(song: song, key: artworkKey, url: artworkURL)
+            } else if let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] {
+                // 封面正在后台加载（或刚加载完）：同首歌的进度/状态刷新不清空已设置的封面。
+                info[MPMediaItemPropertyArtwork] = existing
             }
         } else {
             lastNowPlayingArtworkKey = nil
@@ -1988,13 +1987,20 @@ final class PlayerManager: NSObject, ObservableObject {
 
     private func loadNowPlayingArtwork(song: Song, key: String, url: URL) {
         Task.detached(priority: .utility) { [weak self] in
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 15
-            request.cachePolicy = .returnCacheDataElseLoad
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let image = UIImage(data: data) else { return }
+            var image: UIImage?
+            for _ in 0..<2 {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 12
+                request.cachePolicy = .returnCacheDataElseLoad
+                if let (data, response) = try? await URLSession.shared.data(for: request),
+                   let http = response as? HTTPURLResponse,
+                   (200..<300).contains(http.statusCode),
+                   let img = UIImage(data: data) {
+                    image = img
+                    break
+                }
+            }
+            guard let image else { return }
 
             Self.nowPlayingArtworkCache.setObject(image, forKey: url as NSURL)
             await MainActor.run {
@@ -2067,24 +2073,8 @@ final class PlayerManager: NSObject, ObservableObject {
             }
             return .success
         }
-        center.skipForwardCommand.isEnabled = true
-        center.skipForwardCommand.preferredIntervals = [15]
-        center.skipForwardCommand.addTarget { [weak self] _ in
-            self?.performOnMain { [weak self] in
-                guard let self else { return }
-                self.seek(to: min(self.progress + 15, self.duration))
-            }
-            return .success
-        }
-        center.skipBackwardCommand.isEnabled = true
-        center.skipBackwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.addTarget { [weak self] _ in
-            self?.performOnMain { [weak self] in
-                guard let self else { return }
-                self.seek(to: max(self.progress - 15, 0))
-            }
-            return .success
-        }
+        // 锁屏/控制中心显示“上一首 / 下一首”，不启用 15 秒快进快退。
+        // （skipForwardCommand/skipBackwardCommand 默认关闭；保留 next/previous）
     }
 
     // MARK: - 与其他音频同时播放

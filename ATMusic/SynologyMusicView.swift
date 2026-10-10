@@ -1523,6 +1523,8 @@ struct SynologyLibrarySection: View {
     @State private var category: SynologyLibraryCategory = .folders
     @State private var folderItems: [SynologyFolderItem] = []
     @State private var folderPreviewSongs: [String: Song] = [:]
+    /// 根目录各文件夹概要（含歌/子文件夹 + 封面预览歌），用于隐藏无音乐文件夹与取封面。
+    @State private var folderOverviewCache: [String: SynologyFolderOverview] = [:]
     @State private var songs: [Song] = []
     @State private var playlists: [Playlist] = []
     @State private var playlistPreviewSongs: [String: Song] = [:]
@@ -1583,21 +1585,14 @@ struct SynologyLibrarySection: View {
                 SectionHeader(title: "音乐文件夹")
                 ForEach(folderItems) { item in
                     if item.kind == .folder {
-                        NavigationLink {
-                            SynologyFolderView(
-                                folderID: item.id,
-                                title: item.name,
-                                breadcrumbs: ["NAS", item.name]
-                            )
-                        } label: {
-                            SynologyLibraryRow(
-                                coverURL: folderPreviewSongs[item.id]?.coverURL,
-                                title: item.name,
-                                subtitle: "文件夹",
-                                systemImage: "folder.fill"
-                            )
+                        // 隐藏无音乐文件夹（缓存/空目录）：无概要先显示，概要回来后收起。
+                        if let ov = folderOverviewCache[item.id] {
+                            if ov.hasSong || ov.hasFolder {
+                                rootFolderLink(item)
+                            }
+                        } else {
+                            rootFolderLink(item)
                         }
-                        .buttonStyle(.plain)
                     } else if let song = item.song {
                         SongCell(song: song, glassRow: false) {
                             player.play(songs: [song])
@@ -1647,6 +1642,25 @@ struct SynologyLibrarySection: View {
         }
     }
 
+    @ViewBuilder
+    private func rootFolderLink(_ item: SynologyFolderItem) -> some View {
+        NavigationLink {
+            SynologyFolderView(
+                folderID: item.id,
+                title: item.name,
+                breadcrumbs: ["NAS", item.name]
+            )
+        } label: {
+            SynologyLibraryRow(
+                coverURL: folderOverviewCache[item.id]?.previewSong?.coverURL,
+                title: item.name,
+                subtitle: "文件夹",
+                systemImage: "folder.fill"
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private func load() async {
         guard synology.isLoggedIn else { return }
         isLoading = true
@@ -1659,18 +1673,18 @@ struct SynologyLibrarySection: View {
             folderItems = newRoot
             songs = newSongs
             playlists = newPlaylists
-            var previews: [String: Song] = [:]
-            await withTaskGroup(of: (String, Song?).self) { group in
+            var overviews: [String: SynologyFolderOverview] = [:]
+            await withTaskGroup(of: (String, SynologyFolderOverview).self) { group in
                 for item in newRoot where item.kind == .folder {
                     group.addTask {
-                        (item.id, (try? await synology.folderItems(folderID: item.id, limit: 1))?.compactMap(\.song).first)
+                        (item.id, await synology.folderOverview(folderID: item.id))
                     }
                 }
-                for await (folderID, song) in group {
-                    if let song { previews[folderID] = song }
+                for await (folderID, ov) in group {
+                    overviews[folderID] = ov
                 }
             }
-            folderPreviewSongs = previews
+            folderOverviewCache = overviews
             var playlistPreviews: [String: Song] = [:]
             await withTaskGroup(of: (String, Song?).self) { group in
                 for playlist in newPlaylists {
@@ -1693,6 +1707,7 @@ struct SynologyLibrarySection: View {
 }
 
 struct SynologyFolderView: View {
+    @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager
     @ObservedObject private var synology = SynologyAPI.shared
 
@@ -1700,6 +1715,11 @@ struct SynologyFolderView: View {
     let title: String
     let breadcrumbs: [String]
     @State private var items: [SynologyFolderItem] = []
+    /// 各文件夹内容概要（含歌/子文件夹 + 封面预览歌），用于隐藏无音乐文件夹与取封面。
+    @State private var folderOverviews: [String: SynologyFolderOverview] = [:]
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<Int> = []
+    @State private var showBatchEditor = false
 
     init(folderID: String?, title: String, breadcrumbs: [String] = ["NAS"]) {
         self.folderID = folderID
@@ -1721,7 +1741,13 @@ struct SynologyFolderView: View {
             }
             return false
         }
-        return filtered.sorted { lhs, rhs in
+        // 隐藏无音乐的文件夹（如缓存/空目录）：有歌曲或子文件夹才保留；概要未回先显示，回来后再收起。
+        let musicOnly = filtered.filter { item in
+            if item.kind == .song { return true }
+            guard let ov = folderOverviews[item.id] else { return true }
+            return ov.hasSong || ov.hasFolder
+        }
+        return musicOnly.sorted { lhs, rhs in
             if lhs.kind != rhs.kind {
                 return lhs.kind == .folder
             }
@@ -1731,6 +1757,62 @@ struct SynologyFolderView: View {
 
     private var songs: [Song] {
         displayedItems.compactMap(\.song)
+    }
+
+    @ViewBuilder
+    private func folderRow(_ item: SynologyFolderItem) -> some View {
+        NavigationLink {
+            SynologyFolderView(
+                folderID: item.id,
+                title: item.name,
+                breadcrumbs: breadcrumbs + [item.name]
+            )
+        } label: {
+            SynologyLibraryRow(
+                coverURL: folderOverviews[item.id]?.previewSong?.coverURL,
+                title: item.name,
+                subtitle: "文件夹",
+                systemImage: "folder.fill"
+            )
+        }
+        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func songRow(_ song: Song, index: Int) -> some View {
+        if isSelecting {
+            Button {
+                if selectedIDs.contains(song.id) {
+                    selectedIDs.remove(song.id)
+                } else {
+                    selectedIDs.insert(song.id)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: selectedIDs.contains(song.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(selectedIDs.contains(song.id) ? theme.accent.highlight : Color.atmusicComment)
+                    SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {}
+                }
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(Color.clear)
+        } else {
+            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                player.play(songs: songs, startAt: index)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func itemRow(_ item: SynologyFolderItem) -> some View {
+        if item.kind == .folder {
+            folderRow(item)
+        } else if let song = item.song {
+            songRow(song, index: songs.firstIndex(of: song) ?? 0)
+        }
     }
 
     var body: some View {
@@ -1771,30 +1853,7 @@ struct SynologyFolderView: View {
 
                     Section {
                         ForEach(displayedItems) { item in
-                            if item.kind == .folder {
-                                NavigationLink {
-                                    SynologyFolderView(
-                                        folderID: item.id,
-                                        title: item.name,
-                                        breadcrumbs: breadcrumbs + [item.name]
-                                    )
-                                } label: {
-                                    SynologyLibraryRow(
-                                        coverURL: nil,
-                                        title: item.name,
-                                        subtitle: "文件夹",
-                                        systemImage: "folder.fill"
-                                    )
-                                }
-                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                            } else if let song = item.song {
-                                let index = songs.firstIndex(of: song) ?? 0
-                                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
-                                    player.play(songs: songs, startAt: index)
-                                }
-                            }
+                            itemRow(item)
                         }
                     }
                 }
@@ -1805,6 +1864,46 @@ struct SynologyFolderView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索当前文件夹")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if !songs.isEmpty {
+                    if isSelecting {
+                        HStack(spacing: 14) {
+                            Button(selectedIDs.count == songs.count ? "取消全选" : "全选") {
+                                if selectedIDs.count == songs.count {
+                                    selectedIDs.removeAll()
+                                } else {
+                                    selectedIDs = Set(songs.map(\.id))
+                                }
+                            }
+                            Button("完成") {
+                                isSelecting = false
+                                selectedIDs.removeAll()
+                            }
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                    } else {
+                        Button("编辑") { isSelecting = true }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting && !selectedIDs.isEmpty {
+                GlassButton(title: "批量编辑(\(selectedIDs.count))", systemName: "square.and.pencil", prominent: true) {
+                    showBatchEditor = true
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+        .sheet(isPresented: $showBatchEditor) {
+            let selected = songs.filter { selectedIDs.contains($0.id) }
+            SynologyBatchMetadataEditorSheet(songs: selected, keyword: selected.first?.name ?? "")
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
         .task { if synology.isLoggedIn { await load(force: false) } }
         .refreshable {
             await load(force: true)
@@ -1824,11 +1923,13 @@ struct SynologyFolderView: View {
         } else if let fresh = synology.cachedFolderItems(folderID: folderID, allowStale: false) {
             items = fresh
             isLoading = false
+            refreshFolderOverviews()
             return
         } else if let stale = synology.cachedFolderItems(folderID: folderID, allowStale: true) {
             // 旧缓存先展示，网络刷新在后面静默进行。
             items = stale
             isLoading = false
+            refreshFolderOverviews()
         }
 
         isLoading = items.isEmpty
@@ -1861,6 +1962,7 @@ struct SynologyFolderView: View {
             } else if items.isEmpty {
                 synology.cacheFolderItems([], folderID: folderID)
             }
+            refreshFolderOverviews()
             isLoading = false
         } catch {
             isLoading = false
@@ -1869,6 +1971,147 @@ struct SynologyFolderView: View {
                 errorMessage = error.localizedDescription
             } else {
                 ATMusicLogger.shared.log("NAS 文件夹后台刷新失败：\(error.localizedDescription)", level: .debug)
+            }
+        }
+    }
+
+    /// 并发查询各文件夹内容概要：用于隐藏无音乐文件夹 + 文件夹封面预览。
+    private func refreshFolderOverviews() {
+        let folderIDs = items.filter { $0.kind == .folder }.map(\.id)
+        if folderIDs.isEmpty {
+            folderOverviews = [:]
+            return
+        }
+        Task {
+            var overviews: [String: SynologyFolderOverview] = [:]
+            await withTaskGroup(of: (String, SynologyFolderOverview).self) { group in
+                for id in folderIDs {
+                    group.addTask {
+                        (id, await synology.folderOverview(folderID: id))
+                    }
+                }
+                for await (fid, ov) in group { overviews[fid] = ov }
+            }
+            await MainActor.run { folderOverviews = overviews }
+        }
+    }
+}
+
+/// 批量编辑 NAS 歌曲信息：统一修改专辑名称、整体设置封面，逐首写入 NAS 标签。
+struct SynologyBatchMetadataEditorSheet: View {
+    @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var player: PlayerManager
+    @Environment(\.dismiss) private var dismiss
+    let songs: [Song]
+    let keyword: String
+
+    @State private var album = ""
+    @State private var selectedCoverURL: URL?
+    @State private var selectedCoverData: Data?
+    @State private var isSaving = false
+    @State private var message = ""
+    @State private var showCoverPicker = false
+    @State private var savedCount: Int?
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("批量设置 \(songs.count) 首歌曲")
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    if let savedCount {
+                        Text("已写入 \(savedCount)/\(songs.count) 首")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(theme.accent.highlight)
+                    } else if !message.isEmpty {
+                        Text(message).font(ATMusicFont.appFont(12)).foregroundStyle(Color.atmusicComment)
+                    }
+                    TextField("专辑名称（留空不改动）", text: $album)
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        showCoverPicker = true
+                    } label: {
+                        HStack {
+                            Label("选择封面图（可选）", systemImage: "photo")
+                            Spacer()
+                            if selectedCoverURL != nil || selectedCoverData != nil {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.accent.highlight)
+                            }
+                        }
+                        .font(ATMusicFont.appFont(14))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .padding(14)
+                        .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    GlassButton(title: isSaving ? "正在写入…" : "写入 NAS", systemName: "square.and.arrow.down", prominent: true) {
+                        Task { await save() }
+                    }
+                    .disabled(isSaving)
+                }
+                .padding(20)
+            }
+            .navigationTitle("批量编辑")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        }
+        .sheet(isPresented: $showCoverPicker) {
+            if let first = songs.first {
+                SongCoverSearchGridSheet(song: first) { candidate in
+                    selectedCoverURL = candidate.song.coverURL
+                    selectedCoverData = nil
+                    showCoverPicker = false
+                } onPickData: { data in
+                    selectedCoverData = data
+                    selectedCoverURL = nil
+                    showCoverPicker = false
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        guard !isSaving else { return }
+        let trimmedAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let patch = SynologyTagPatch(
+            title: nil, artist: nil,
+            album: trimmedAlbum.isEmpty ? nil : trimmedAlbum,
+            albumArtist: nil, genre: nil, year: nil, comment: nil
+        )
+        if patch.isEmpty && selectedCoverURL == nil && selectedCoverData == nil {
+            await MainActor.run { message = "没有可写入的内容（专辑名称留空且未选择封面）" }
+            return
+        }
+        await MainActor.run { isSaving = true; message = "正在逐首写入 NAS…" }
+        var saved = 0
+        for song in songs {
+            do {
+                try await SynologyAPI.shared.applyMetadata(
+                    song: song,
+                    patch: patch,
+                    coverURL: selectedCoverURL,
+                    coverData: selectedCoverData
+                )
+                saved += 1
+                await MainActor.run {
+                    savedCount = saved
+                    message = "正在逐首写入 NAS…（\(saved)/\(songs.count)）"
+                }
+            } catch {
+                await MainActor.run { message = "第 \(saved + 1) 首写入失败：\(error.localizedDescription)" }
+            }
+        }
+        await MainActor.run {
+            isSaving = false
+            if saved == songs.count {
+                ToastCenter.shared.show("批量写入完成（\(saved) 首）")
+                dismiss()
+            } else {
+                savedCount = saved
+                message = "完成 \(saved)/\(songs.count)，失败歌曲已跳过"
             }
         }
     }

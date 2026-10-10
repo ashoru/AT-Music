@@ -310,7 +310,7 @@ struct SearchView: View {
             VStack(spacing: 0) {
                 headerTitle
                     .padding(.horizontal, 20)
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                     .padding(.bottom, 10)
 
                 searchField
@@ -475,7 +475,7 @@ struct SearchView: View {
     private var headerTitle: some View {
         HStack(alignment: .center, spacing: 10) {
             Text(keyword.isEmpty ? "搜索" : keyword)
-                .font(ATMusicFont.appFont(keyword.isEmpty ? 32 : 42, .bold))
+                .font(ATMusicFont.appFont(keyword.isEmpty ? 30 : 42, .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
                 .foregroundStyle(Color.atmusicLabel)

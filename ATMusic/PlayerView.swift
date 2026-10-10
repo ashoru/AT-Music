@@ -1241,7 +1241,8 @@ struct PlayerView: View {
             ATMusicHaptics.tap()
             player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
         } label: {
-            let translation = (line.translation?.isEmpty == false) ? line.translation! : " "
+            // 黑胶样式：译文仅在“该行有译文”时渲染，无译文高度为 0；行高跟随内容自然撑开
+            let translation = (line.translation?.isEmpty == false) ? line.translation : nil
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(line.text.isEmpty ? " " : line.text)
@@ -1255,15 +1256,17 @@ struct PlayerView: View {
                         .foregroundStyle(albumArtistForeground.opacity(isFocused && vinylIsUserScrolling ? 0.82 : 0))
                         .frame(width: 42, alignment: .trailing)
                 }
-                Text(translation)
-                    .font(ATMusicFont.appFont(15, .medium))
-                    .foregroundStyle(albumArtistForeground.opacity(isFocused && line.translation?.isEmpty == false ? 0.68 : 0))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .accessibilityHidden(!(isFocused && line.translation?.isEmpty == false))
+                if let translation {
+                    Text(translation)
+                        .font(ATMusicFont.appFont(15, .medium))
+                        .foregroundStyle(albumArtistForeground.opacity(isFocused ? 0.68 : 0))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .accessibilityHidden(!isFocused)
+                }
             }
             .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, minHeight: vinylLyricsLineSlotHeight, maxHeight: vinylLyricsLineSlotHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .scaleEffect(isFocused ? 1.16 : 0.92, anchor: .leading)
             .blur(radius: isFocused ? 0 : 0.7)
@@ -3436,7 +3439,7 @@ struct LyricsSection: View {
                 }
             }
             .scrollTargetLayout()
-            .padding(.vertical, max(120, (baseFontSize * 3.15 + lineSpacing * 0.35) * 2.4))
+            .padding(.vertical, max(120, (baseFontSize * 2.0 + baseFontSize * 0.7 + lineSpacing * 0.4 + 4) * 2.4))
             .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
@@ -3487,6 +3490,16 @@ struct LyricsSection: View {
                 scrollTarget = newIndex
             }
         }
+        // 字号/行距动态变化后，强制高亮行按新行高重新对齐视口中心（scrollPosition 会重新计算锚点）
+        .onChange(of: baseFontSize) { _, _ in
+            recenterToCurrentLyric()
+        }
+        .onChange(of: lineSpacing) { _, _ in
+            recenterToCurrentLyric()
+        }
+        .onChange(of: showTranslation) { _, _ in
+            recenterToCurrentLyric()
+        }
     }
 
     /// 低系统版本只保留基础可滚动歌词；iOS 27 主路径完全不走这里。
@@ -3505,6 +3518,15 @@ struct LyricsSection: View {
         }
         .offset(x: offsetX)
         .atmusicScrollIndicatorsHidden()
+    }
+
+    private func recenterToCurrentLyric() {
+        guard !isUserScrolling, let currentIndex else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            scrollTarget = currentIndex
+        }
     }
 
     private func scheduleLyricsFollowResume() {
@@ -3550,9 +3572,12 @@ struct LyricsSection: View {
         let glowColor = glowColorOverride ?? (gradientStart ?? accent)
 
         let lineFont: Font = ATMusicFont.appFont(size)
-        let translationText = (showTranslation && line.translation?.isEmpty == false) ? line.translation! : " "
-        // 固定滚动定位槽位：正文最多两行 + 翻译一行。高亮、翻译显隐、时间显隐都不改变几何高度。
-        let slotHeight = max(72, size * 3.15 + lineSpacing * 0.35)
+        // 译文行仅在“显示翻译且该行有译文”时渲染；无译文时不占高度（高度为 0），行距可真正压小
+        let translation = (showTranslation && line.translation?.isEmpty == false) ? line.translation : nil
+        // 行高跟随实际内容自然撑开，无固定槽位下限：正文最多两行、翻译行恒占位（" "），
+        // 单行歌词行距可真正调小，多行 + 翻译自动变高；翻译显隐不改几何高度。
+        // 每行自身中心即内容中心，scrollPosition(.center) 把高亮行滚到视口中心，
+        // 因此一行、两行、三行带翻译时文字内容始终居中。
 
         return VStack(alignment: alignment == .leading ? .leading : .center, spacing: 3) {
             Text(line.text.isEmpty ? " " : line.text)
@@ -3574,17 +3599,18 @@ struct LyricsSection: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.82)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(translationText)
+            if let translation {
+                Text(translation)
                     .font(ATMusicFont.appFont(size * 0.68, .regular))
-                    .foregroundStyle(secondary.opacity(isCurrent && line.translation?.isEmpty == false ? 0.9 : 0))
-                .multilineTextAlignment(alignment == .leading ? .leading : .center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .blur(radius: blurRadius * 0.5)
-                .opacity(max(opacity, 0.2))
-                .accessibilityHidden(!(isCurrent && line.translation?.isEmpty == false))
+                    .foregroundStyle(secondary.opacity(isCurrent ? 0.9 : 0))
+                    .multilineTextAlignment(alignment == .leading ? .leading : .center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .blur(radius: blurRadius * 0.5)
+                    .opacity(max(opacity, 0.2))
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: slotHeight, maxHeight: slotHeight, alignment: alignment == .leading ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)
         .padding(.horizontal, alignment == .leading ? 40 : 36)
         .overlay(alignment: .trailing) {
             Text(atmusicTimeString(line.time))
@@ -3743,7 +3769,6 @@ struct PlayerSettingsSheet: View {
     @AppStorage("atmusic.appleMusic.showLyricPreview") private var appleShowLyricPreview = true
     @Environment(\.dismiss) private var dismiss
     @AppStorage("atmusic.playerSettings.playbackExpanded") private var playbackExpanded = false
-    @AppStorage("atmusic.playerSettings.lyricDisplayExpanded") private var lyricDisplayExpanded = false
     @AppStorage("atmusic.playerSettings.lyricEffectExpanded") private var lyricEffectExpanded = false
     @AppStorage("atmusic.playerSettings.layoutExpanded") private var layoutExpanded = false
     @AppStorage("atmusic.playerSettings.coverExpanded") private var coverExpanded = false
@@ -4123,7 +4148,6 @@ struct PlayerSettingsSheet: View {
                     LazyVStack(spacing: 12) {
                         layoutEditorCard
                         coverStyleCard
-                        lyricDisplayCard
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 34)
@@ -4415,54 +4439,6 @@ struct PlayerSettingsSheet: View {
         }
     }
 
-    /// 歌词显示卡片：字号 / 行距 / 翻译。字号和行距与 PlayerView 共用 AppStorage，
-    /// 拖动后实时刷新当前歌词，不需要关闭设置页再生效。
-    private var lyricOffsetText: String {
-        if lyricOffset == 0 { return "同步" }
-        return lyricOffset > 0
-            ? "提前 " + String(format: "%.1f", lyricOffset) + "s"
-            : "延后 " + String(format: "%.1f", -lyricOffset) + "s"
-    }
-
-    private var lyricDisplayCard: some View {
-        settingCard("歌词显示", isExpanded: $lyricDisplayExpanded) {
-            settingSlider("歌词字号", valueText: "\(fontSize) pt") {
-                ATMusicInteractiveValueSlider(
-                    value: Binding(get: { CGFloat(fontSize) }, set: { fontSize = Int($0.rounded()) }),
-                    range: 12...28,
-                    step: 1,
-                    accessibilityLabel: "歌词字号"
-                )
-            }
-            Divider().opacity(0.5)
-            settingSlider("歌词行距", valueText: "\(lineSpacing) pt") {
-                ATMusicInteractiveValueSlider(
-                    value: Binding(get: { CGFloat(lineSpacing) }, set: { lineSpacing = Int($0.rounded()) }),
-                    range: 4...40,
-                    step: 1,
-                    accessibilityLabel: "歌词行距"
-                )
-            }
-            Divider().opacity(0.5)
-            settingSlider("歌词进度偏移", valueText: lyricOffsetText) {
-                Slider(value: Binding(get: { lyricOffset }, set: { lyricOffset = Double($0) }), in: -10...10, step: 0.1)
-                    .tint(Color.atmusicAmber)
-            }
-            HStack {
-                Text("歌词与音频不同步时手动校正（正数提前、负数延后）")
-                    .font(ATMusicFont.appFont(11))
-                    .foregroundStyle(Color.atmusicComment)
-                Spacer()
-                Button("重置") { lyricOffset = 0 }
-                    .font(ATMusicFont.appFont(12, .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
-                    .buttonStyle(.plain)
-            }
-            Divider().opacity(0.5)
-            settingToggle("显示歌词翻译", isOn: $lyricTranslation,
-                          caption: "当前播放歌词下方显示译文（网易云 tlyric）")
-        }
-    }
 
     /// 歌词效果卡片：模糊 / 发光 / 渐变预设 / 配色
     private var lyricEffectCard: some View {
@@ -4779,6 +4755,15 @@ private struct PlayerLayoutEditorSheet: View {
     @AppStorage("atmusic.playerLayout.referencePresetV6") private var referencePresetV6Applied = false
     @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
     @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
+    @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
+
+    private var lyricOffsetText: String {
+        if lyricOffset == 0 { return "同步" }
+        return lyricOffset > 0
+            ? "提前 " + String(format: "%.1f", lyricOffset) + "s"
+            : "延后 " + String(format: "%.1f", -lyricOffset) + "s"
+    }
 
     // 默认直接展示歌词预览，避免拖动歌词滑块时切换预览导致手势被打断。
     @State private var previewMode = 1
@@ -5018,55 +5003,71 @@ private struct PlayerLayoutEditorSheet: View {
                 Spacer(minLength: 0)
                 ZStack {
                     // 左侧静音/音量键。
-                    VStack(spacing: 9) {
-                        Capsule().fill(.white.opacity(0.36)).frame(width: 3, height: 21)
-                        Capsule().fill(.white.opacity(0.36)).frame(width: 3, height: 31)
-                        Capsule().fill(.white.opacity(0.36)).frame(width: 3, height: 31)
+                    VStack(spacing: 8) {
+                        Capsule().fill(.white.opacity(0.40)).frame(width: 3, height: 20)
+                        Capsule().fill(.white.opacity(0.40)).frame(width: 3, height: 30)
+                        Capsule().fill(.white.opacity(0.40)).frame(width: 3, height: 30)
                     }
-                    .offset(x: -(width / 2 + 2), y: -height * 0.18)
+                    .offset(x: -(width / 2 + 1.5), y: -height * 0.17)
+                    .allowsHitTesting(false)
 
                     // 右侧电源键。
                     Capsule()
-                        .fill(.white.opacity(0.36))
-                        .frame(width: 3, height: 45)
-                        .offset(x: width / 2 + 2, y: -height * 0.12)
+                        .fill(.white.opacity(0.40))
+                        .frame(width: 3, height: 44)
+                        .offset(x: width / 2 + 1.5, y: -height * 0.12)
+                        .allowsHitTesting(false)
 
-                    // 金属边框。
+                    // 金属边框（最外层，细腻渐变）。
                     RoundedRectangle(cornerRadius: width * 0.155, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.66),
-                                    Color.gray.opacity(0.44),
-                                    Color.white.opacity(0.18),
-                                    Color.gray.opacity(0.64)
+                                    Color.white.opacity(0.78),
+                                    Color(white: 0.62).opacity(0.60),
+                                    Color(white: 0.28).opacity(0.55),
+                                    Color(white: 0.72).opacity(0.66)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
+                        .allowsHitTesting(false)
 
+                    // 黑色机身内框（圆角递进，形成整洁屏框）。
                     RoundedRectangle(cornerRadius: width * 0.145, style: .continuous)
                         .fill(Color.black)
-                        .padding(3.0)
+                        .padding(2.0)
+                        .allowsHitTesting(false)
 
-                    // 这里不是效果图，而是完整真实 PlayerView 的缩放实例。
+                    // 完整真实 PlayerView 的缩放实例：铺满屏幕区、圆角贴合内框，无黑边接缝。
                     devicePreviewCanvas(device: device)
-                        .padding(6.0)
-                        .clipShape(RoundedRectangle(cornerRadius: width * 0.122, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: width * 0.140, style: .continuous))
 
-                    // 灵动岛。
+                    // 灵动岛（纯装饰，不拦截预览点击）。
                     Capsule()
                         .fill(Color.black)
                         .frame(width: width * 0.23, height: width * 0.060)
-                        .padding(.top, width * 0.045)
+                        .padding(.top, width * 0.042)
                         .frame(maxHeight: .infinity, alignment: .top)
+                        .allowsHitTesting(false)
 
+                    // 底部 Home 指示条。
+                    Capsule()
+                        .fill(.white.opacity(0.38))
+                        .frame(width: width * 0.30, height: 3.5)
+                        .padding(.bottom, 5)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(false)
+
+                    // 边框高光描边。
                     RoundedRectangle(cornerRadius: width * 0.155, style: .continuous)
-                        .strokeBorder(.white.opacity(0.54), lineWidth: 0.8)
+                        .strokeBorder(.white.opacity(0.5), lineWidth: 0.8)
+                        .allowsHitTesting(false)
                 }
+                .compositingGroup()
                 .frame(width: width, height: height)
-                .shadow(color: .black.opacity(0.74), radius: 22, y: 11)
+                .shadow(color: .black.opacity(0.7), radius: 22, y: 11)
                 Spacer(minLength: 0)
             }
         }
@@ -5099,7 +5100,7 @@ private struct PlayerLayoutEditorSheet: View {
                 .scaleEffect(scale, anchor: .center)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped()
-                .allowsHitTesting(false)
+                .allowsHitTesting(true)
         }
     }
 
@@ -5131,8 +5132,35 @@ private struct PlayerLayoutEditorSheet: View {
                     get: { CGFloat(lyricLineSpacing) },
                     set: { lyricLineSpacing = Int($0.rounded()) }
                 ),
-                range: 14...40
+                range: 0...40
             )
+
+            Divider().opacity(0.5)
+            HStack {
+                Text("歌词进度偏移")
+                    .font(ATMusicFont.appFont(13, .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                Text(lyricOffsetText)
+                    .font(ATMusicFont.appFont(12, .medium, .monospaced))
+                    .foregroundStyle(Color.atmusicAmber)
+            }
+            Slider(value: Binding(get: { lyricOffset }, set: { lyricOffset = Double($0) }), in: -10...10, step: 0.1)
+                .tint(Color.atmusicAmber)
+            HStack {
+                Text("歌词与音频不同步时手动校正（正数提前、负数延后）")
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(.white.opacity(0.58))
+                Spacer()
+                Button("重置") { lyricOffset = 0 }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .buttonStyle(.plain)
+            }
+            Toggle("显示歌词翻译", isOn: $lyricTranslation)
+                .font(ATMusicFont.appFont(13, .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .tint(Color.atmusicAmber)
 
             HStack {
                 Spacer()

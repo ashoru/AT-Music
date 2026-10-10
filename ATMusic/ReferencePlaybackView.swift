@@ -52,6 +52,8 @@ struct ReferencePlaybackView: View {
     @State private var lyricScrollTarget: UUID?
     @State private var lyricsViewportHeight: CGFloat = 0
     @State private var isDraggingLyrics = false
+    @State private var showArtistHome = false
+    @State private var showAlbumDetail = false
     @State private var resumeTask: Task<Void, Never>?
 
     private func layoutEntry(_ part: AppleMusicLayoutPart) -> PlayerLayoutEntry {
@@ -64,14 +66,8 @@ struct ReferencePlaybackView: View {
                 playerBackground
 
                 VStack(spacing: 0) {
-                    ZStack(alignment: .top) {
-                        Color.clear.frame(height: ReferencePlaybackPresentationMetrics.headerTopSpacing)
-                        Capsule()
-                            .fill(primaryColor.opacity(0.42))
-                            .frame(width: 52, height: 5)
-                            .padding(.top, 3)
-                            .modifier(AppleMusicLayoutTransform(entry: layoutEntry(.top)))
-                    }
+                    // 顶部小横条已按需求隐藏，仅保留顶部留白。
+                    Color.clear.frame(height: ReferencePlaybackPresentationMetrics.headerTopSpacing)
 
                     ZStack {
                         if showLyrics {
@@ -91,6 +87,20 @@ struct ReferencePlaybackView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .onDisappear { resumeTask?.cancel() }
+        .sheet(isPresented: $showArtistHome) {
+            if let song {
+                AllSourcesArtistHomeSheet(artistName: song.artists, initialSongs: [song])
+                    .environmentObject(player)
+                    .environmentObject(theme)
+            }
+        }
+        .sheet(isPresented: $showAlbumDetail) {
+            if let album {
+                AlbumDetailView(album: album)
+                    .environmentObject(player)
+                    .environmentObject(theme)
+            }
+        }
     }
 
     @ViewBuilder
@@ -161,9 +171,7 @@ struct ReferencePlaybackView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(13.5, .medium))
-                    .foregroundStyle(secondaryColor)
+                subtitleMenu(font: ATMusicFont.appFont(13.5, .medium), color: secondaryColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity)
@@ -200,9 +208,7 @@ struct ReferencePlaybackView: View {
             if let source = song?.source {
                 SourceBadgeView(source: source, compact: true)
             }
-            Text(subtitle)
-                .font(ATMusicFont.appFont(12, .medium))
-                .foregroundStyle(secondaryColor)
+            subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: secondaryColor)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
@@ -376,9 +382,7 @@ struct ReferencePlaybackView: View {
                         SourceBadgeView(source: source, compact: true)
                     }
                 }
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(12, .medium))
-                    .foregroundStyle(secondaryColor)
+                subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: secondaryColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -601,21 +605,51 @@ struct ReferencePlaybackView: View {
         return parts.isEmpty ? "未知歌曲" : parts.joined(separator: " · ")
     }
 
+    /// 从当前歌曲构造专辑对象，供“点击歌手·专辑处 → 专辑页”跳转。
+    private var album: Album? {
+        guard let song else { return nil }
+        let albumName = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !albumName.isEmpty else { return nil }
+        return Album(
+            id: albumName,
+            name: albumName,
+            artistName: song.artists,
+            coverURL: song.coverURL,
+            source: song.source,
+            trackCount: nil
+        )
+    }
+
+    /// “歌手 · 专辑”处点击弹出小方块菜单，跳转软件内歌手页 / 专辑页。
+    @ViewBuilder
+    private func subtitleMenu(font: Font, color: Color) -> some View {
+        Menu {
+            Button("歌手页") { showArtistHome = true }
+            if album != nil {
+                Button("专辑页") { showAlbumDetail = true }
+            }
+        } label: {
+            Text(subtitle)
+                .font(font)
+                .foregroundStyle(color)
+                .contentShape(Rectangle())
+        }
+    }
+
+    /// 行高跟随实际内容自然撑开（正文最多两行 + 有译文才加译文行），无固定下限。
+    /// 该值仅用于首尾留白（edgeSpacer）估算；每行自身中心即内容中心，
+    /// 高亮行由 scrollPosition(.center) 按自身中心对齐，文字始终居中。
     private var lyricRowHeight: CGFloat {
         let primary = CGFloat(lyricFontSize)
         let primaryLineHeight = primary * 1.30
-        let translationLineHeight = max(14, primary * 0.68 * 1.20)
-        // 主歌词允许两行，槽位必须按两行预留，否则长歌词会突破固定槽位并破坏居中。
-        return max(64, primaryLineHeight * 2 + translationLineHeight + 5 + 8)
+        return primaryLineHeight * 2 + 5
     }
 
     private func lyricLine(_ line: LyricLine, isFocused: Bool) -> some View {
-        // 关键：高亮前后必须保持完全相同的布局尺寸。
-        // 不能通过切换字号/插入翻译行改变 row geometry，否则 scrollPosition(.center)
-        // 会在每次换行时重新计算中心，视觉上就会出现“高亮位置逐渐往下走”。
-        let translation = (line.translation?.isEmpty == false) ? line.translation! : " "
-        // Apple Music 风格必须与播放器设置共享同一套字号/行距参数。
-        // 行槽高度跟随实际字号计算，但保持每一行固定槽位，确保 scrollPosition(.center) 不漂移。
+        // 行高跟随实际内容自然撑开（正文最多两行 + 有译文才加译文行），无固定槽位下限：
+        // 无译文时高度为 0，行距可真正压小；每行自身中心即内容中心，
+        // scrollPosition(.center) 将高亮行（含多行/带翻译）滚到视口中心，始终居中。
+        let translation = (line.translation?.isEmpty == false) ? line.translation : nil
         let primarySize = CGFloat(lyricFontSize)
         let translationSize = max(11, primarySize * 0.68)
 
@@ -641,15 +675,17 @@ struct ReferencePlaybackView: View {
                         .accessibilityHidden(!(isFocused && isDraggingLyrics))
                 }
 
-                // 翻译区域始终存在。没有翻译或不是当前行时只透明，不移出布局。
-                Text(translation)
-                    .font(ATMusicFont.appFont(translationSize, .medium))
-                    .foregroundStyle(secondaryColor.opacity(isFocused && line.translation?.isEmpty == false ? 0.72 : 0))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .accessibilityHidden(!(isFocused && line.translation?.isEmpty == false))
+                // 翻译区域仅在“该行有译文”时渲染；无译文时高度为 0，行距可真正压小。
+                if let translation {
+                    Text(translation)
+                        .font(ATMusicFont.appFont(translationSize, .medium))
+                        .foregroundStyle(secondaryColor.opacity(isFocused ? 0.72 : 0))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .accessibilityHidden(!isFocused)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: lyricRowHeight, maxHeight: lyricRowHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             // 视觉缩放不会参与 SwiftUI 布局计算，因此不会改变滚动目标的中心点。
             .scaleEffect(isFocused ? 1.06 : 0.84, anchor: .leading)

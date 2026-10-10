@@ -187,8 +187,7 @@ struct ProfileView: View {
                             EmptyView()
                         }
                     }
-                    // 我的页只保留应用自己的更新记录，外部更新、交流群和赞助入口不再展示。
-                    profileChangelogCard
+                    // 更新日志已在设置页提供，我的页不再展示。
                     profileVersionFooter
                 }
                 .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -358,12 +357,6 @@ struct ProfileView: View {
                         Text(auth.user?.nickname ?? "我的")
                             .font(ATMusicFont.appFont(18, .bold))
                             .foregroundStyle(Color.atmusicLabel)
-                        Text(auth.isLoggedIn ? "ID · \(auth.user?.uid ?? 0)" : "本机听歌记录")
-                            .font(ATMusicFont.appFont(10, .medium))
-                            .foregroundStyle(Color.atmusicComment)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.atmusicComment.opacity(0.12), in: Capsule())
                     }
                     Spacer()
                     Image(systemName: "waveform")
@@ -770,41 +763,6 @@ struct ProfileView: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.top, 2)
-    }
-
-    private var profileChangelogCard: some View {
-        Button {
-            ATMusicHaptics.tap()
-            showChangelog = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("更新日志")
-                        .font(ATMusicFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                    Text("查看 AT Music 的完整更新记录")
-                        .font(ATMusicFont.appFont(11))
-                        .foregroundStyle(Color.atmusicComment)
-                }
-                Spacer()
-                Text("v\(ChangelogStore.currentVersion)")
-                    .font(ATMusicFont.appFont(12))
-                    .foregroundStyle(Color.atmusicComment)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.atmusicComment.opacity(0.65))
-            }
-            .padding(16)
-            .background {
-                ATMusicSurface(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-        }
-        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-        .atmusicCardShadow(radius: 9, y: 3)
     }
 
 
