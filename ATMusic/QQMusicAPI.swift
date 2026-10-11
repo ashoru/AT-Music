@@ -1064,7 +1064,7 @@ final class QQMusicAPI {
         return guid
     }
 
-    private static func qqBR(for quality: ATMusicAudioQuality) -> String {
+    static func qqBR(for quality: ATMusicAudioQuality) -> String {
         switch quality {
         case .standard: return "M500"
         case .higher, .exhigh: return "M800"
