@@ -65,6 +65,7 @@ struct ReferencePlaybackView: View {
     @State private var showArtistHome = false
     @State private var showAlbumDetail = false
     @State private var resumeTask: Task<Void, Never>?
+    @State private var coverDominantColor: RGBColor?
 
     private func layoutEntry(_ part: AppleMusicLayoutPart) -> PlayerLayoutEntry {
         appleLayout.entry(for: part)
@@ -141,6 +142,24 @@ struct ReferencePlaybackView: View {
                     .ignoresSafeArea()
             }
         }
+        .task(id: song?.identityKey) {
+            await extractCoverPalette()
+        }
+    }
+
+    private func extractCoverPalette() async {
+        guard let url = song?.coverURL else {
+            coverDominantColor = nil
+            return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = UIImage(data: data) else { return }
+            let dominant = PaletteExtractor.dominantColor(in: image)
+            withAnimation {
+                coverDominantColor = dominant
+            }
+        } catch {}
     }
 
     private func coverPage(size: CGSize) -> some View {
@@ -167,7 +186,7 @@ struct ReferencePlaybackView: View {
             VStack(spacing: 5) {
                 Text(song?.name ?? "未在播放")
                     .font(ATMusicFont.appFont(22, .bold))
-                    .foregroundStyle(primaryColor)
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity)
@@ -181,7 +200,7 @@ struct ReferencePlaybackView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                subtitleMenu(font: ATMusicFont.appFont(13.5, .medium), color: secondaryColor)
+                subtitleMenu(font: ATMusicFont.appFont(13.5, .medium), color: .white.opacity(0.68))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity)
@@ -191,7 +210,7 @@ struct ReferencePlaybackView: View {
             .padding(.top, 22)
             .modifier(AppleMusicLayoutTransform(entry: layoutEntry(.title)))
 
-            MiniLyricsPreview(lines: previewLyrics, primary: primaryColor, secondary: secondaryColor) {
+            MiniLyricsPreview(lines: previewLyrics, primary: lyricHighlightColor, secondary: lyricDimmedColor) {
                 ATMusicHaptics.tap()
                 showLyrics = true
             }
@@ -211,14 +230,14 @@ struct ReferencePlaybackView: View {
         VStack(spacing: 4) {
             Text(song?.name ?? "未在播放")
                 .font(ATMusicFont.appFont(16, .semibold))
-                .foregroundStyle(primaryColor)
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
             if let source = song?.source {
                 SourceBadgeView(source: source, compact: true)
             }
-            subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: secondaryColor)
+            subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
@@ -389,14 +408,14 @@ struct ReferencePlaybackView: View {
                 HStack(spacing: 7) {
                     Text(song?.name ?? "未在播放")
                         .font(ATMusicFont.appFont(15, .semibold))
-                        .foregroundStyle(primaryColor)
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if let source = song?.source {
                         SourceBadgeView(source: source, compact: true)
                     }
                 }
-                subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: secondaryColor)
+                subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -435,7 +454,7 @@ struct ReferencePlaybackView: View {
                 } label: {
                     PlayPauseMorphIcon(isPlaying: player.isPlaying, size: 24)
                         .frame(width: 66, height: 66)
-                        .foregroundStyle(primaryColor)
+                        .foregroundStyle(.white)
                 }
                 .buttonStyle(GlassPressButtonStyle(scale: 0.92))
                 .modifier(AppleMusicLayoutTransform(entry: layoutEntry(.play)))
@@ -450,11 +469,11 @@ struct ReferencePlaybackView: View {
                 .buttonStyle(.plain)
                 .modifier(AppleMusicLayoutTransform(entry: layoutEntry(.next)))
             }
-            .foregroundStyle(primaryColor)
+            .foregroundStyle(.white)
             .frame(maxWidth: 320)
 
             if showVolumeControl {
-                ReferenceVolumeControl(accent: volumeColor, secondary: secondaryColor)
+                ReferenceVolumeControl(accent: Color.atmusicHighlight, secondary: .white.opacity(0.68))
                     .frame(maxWidth: 420)
                     .modifier(AppleMusicLayoutTransform(entry: layoutEntry(.volume)))
                     .transition(.opacity)
@@ -488,11 +507,11 @@ struct ReferencePlaybackView: View {
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(active ? accentColor : primaryColor.opacity(0.78))
+                .foregroundStyle(active ? Color.atmusicHighlight : .white.opacity(0.85))
                 .frame(width: 42, height: 42)
                 .background {
                     if active {
-                        ATMusicLiquidSelectionSurface(shape: Circle(), accent: accentColor)
+                        ATMusicLiquidSelectionSurface(shape: Circle(), accent: Color.atmusicHighlight)
                     } else {
                         ATMusicGlass(shape: Circle())
                     }
@@ -509,11 +528,11 @@ struct ReferencePlaybackView: View {
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(active ? accentColor : primaryColor.opacity(0.78))
+                .foregroundStyle(active ? Color.atmusicHighlight : .white.opacity(0.85))
                 .frame(width: 38, height: 38)
                 .background {
                     if active {
-                        ATMusicLiquidSelectionSurface(shape: Circle(), accent: accentColor)
+                        ATMusicLiquidSelectionSurface(shape: Circle(), accent: Color.atmusicHighlight)
                     } else {
                         ATMusicGlass(shape: Circle())
                     }
@@ -536,7 +555,7 @@ struct ReferencePlaybackView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(primaryColor.opacity(0.78))
+                .foregroundStyle(.white.opacity(0.85))
                 .frame(width: 38, height: 38)
                 .contentShape(Rectangle())
         }
@@ -679,7 +698,7 @@ struct ReferencePlaybackView: View {
 
                     Text(line.text.isEmpty ? " " : line.text)
                         .font(ATMusicFont.appFont(primarySize, .semibold))
-                        .foregroundStyle(primaryColor.opacity(isFocused ? 1 : 0.36))
+                        .foregroundStyle(lyricHighlightColor.opacity(isFocused ? 1 : 0.36))
                         .shadow(
                             color: isFocused ? glowColor.opacity(lyricGlowRadius > 0 ? 0.9 : 0) : .clear,
                             radius: isFocused ? lyricGlowRadius * 0.45 : 0
@@ -696,7 +715,7 @@ struct ReferencePlaybackView: View {
                         // 始终占用同样的宽度；只有手动拖动且当前行聚焦时才显示。
                         Text(atmusicTimeString(line.time))
                             .font(ATMusicFont.appFont(11, .semibold, .monospaced))
-                            .foregroundStyle(secondaryColor.opacity(isFocused && isDraggingLyrics ? 0.82 : 0))
+                            .foregroundStyle(lyricDimmedColor.opacity(isFocused && isDraggingLyrics ? 0.82 : 0))
                             .frame(width: 42, alignment: .trailing)
                             .accessibilityHidden(!(isFocused && isDraggingLyrics))
                     } else {
@@ -708,7 +727,7 @@ struct ReferencePlaybackView: View {
                 if let translation {
                     Text(translation)
                         .font(ATMusicFont.appFont(translationSize, .medium))
-                        .foregroundStyle(secondaryColor.opacity(isFocused ? 0.72 : 0))
+                        .foregroundStyle(lyricDimmedColor.opacity(isFocused ? 0.72 : 0))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .accessibilityHidden(!isFocused)
@@ -788,21 +807,49 @@ struct ReferencePlaybackView: View {
             }
     }
 
-    private var primaryColor: Color {
-        if primaryHex.hasPrefix("#"), let color = Color(hex: primaryHex) { return color }
-        if lyricGradMode == 1, lyricColorRaw.hasPrefix("#"), let color = Color(hex: lyricColorRaw) { return color }
-        return .white
+    private var coverAccentColor: Color {
+        if let coverDominantColor {
+            return CoverPalette.make(dominant: coverDominantColor, colorScheme: .dark).accent
+        }
+        return Color.atmusicHighlight
     }
 
-    private var secondaryColor: Color {
-        if secondaryHex.hasPrefix("#"), let color = Color(hex: secondaryHex) { return color }
-        if lyricGradMode == 1, lyricDimColorRaw.hasPrefix("#"), let color = Color(hex: lyricDimColorRaw) { return color }
-        return .white.opacity(0.58)
+    private var lyricHighlightColor: Color {
+        if lyricGradMode == 1 {
+            switch lyricColorRaw {
+            case "white": return .white
+            case "amber": return Color.atmusicAmber
+            case "cyan": return Color(red: 0.35, green: 0.85, blue: 0.96)
+            case "pink": return Color(red: 1.0, green: 0.62, blue: 0.82)
+            case "green": return Color(red: 0.42, green: 0.90, blue: 0.62)
+            default:
+                if let color = Color(hex: lyricColorRaw) { return color }
+                return Color.atmusicAmber
+            }
+        }
+        // 模式 0：跟随封面提取主色！
+        return coverAccentColor
+    }
+
+    private var lyricDimmedColor: Color {
+        if lyricGradMode == 1 {
+            switch lyricDimColorRaw {
+            case "white": return .white.opacity(0.78)
+            case "bluegray": return Color(red: 0.72, green: 0.78, blue: 0.86)
+            case "gray": return Color.gray.opacity(0.85)
+            case "dark": return Color.black.opacity(0.55)
+            default:
+                if let color = Color(hex: lyricDimColorRaw) { return color }
+                return .white.opacity(0.55)
+            }
+        }
+        // 模式 0：柔和半透明未播色
+        return .white.opacity(0.55)
     }
 
     private var glowColor: Color {
-        if lyricGlowColorRaw.hasPrefix("#"), let color = Color(hex: lyricGlowColorRaw) { return color }
-        return primaryColor
+        if let color = Color(hex: lyricGlowColorRaw) { return color }
+        return lyricHighlightColor
     }
 
     private var lyricGlowRadius: CGFloat {

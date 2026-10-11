@@ -1272,8 +1272,8 @@ struct PlayerView: View {
             let translation = (lyricTranslation && line.translation?.isEmpty == false) ? line.translation : nil
             let primarySize = CGFloat(lyricFontSize) * 1.35
             let translationSize = max(11, primarySize * 0.65)
-            let focusedColor = (lyricGradMode == 1) ? lyricCurrentColor : albumTitleColor
-            let dimColor = (lyricGradMode == 1) ? lyricDimColor : albumArtistColor
+            let focusedColor = (lyricGradMode == 1) ? lyricCurrentColor : palette.accent
+            let dimColor = (lyricGradMode == 1) ? lyricDimColor : palette.secondary
             let glowCol = lyricGlowColor ?? focusedColor
             let align: HorizontalAlignment = (lyricAlignRaw == "left") ? .leading : .center
 
@@ -3426,6 +3426,11 @@ struct LyricsSection: View {
                 ForEach(Array(lyrics.enumerated()), id: \.offset) { index, line in
                     lyricRow(index: index, line: line)
                         .id(index)
+                        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                            content
+                                .scaleEffect(phase.isIdentity ? 1.0 : 0.94, anchor: alignment == .leading ? .leading : .center)
+                                .opacity(phase.isIdentity ? 1.0 : 0.58)
+                        }
                         .contentShape(Rectangle())
                         .overlay(alignment: .topTrailing) {
                             if selectionMode {
@@ -3504,9 +3509,7 @@ struct LyricsSection: View {
         }
         .onChange(of: currentIndex) { _, newIndex in
             guard let newIndex, !isUserScrolling else { return }
-            var transaction = Transaction()
-            transaction.animation = nil
-            withTransaction(transaction) {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 scrollTarget = newIndex
             }
         }
@@ -3542,9 +3545,7 @@ struct LyricsSection: View {
 
     private func recenterToCurrentLyric() {
         guard !isUserScrolling, let currentIndex else { return }
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
+        withAnimation(.spring(response: 0.50, dampingFraction: 0.82)) {
             scrollTarget = currentIndex
         }
     }
@@ -3556,9 +3557,7 @@ struct LyricsSection: View {
             guard !Task.isCancelled else { return }
             isUserScrolling = false
             guard let currentIndex else { return }
-            var transaction = Transaction()
-            transaction.animation = nil
-            withTransaction(transaction) {
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 scrollTarget = currentIndex
             }
         }
@@ -3640,6 +3639,8 @@ struct LyricsSection: View {
                 .padding(.trailing, alignment == .leading ? 40 : 36)
                 .accessibilityHidden(!(isUserScrolling && isFocused))
         }
+        .animation(.spring(response: 0.48, dampingFraction: 0.82), value: isFocused)
+        .animation(.spring(response: 0.48, dampingFraction: 0.82), value: isCurrent)
     }
 
     private func toggleSelect(_ index: Int) {

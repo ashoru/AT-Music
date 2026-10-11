@@ -199,17 +199,53 @@ struct ImmersivePlayerView: View {
         }
         return theme.accent.highlight
     }
-    private var lyricCurrentColor: Color {
-        if lyricGradMode == 1, lyricColorRaw.hasPrefix("#"), let c = Color(hex: lyricColorRaw) {
-            return c
+    @State private var coverDominantColor: RGBColor?
+
+    private var coverAccentColor: Color {
+        if let coverDominantColor {
+            return CoverPalette.make(dominant: coverDominantColor, colorScheme: .dark).accent
         }
-        return accentColor
+        return palette.topColor
     }
-    private var lyricDimColor: Color {
-        if lyricGradMode == 1, lyricDimColorRaw.hasPrefix("#"), let c = Color(hex: lyricDimColorRaw) {
-            return c
+
+    private var coverSecondaryColor: Color {
+        if let coverDominantColor {
+            return CoverPalette.make(dominant: coverDominantColor, colorScheme: .dark).secondary
         }
         return .white.opacity(0.65)
+    }
+
+    private var lyricCurrentColor: Color {
+        if lyricGradMode == 1 {
+            switch lyricColorRaw {
+            case "white": return .white
+            case "amber": return Color.atmusicAmber
+            case "cyan": return Color(red: 0.35, green: 0.85, blue: 0.96)
+            case "pink": return Color(red: 1.0, green: 0.62, blue: 0.82)
+            case "green": return Color(red: 0.42, green: 0.90, blue: 0.62)
+            default:
+                if let c = Color(hex: lyricColorRaw) { return c }
+                return Color.atmusicAmber
+            }
+        }
+        // 模式 0：跟随封面提取主色！
+        return coverAccentColor
+    }
+
+    private var lyricDimColor: Color {
+        if lyricGradMode == 1 {
+            switch lyricDimColorRaw {
+            case "white": return .white.opacity(0.78)
+            case "bluegray": return Color(red: 0.72, green: 0.78, blue: 0.86)
+            case "gray": return Color.gray.opacity(0.85)
+            case "dark": return Color.black.opacity(0.55)
+            default:
+                if let c = Color(hex: lyricDimColorRaw) { return c }
+                return .white.opacity(0.65)
+            }
+        }
+        // 模式 0：跟随封面次级色
+        return coverSecondaryColor
     }
     private var lyricGlowRadius: CGFloat {
         switch lyricGlowLevel {
@@ -378,6 +414,7 @@ struct ImmersivePlayerView: View {
         guard let url = song?.coverURL else {
             withAnimation(.easeInOut(duration: 0.45)) {
                 palette = .fallback
+                coverDominantColor = nil
             }
             return
         }
@@ -385,8 +422,10 @@ struct ImmersivePlayerView: View {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let image = UIImage(data: data) else { return }
             let extracted = NetEaseAmbientPalette.extract(from: image)
+            let dominant = PaletteExtractor.dominantColor(in: image)
             withAnimation(.easeInOut(duration: 0.55)) {
                 palette = extracted
+                coverDominantColor = dominant
             }
         } catch {
             // 静默保持当前
