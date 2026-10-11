@@ -108,12 +108,38 @@ struct ImmersivePlayerView: View {
     let song: Song?
     let lyrics: [LyricLine]
     @Binding var isPresented: Bool
+    var previewShowLyrics: Bool? = nil
     var onOpenSettings: () -> Void = {}
     var onSleepTimer: () -> Void = {}
     var onSongInfo: () -> Void = {}
     var onSearchLyrics: () -> Void = {}
     var onAddToLocalPlaylist: () -> Void = {}
     var onDownload: () -> Void = {}
+
+    init(
+        song: Song?,
+        lyrics: [LyricLine],
+        isPresented: Binding<Bool>,
+        previewShowLyrics: Bool? = nil,
+        onOpenSettings: @escaping () -> Void = {},
+        onSleepTimer: @escaping () -> Void = {},
+        onSongInfo: @escaping () -> Void = {},
+        onSearchLyrics: @escaping () -> Void = {},
+        onAddToLocalPlaylist: @escaping () -> Void = {},
+        onDownload: @escaping () -> Void = {}
+    ) {
+        self.song = song
+        self.lyrics = lyrics
+        self._isPresented = isPresented
+        self.previewShowLyrics = previewShowLyrics
+        self.onOpenSettings = onOpenSettings
+        self.onSleepTimer = onSleepTimer
+        self.onSongInfo = onSongInfo
+        self.onSearchLyrics = onSearchLyrics
+        self.onAddToLocalPlaylist = onAddToLocalPlaylist
+        self.onDownload = onDownload
+        self._showLyrics = State(initialValue: previewShowLyrics ?? false)
+    }
 
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var clock: PlaybackClock
@@ -129,6 +155,12 @@ struct ImmersivePlayerView: View {
     @AppStorage("atmusic.progressAccentHex") private var progressAccentHex = ""
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
     @AppStorage("atmusic.playerControlsUseCoverColor") private var controlsUseCoverColor = true
+
+    // 歌词外观配置（支持字号、行距、翻译与偏移调节）
+    @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
+    @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
+    @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
+    @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
 
     // 播放器布局数据（支持布局编辑器自由调整 X/Y/大小/旋转/透明度）
     @State private var layoutData: [String: PlayerLayoutEntry] = PlayerLayoutStore.load(for: .immersive)
@@ -251,6 +283,15 @@ struct ImmersivePlayerView: View {
         .task(id: song?.identityKey) {
             await extractPalette()
         }
+        .onAppear {
+            if let previewShowLyrics {
+                showLyrics = previewShowLyrics
+            }
+        }
+        .onChange(of: previewShowLyrics) { _, newValue in
+            guard let newValue else { return }
+            showLyrics = newValue
+        }
         .onChange(of: showLyrics) { _, isShowing in
             if isShowing {
                 hideControls = false
@@ -292,10 +333,10 @@ struct ImmersivePlayerView: View {
     // MARK: - 智能倒计时隐藏控制栏
     private func scheduleAutoHide(seconds: Double = 3.5) {
         autoHideTimer?.cancel()
-        guard showLyrics else { return }
+        guard showLyrics, previewShowLyrics == nil else { return }
         autoHideTimer = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled, showLyrics else { return }
+            guard !Task.isCancelled, showLyrics, previewShowLyrics == nil else { return }
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                 hideControls = true
             }
@@ -366,10 +407,10 @@ struct ImmersivePlayerView: View {
 
             // 红心收藏按钮（位于右上角省略号左边）
             if let song {
-                let liked = favorites.isLiked(song)
+                let liked = favorites.isSongLiked(song)
                 Button {
                     ATMusicHaptics.tap()
-                    Task { await favorites.toggle(song) }
+                    Task { await favorites.toggleFavorite(song) }
                 } label: {
                     Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 20, weight: .medium))
@@ -441,13 +482,30 @@ struct ImmersivePlayerView: View {
         }
     }
 
+    private var effectiveLyrics: [LyricLine] {
+        if !lyrics.isEmpty { return lyrics }
+        if previewShowLyrics != nil {
+            return [
+                LyricLine(time: 0, text: "这里是沉浸式播放器歌词预览", translation: "Immersive Player Lyrics Preview"),
+                LyricLine(time: 5, text: "滑动下方字号与行距滑杆", translation: "Adjust font size and line spacing below"),
+                LyricLine(time: 10, text: "歌词大小与间距均可实时调节与保存", translation: "Changes are applied in real time"),
+                LyricLine(time: 15, text: "纯粹沉浸，尽享动听旋律", translation: "Enjoy immersive listening experience")
+            ]
+        }
+        return []
+    }
+
     // MARK: - 歌词流容器（全屏自适应；控制栏下潜后歌词直达屏幕底部）
     private func lyricsContainer(geo: GeometryProxy) -> some View {
         LyricsSection(
-            lyrics: lyrics,
+            lyrics: effectiveLyrics,
             accent: accentColor,
             secondary: .white.opacity(0.65),
+            baseFontSize: CGFloat(lyricFontSize),
+            lineSpacing: CGFloat(lyricLineSpacing),
+            showTranslation: lyricTranslation,
             alignment: .center,
+            lyricOffset: CGFloat(lyricOffset),
             onTapLine: { line in
                 ATMusicHaptics.tap()
                 player.seek(to: line.time)
@@ -553,10 +611,10 @@ struct ImmersivePlayerView: View {
 
             // 红心收藏（支持全局强调色/红心色）
             if let song {
-                let liked = favorites.isLiked(song)
+                let liked = favorites.isSongLiked(song)
                 Button {
                     ATMusicHaptics.tap()
-                    Task { await favorites.toggle(song) }
+                    Task { await favorites.toggleFavorite(song) }
                 } label: {
                     Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 24, weight: .medium))

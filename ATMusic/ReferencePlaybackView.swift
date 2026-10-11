@@ -17,6 +17,7 @@ struct ReferencePlaybackView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var clock: PlaybackClock
+    @EnvironmentObject private var favorites: FavoritesStore
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var localLibrary = LocalLibraryStore.shared
     @ObservedObject private var appleLayout = AppleMusicLayoutStore.shared
@@ -388,9 +389,10 @@ struct ReferencePlaybackView: View {
             }
             Spacer(minLength: 0)
             HStack(spacing: 0) {
+                let liked = favorites.isSongLiked(song)
                 compactActionButton(
-                    icon: localLibrary.containsSong(song) ? "heart.fill" : "heart",
-                    active: localLibrary.containsSong(song)
+                    icon: liked ? "heart.fill" : "heart",
+                    active: liked
                 ) {
                     onFavorite()
                 }

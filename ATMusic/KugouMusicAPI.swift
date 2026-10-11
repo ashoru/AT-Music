@@ -1014,10 +1014,13 @@ final class KugouMusicAPI {
     }
 
     func playlistSongs(listID: Int) async throws -> [Song] {
-        if listID >= 1000,
-           let songs = try? await officialWebPlaylistSongs(listID: listID),
-           !songs.isEmpty {
-            return songs
+        if listID >= 1000 {
+            if let songs = try? await mobileWebPlaylistSongs(listID: listID), !songs.isEmpty {
+                return songs
+            }
+            if let songs = try? await officialWebPlaylistSongs(listID: listID), !songs.isEmpty {
+                return songs
+            }
         }
         let auth = KugouMusicAuth.shared
         guard auth.isLoggedIn else { return [] }
@@ -1025,7 +1028,6 @@ final class KugouMusicAPI {
         var all: [[String: Any]] = []
         var page = 1
         let pageSize = 200
-        let maxSongs = 10_000
         repeat {
             let body: [String: Any] = [
                 "listid": pid,
@@ -1043,17 +1045,34 @@ final class KugouMusicAPI {
             let pageTracks = Self.deepArrays(json, names: ["songs", "songlist", "list", "info", "files", "data"])
             ATMusicLogger.shared.log("酷狗歌单歌曲：listid=\(pid) page=\(page) 返回 \(pageTracks.count) 首", level: .debug)
             all.append(contentsOf: pageTracks)
-            if all.count >= maxSongs { break }
             if pageTracks.count < pageSize { break }
             page += 1
-        } while page <= maxSongs / pageSize
-        if all.count > maxSongs {
-            all = Array(all.prefix(maxSongs))
-        }
-        ATMusicLogger.shared.log("酷狗歌单歌曲：listid=\(pid) 最终最多加载 \(all.count) 首", level: .debug)
+        } while true
+        ATMusicLogger.shared.log("酷狗歌单歌曲：listid=\(pid) 最终无上限加载 \(all.count) 首", level: .debug)
         return all
             .sorted { (Self.int($0["fsort"] ?? $0["sort"] ?? $0["position"]) ) < (Self.int($1["fsort"] ?? $1["sort"] ?? $1["position"])) }
             .compactMap(Self.mapTrack)
+    }
+
+    /// 酷狗移动端歌单歌曲（分页无上限加载）
+    private func mobileWebPlaylistSongs(listID: Int) async throws -> [Song] {
+        var page = 1
+        let pageSize = 100
+        var allSongs: [Song] = []
+        var seen = Set<String>()
+        while true {
+            guard let url = URL(string: "https://m.kugou.com/plist/list/\(listID)?json=true&page=\(page)") else { break }
+            guard let json = try? await getJSON(url, ua: Self.browserUA) else { break }
+            let rows = (((json["list"] as? [String: Any])?["info"] as? [[String: Any]])
+                ?? (json["info"] as? [[String: Any]])) ?? []
+            guard !rows.isEmpty else { break }
+            let pageSongs = rows.compactMap(Self.mapCompleteTrack)
+            let newSongs = pageSongs.filter { seen.insert($0.identityKey).inserted }
+            allSongs.append(contentsOf: newSongs)
+            if rows.count < pageSize || newSongs.isEmpty { break }
+            page += 1
+        }
+        return allSongs
     }
 
     func songURL(song: Song, quality: ATMusicAudioQuality? = nil) async throws -> String? {

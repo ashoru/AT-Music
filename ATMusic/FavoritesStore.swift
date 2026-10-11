@@ -27,7 +27,14 @@ final class FavoritesStore: ObservableObject {
         synologyFavoriteSongs = Self.loadSongs(synologyKey)
     }
 
-    /// 该歌曲是否已收藏
+    /// 该歌曲是否已收藏（包含平台云端/本地收藏，以及本地歌单收藏）
+    func isSongLiked(_ song: Song?) -> Bool {
+        guard let song else { return false }
+        if isLiked(song) { return true }
+        return LocalLibraryStore.shared.containsSong(song)
+    }
+
+    /// 该歌曲是否在平台收藏中
     func isLiked(_ song: Song?) -> Bool {
         guard let song else { return false }
         switch song.source {
@@ -48,10 +55,33 @@ final class FavoritesStore: ObservableObject {
     }
 
     func contains(song: Song) -> Bool {
-        isLiked(song)
+        isSongLiked(song)
     }
 
-    /// 切换收藏状态；返回是否成功（云端同步失败时网易云会回滚）
+    /// 统一红心切换逻辑：同时同步到本地收藏歌单与对应平台的云端/本地收藏
+    @MainActor
+    func toggleFavorite(_ song: Song) async {
+        let currentlyLiked = isSongLiked(song)
+        if currentlyLiked {
+            // 取消收藏：从本地歌单和平台收藏中同时移除
+            _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(song)
+            if isLiked(song) {
+                _ = await toggle(song)
+            }
+            ToastCenter.shared.show("已取消收藏")
+            ATMusicHaptics.success()
+        } else {
+            // 添加收藏：同时加入本地默认收藏歌单与对应平台收藏
+            _ = LocalLibraryStore.shared.addToDefaultFavorites(song)
+            if !isLiked(song) {
+                _ = await toggle(song)
+            }
+            ToastCenter.shared.show("已添加到收藏")
+            ATMusicHaptics.success()
+        }
+    }
+
+    /// 切换平台收藏状态；返回是否成功
     @discardableResult
     func toggle(_ song: Song) async -> Bool {
         switch song.source {
@@ -63,13 +93,12 @@ final class FavoritesStore: ObservableObject {
             do {
                 let ok = try await NetEaseAPI.shared.like(id: song.id, liked: liked)
                 if !ok {
-                    updateNetease(song, liked: !liked)
-                    return false
+                    ATMusicLogger.shared.log("网易云红心云端同步未成功，已保留本地收藏：\(song.name) liked=\(liked)", level: .warn)
                 }
                 return true
             } catch {
-                updateNetease(song, liked: !liked)
-                return false
+                ATMusicLogger.shared.log("网易云红心云端同步异常，已保留本地收藏：\(song.name) error=\(error.localizedDescription)", level: .warn)
+                return true
             }
         case .qq:
             let liked = !isLiked(song)
@@ -90,7 +119,7 @@ final class FavoritesStore: ObservableObject {
             updateKugou(song, liked: liked)
             return true
         case .local:
-            return false
+            return true
         case .synology:
             let liked = !isLiked(song)
             updateSynology(song, liked: liked)

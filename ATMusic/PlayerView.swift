@@ -210,16 +210,9 @@ struct PlayerView: View {
         static let lyricBottomRows = 3
     }
 
-    private func toggleLocalFavorite(_ song: Song) {
-        if localLibrary.containsSong(song) {
-            let removed = localLibrary.removeSongFromAllPlaylists(song)
-            ToastCenter.shared.show(removed > 0 ? "已取消收藏" : "歌曲不在本地歌单中")
-            ATMusicHaptics.success()
-        } else if localLibrary.playlists.count > 1 {
-            showAddToLocalPlaylist = true
-        } else {
-            ToastCenter.shared.show(localLibrary.addToDefaultFavorites(song))
-            ATMusicHaptics.success()
+    private func toggleFavorite(_ song: Song) {
+        Task { @MainActor in
+            await favorites.toggleFavorite(song)
         }
     }
 
@@ -405,7 +398,7 @@ struct PlayerView: View {
                     lyrics: lyrics,
                     onFavorite: {
                         guard let song else { return }
-                        toggleLocalFavorite(song)
+                        toggleFavorite(song)
                     },
                     onQueue: {
                         showQueue = true
@@ -437,6 +430,7 @@ struct PlayerView: View {
                     song: song,
                     lyrics: lyrics,
                     isPresented: $isPresented,
+                    previewShowLyrics: previewShowLyrics,
                     onOpenSettings: {
                         openPlayerSettings()
                     },
@@ -464,7 +458,7 @@ struct PlayerView: View {
                         showLyrics: $showLyrics,
                         onFavorite: {
                             guard let song else { return }
-                            toggleLocalFavorite(song)
+                            toggleFavorite(song)
                         },
                         onQueue: {
                             showQueue = true
@@ -918,15 +912,16 @@ struct PlayerView: View {
             Button {
                 ATMusicHaptics.tap()
                 if let song {
-                    toggleLocalFavorite(song)
+                    toggleFavorite(song)
                 }
             } label: {
-                Image(systemName: localLibrary.containsSong(song) ? "heart.fill" : "heart")
+                let liked = favorites.isSongLiked(song)
+                Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(localLibrary.containsSong(song) ? Color(red: 0.95, green: 0.33, blue: 0.42) : playerButtonText)
+                    .foregroundStyle(liked ? Color(red: 0.95, green: 0.33, blue: 0.42) : playerButtonText)
                     .frame(width: 38, height: 38)
                     .background {
-                        playerButtonSurface(size: 38, active: localLibrary.containsSong(song))
+                        playerButtonSurface(size: 38, active: liked)
                     }
                     .clipShape(Circle())
             }
@@ -1179,11 +1174,12 @@ struct PlayerView: View {
             Button {
                 ATMusicHaptics.tap()
                 guard let song else { return }
-                toggleLocalFavorite(song)
+                toggleFavorite(song)
             } label: {
-                Image(systemName: localLibrary.containsSong(song) ? "heart.fill" : "heart")
+                let liked = favorites.isSongLiked(song)
+                Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(localLibrary.containsSong(song) ? albumTitleColor : albumTitleColor.opacity(0.78))
+                    .foregroundStyle(liked ? Color(red: 0.95, green: 0.33, blue: 0.42) : albumTitleColor.opacity(0.78))
                     .frame(width: 38, height: 38)
                     .contentShape(Rectangle())
             }
@@ -1647,11 +1643,12 @@ struct PlayerView: View {
                 Button {
                     ATMusicHaptics.tap()
                     guard let song else { return }
-                    toggleLocalFavorite(song)
+                    toggleFavorite(song)
                 } label: {
-                    Image(systemName: localLibrary.containsSong(song) ? "heart.fill" : "heart")
+                    let liked = favorites.isSongLiked(song)
+                    Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(localLibrary.containsSong(song) ? palette.accent : palette.text.opacity(0.80))
+                        .foregroundStyle(liked ? Color(red: 0.95, green: 0.33, blue: 0.42) : palette.text.opacity(0.80))
                         .frame(width: 38, height: 38)
                         .contentShape(Rectangle())
                 }
@@ -4952,7 +4949,8 @@ private struct PlayerLayoutEditorSheet: View {
                 legacyLayoutData = PlayerLayoutStore.load(for: .vinyl)
                 selectedLegacyPart = .vinylAlbum
             case .immersive:
-                break
+                legacyLayoutData = PlayerLayoutStore.load(for: .immersive)
+                selectedLegacyPart = previewMode == 1 ? .lyric : .cover
             }
         }
         .onChange(of: previewMode) { _, mode in
@@ -4961,6 +4959,12 @@ private struct PlayerLayoutEditorSheet: View {
                     selectedApplePart = .previewLyric
                 } else if mode == 0, selectedApplePart == .previewLyric {
                     selectedApplePart = .cover
+                }
+            } else if activeStyle == .immersive {
+                if mode == 1, selectedLegacyPart == .cover {
+                    selectedLegacyPart = .lyric
+                } else if mode == 0, (selectedLegacyPart == .lyric || selectedLegacyPart == .topTitle) {
+                    selectedLegacyPart = .cover
                 }
             }
         }
@@ -5297,6 +5301,16 @@ private struct PlayerLayoutEditorSheet: View {
         case .vinylLyricsHeader: return "歌词顶部"
         case .vinylLyricsText: return "歌词内容"
         case .playPause: return "播放按钮"
+        case .topTitle: return "顶部标题"
+        case .lyric: return "歌词区域"
+        case .cover: return "封面"
+        case .title: return "歌曲信息"
+        case .progress: return "进度条"
+        case .controls: return "控制栏"
+        case .loop: return "循环模式"
+        case .previous: return "上一首"
+        case .next: return "下一首"
+        case .queue: return "播放列表"
         default: return part.rawValue
         }
     }

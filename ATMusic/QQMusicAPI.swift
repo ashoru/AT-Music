@@ -1474,9 +1474,14 @@ final class QQMusicAPI {
 
     private static func integerValue(_ value: Any?) -> Int {
         if let value = value as? Int { return value }
-        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? Int64 { return Int(value) }
+        if let value = value as? NSNumber { return Int(truncating: value) }
         if let value = value as? Double { return Int(value) }
-        if let value = value as? String { return Int(value) ?? 0 }
+        if let value = value as? String {
+            if let v = Int(value) { return v }
+            if let v = Double(value) { return Int(v) }
+            return 0
+        }
         return 0
     }
 
@@ -1761,43 +1766,75 @@ final class QQMusicAPI {
             .reduce(into: [String]()) { result, value in
                 if !result.contains(value) { result.append(value) }
             }
-        for loginUin in loginUins {
-            let detailURL = "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(listID)&loginUin=\(loginUin)&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
-            if let detailJson = try? await get(detailURL, referer: "https://y.qq.com/n/yqq/playlist", cookie: cookie),
-               let cdlist = detailJson["cdlist"] as? [[String: Any]],
-               let songlist = cdlist.first?["songlist"] as? [[String: Any]],
-               !songlist.isEmpty {
-                let songs = songlist.prefix(limit).compactMap { item -> Song? in
-                    // 部分接口返回会把歌曲包在 track_info 里，先解包再走统一解析
-                    let raw = (item["track_info"] as? [String: Any]) ?? item
-                    return song(from: raw)
+
+        // 通道 1：官方 fcg / fcgi 歌单详情接口
+        for cgiPrefix in ["fcg-bin", "fcgi-bin"] {
+            for loginUin in loginUins {
+                let detailURL = "https://c.y.qq.com/qzone/\(cgiPrefix)/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(listID)&loginUin=\(loginUin)&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
+                for referer in ["https://y.qq.com/", "https://y.qq.com/n/ryqq/playlist/\(listID)"] {
+                    if let detailJson = try? await get(detailURL, referer: referer, cookie: cookie),
+                       let cdlist = detailJson["cdlist"] as? [[String: Any]],
+                       let songlist = cdlist.first?["songlist"] as? [[String: Any]],
+                       !songlist.isEmpty {
+                        let songs = songlist.prefix(targetLimit).compactMap { item -> Song? in
+                            let raw = (item["track_info"] as? [String: Any]) ?? item
+                            return song(from: raw)
+                        }
+                        if !songs.isEmpty { return Array(songs) }
+                    }
                 }
-                if !songs.isEmpty { return songs }
             }
         }
-        // 兜底：musicu GetPlaylistDetail
+
+        // 通道 2：musicu CgiGetDiss (官方 Web 歌单详情接口)
         for loginUin in loginUins {
             let payload: [String: Any] = [
                 "comm": ["ct": 24, "cv": 0, "uin": Int(loginUin) ?? 0, "g_tk": qqAuth.gtk, "platform": "yqq"],
                 "req_1": [
-                    "module": "music.playlist.PlayListDataServer",
+                    "module": "music.srfDissInfo.DissInfo",
+                    "method": "CgiGetDiss",
+                    "param": [
+                        "new_format": 1,
+                        "disstid": listID,
+                        "dirid": 0,
+                        "song_begin": 0,
+                        "song_num": min(targetLimit, 300),
+                        "onlysonglist": 0,
+                        "userinfo": 1
+                    ]
+                ]
+            ]
+            guard let json = try? await musicu(payload, cookie: cookie) else { continue }
+            let rawList = Self.favoriteSongArray(from: json)
+            let songs = rawList.prefix(targetLimit).compactMap { item -> Song? in
+                let raw = (item["track_info"] as? [String: Any]) ?? item
+                return song(from: raw)
+            }
+            if !songs.isEmpty { return Array(songs) }
+        }
+
+        // 通道 3：musicu GetPlaylistDetail 兜底
+        for loginUin in loginUins {
+            let payload: [String: Any] = [
+                "comm": ["ct": 24, "cv": 0, "uin": Int(loginUin) ?? 0, "g_tk": qqAuth.gtk, "platform": "yqq"],
+                "req_1": [
+                    "module": "music.musichallSong.PlayListDataServer",
                     "method": "GetPlaylistDetail",
-                    "param": ["id": listID, "uin": Int(loginUin) ?? 0, "song_begin": 0, "song_num": limit]
+                    "param": ["id": listID, "uin": Int(loginUin) ?? 0, "song_begin": 0, "song_num": min(targetLimit, 300)]
                 ]
             ]
             guard let json = try? await musicu(payload, cookie: cookie) else { continue }
             let list = nestedArray(json, path: ["req_1", "data", "songlist"])
-            let songs = list.prefix(limit).compactMap { item -> Song? in
+            let songs = list.prefix(targetLimit).compactMap { item -> Song? in
                 let raw = (item["track_info"] as? [String: Any]) ?? item
                 return song(from: raw)
             }
-            if !songs.isEmpty { return songs }
+            if !songs.isEmpty { return Array(songs) }
         }
         return []
     }
 
-    /// 加载 QQ 普通歌单的全部歌曲。QQ 单次接口最多返回约 300 首，
-    /// 这里按 song_begin 分页，直到接口返回不足一页或没有新歌曲。
+    /// 加载 QQ 普通歌单的全部歌曲（无上限分页加载）
     private func playlistSongsUnlimited(listID: Int) async throws -> [Song] {
         if listID == Self.qqLikedPlaylistID {
             return try await favoriteSongs(limit: 0)
@@ -1815,21 +1852,49 @@ final class QQMusicAPI {
         var begin = firstPage.count
 
         while true {
-            let detailURL = "https://c.y.qq.com/qzone/fcgi-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(listID)&loginUin=\(loginUin)&hostUin=0&song_begin=\(begin)&song_num=\(pageSize)&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
-            guard let detailJson = try? await get(detailURL, referer: "https://y.qq.com/n/yqq/playlist", cookie: cookie),
-                  let cdlist = detailJson["cdlist"] as? [[String: Any]],
-                  let songlist = cdlist.first?["songlist"] as? [[String: Any]],
-                  !songlist.isEmpty else { break }
-
-            let pageSongs = songlist.compactMap { item -> Song? in
-                let raw = (item["track_info"] as? [String: Any]) ?? item
-                return song(from: raw)
+            var pageSongs: [Song] = []
+            let detailURL = "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(listID)&loginUin=\(loginUin)&hostUin=0&song_begin=\(begin)&song_num=\(pageSize)&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
+            if let detailJson = try? await get(detailURL, referer: "https://y.qq.com/", cookie: cookie),
+               let cdlist = detailJson["cdlist"] as? [[String: Any]],
+               let songlist = cdlist.first?["songlist"] as? [[String: Any]],
+               !songlist.isEmpty {
+                pageSongs = songlist.compactMap { item -> Song? in
+                    let raw = (item["track_info"] as? [String: Any]) ?? item
+                    return song(from: raw)
+                }
+            } else {
+                // musicu CgiGetDiss 分页兜底
+                let payload: [String: Any] = [
+                    "comm": ["ct": 24, "cv": 0, "uin": Int(loginUin) ?? 0, "g_tk": qqAuth.gtk, "platform": "yqq"],
+                    "req_1": [
+                        "module": "music.srfDissInfo.DissInfo",
+                        "method": "CgiGetDiss",
+                        "param": [
+                            "new_format": 1,
+                            "disstid": listID,
+                            "dirid": 0,
+                            "song_begin": begin,
+                            "song_num": pageSize,
+                            "onlysonglist": 0,
+                            "userinfo": 1
+                        ]
+                    ]
+                ]
+                if let json = try? await musicu(payload, cookie: cookie) {
+                    let rawList = Self.favoriteSongArray(from: json)
+                    pageSongs = rawList.compactMap { item -> Song? in
+                        let raw = (item["track_info"] as? [String: Any]) ?? item
+                        return song(from: raw)
+                    }
+                }
             }
+
+            guard !pageSongs.isEmpty else { break }
             let newSongs = pageSongs.filter { seen.insert($0.identityKey).inserted }
             songs.append(contentsOf: newSongs)
-            ATMusicLogger.shared.log("QQ 歌单无上限分页 listID=\(listID) begin=\(begin) raw=\(songlist.count) new=\(newSongs.count) total=\(songs.count)", level: .debug)
-            if songlist.count < pageSize || newSongs.isEmpty { break }
-            begin += songlist.count
+            ATMusicLogger.shared.log("QQ 歌单无上限分页 listID=\(listID) begin=\(begin) raw=\(pageSongs.count) new=\(newSongs.count) total=\(songs.count)", level: .debug)
+            if pageSongs.count < pageSize || newSongs.isEmpty { break }
+            begin += pageSongs.count
         }
         return songs
     }
@@ -1921,23 +1986,32 @@ final class QQMusicAPI {
     /// 通用 QQ 歌曲解析（各接口字段略有差异，此处统一容错）
     private func song(from item: [String: Any]) -> Song? {
         let mid = item["songmid"] as? String ?? (item["mid"] as? String ?? "")
-        let sid = item["songid"] as? Int ?? (item["id"] as? Int ?? 0)
+        let sid = Self.integerValue(item["songid"] ?? item["id"])
         guard !mid.isEmpty || sid > 0 else { return nil }
         let singers = (item["singer"] as? [[String: Any]]) ?? (item["songer"] as? [[String: Any]]) ?? []
-        let artists = singers.compactMap { $0["name"] as? String }.joined(separator: " / ")
+        var artists = singers.compactMap { ($0["name"] as? String) ?? ($0["title"] as? String) }.joined(separator: " / ")
+        if artists.isEmpty {
+            artists = (item["singer_name"] as? String) ?? (item["singername"] as? String ?? "")
+        }
         let albumDict = item["album"] as? [String: Any] ?? [:]
-        let albumName = albumDict["name"] as? String ?? (item["albumname"] as? String ?? "")
-        let albumMid = albumDict["mid"] as? String ?? (item["albummid"] as? String ?? "")
-        let interval = item["interval"] as? Int ?? 0
+        let albumName = albumDict["name"] as? String
+            ?? (albumDict["title"] as? String
+                ?? (item["albumname"] as? String ?? (item["album_name"] as? String ?? "")))
+        let albumMid = albumDict["mid"] as? String
+            ?? (albumDict["pmid"] as? String
+                ?? (item["albummid"] as? String ?? (item["album_mid"] as? String ?? "")))
+        let interval = Self.integerValue(item["interval"] ?? item["duration"])
         let pay = item["pay"] as? [String: Any]
-        let fee = (item["fee"] as? Int) ?? (pay?["pay_play"] as? Int) ?? (pay?["payplay"] as? Int) ?? 0
+        let fee = Self.integerValue(item["fee"] ?? pay?["pay_play"] ?? pay?["payplay"])
         let file = item["file"] as? [String: Any]
         let mediaMid = file?["media_mid"] as? String
             ?? item["strMediaMid"] as? String
             ?? item["media_mid"] as? String
+        let songName = item["songname"] as? String
+            ?? (item["name"] as? String ?? (item["title"] as? String ?? ""))
         return Song(
             id: sid,
-            name: item["songname"] as? String ?? (item["name"] as? String ?? ""),
+            name: songName,
             artists: artists,
             album: albumName,
             coverURL: Self.photoURL(albumMid.isEmpty ? nil : albumMid),

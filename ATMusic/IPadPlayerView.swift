@@ -182,7 +182,7 @@ struct IPadPlayerView: View {
 
     private var isCurrentFavorited: Bool {
         guard let song else { return false }
-        return favorites.contains(song: song) || localLibrary.containsSong(song)
+        return favorites.isSongLiked(song)
     }
 
     // MARK: - 左栏（封面 + 控制区）

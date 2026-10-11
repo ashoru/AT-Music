@@ -263,7 +263,37 @@ final class NetEaseAPI {
         let json = try await request("/api/v6/playlist/detail", payload: ["id": id, "n": 100000, "s": 8], crypto: "eapi")
         let playlist = json["playlist"] as? [String: Any] ?? [:]
         let tracks = playlist["tracks"] as? [[String: Any]] ?? []
-        return tracks.compactMap(Song.init(json:))
+        var songs = tracks.compactMap(Song.init(json:))
+
+        // 网易云部分歌单 tracks 只下发前数十首/一千首，但 trackIds 包含全部歌曲 ID。
+        // 若 trackIds 包含更多歌曲，通过批量详情接口拉取剩余全部歌曲，真正做到不限制歌曲上限。
+        let trackIdsRaw = playlist["trackIds"] as? [[String: Any]] ?? []
+        let allIds = trackIdsRaw.compactMap { $0["id"] as? Int }
+        if allIds.count > songs.count {
+            let loadedIds = Set(songs.map(\.id))
+            let missingIds = allIds.filter { !loadedIds.contains($0) }
+            if !missingIds.isEmpty, let additional = try? await songDetails(ids: missingIds) {
+                songs.append(contentsOf: additional)
+                let order = Dictionary(uniqueKeysWithValues: allIds.enumerated().map { ($1, $0) })
+                songs.sort { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
+            }
+        }
+        return songs
+    }
+
+    /// 批量获取歌曲详情（用于无上限加载歌单中的剩余歌曲）
+    func songDetails(ids: [Int]) async throws -> [Song] {
+        guard !ids.isEmpty else { return [] }
+        var result: [Song] = []
+        let chunkSize = 500
+        for i in stride(from: 0, to: ids.count, by: chunkSize) {
+            let chunk = Array(ids[i..<min(i + chunkSize, ids.count)])
+            let cParam = "[" + chunk.map { "{\"id\":\($0)}" }.joined(separator: ",") + "]"
+            let json = try await request("/api/v3/song/detail", payload: ["c": cParam], crypto: "weapi")
+            let songs = json["songs"] as? [[String: Any]] ?? []
+            result.append(contentsOf: songs.compactMap(Song.init(json:)))
+        }
+        return result
     }
 
     struct PlaylistMetadata: Sendable {
