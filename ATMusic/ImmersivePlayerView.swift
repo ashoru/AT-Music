@@ -180,6 +180,8 @@ struct ImmersivePlayerView: View {
     @State private var showQueue = false
     @State private var showComments = false
     @State private var showArtistHome = false
+    @State private var pickedArtistName: String = ""
+    @State private var selectedAlbum: Album?
     @State private var isDraggingSlider = false
     @State private var sliderDragSeconds: Double = 0
 
@@ -388,8 +390,27 @@ struct ImmersivePlayerView: View {
             }
         }
         .sheet(isPresented: $showArtistHome) {
-            if let song {
-                AllSourcesArtistHomeSheet(artistName: song.artists, initialSongs: [song])
+            if !pickedArtistName.isEmpty {
+                AllSourcesArtistHomeSheet(
+                    artistName: pickedArtistName,
+                    initialSongs: song.map { [$0] } ?? []
+                )
+                .environmentObject(player)
+                .environmentObject(theme)
+            }
+        }
+        .sheet(item: $selectedAlbum) { album in
+            if album.source == .synology {
+                NavigationView {
+                    SynologyAlbumView(
+                        albumName: album.name,
+                        artistName: album.artistName,
+                        coverURL: album.coverURL
+                    )
+                    .environmentObject(player)
+                }
+            } else {
+                AlbumDetailView(album: album)
                     .environmentObject(player)
                     .environmentObject(theme)
             }
@@ -451,26 +472,35 @@ struct ImmersivePlayerView: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                ATMusicHaptics.tap()
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
-                    showLyrics = false
-                    hideControls = false
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
+                Button {
+                    ATMusicHaptics.tap()
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
+                        showLyrics = false
+                        hideControls = false
+                    }
+                } label: {
                     Text(song?.name ?? "未在播放")
                         .font(ATMusicFont.appFont(15, .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-
-                    Text(song?.artists.isEmpty == false ? song!.artists : "未知歌手")
-                        .font(ATMusicFont.appFont(12.5, .medium))
-                        .foregroundStyle(.white.opacity(0.68))
-                        .lineLimit(1)
                 }
+                .buttonStyle(.plain)
+
+                SongSubtitleMenu(
+                    song: song,
+                    font: ATMusicFont.appFont(12.5, .medium),
+                    color: .white.opacity(0.68),
+                    alignment: .leading,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                )
             }
-            .buttonStyle(.plain)
 
             Spacer(minLength: 8)
 
@@ -664,22 +694,29 @@ struct ImmersivePlayerView: View {
                         )
                 }
 
-                // 歌手名（点击打开歌手页）
-                Button {
-                    ATMusicHaptics.tap()
-                    showArtistHome = true
-                } label: {
+                // 歌手与专辑（点击弹小框分别链接歌手与专辑页）
+                SongSubtitleMenu(
+                    song: song,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                ) {
                     HStack(spacing: 3) {
-                        Text(song?.artists.isEmpty == false ? song!.artists : "未知歌手")
+                        Text(song?.subtitleText ?? "未知歌手")
                             .font(ATMusicFont.appFont(14, .medium))
                             .foregroundStyle(.white.opacity(0.72))
                             .lineLimit(1)
+                            .truncationMode(.tail)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.white.opacity(0.55))
                     }
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 8)

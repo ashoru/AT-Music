@@ -63,7 +63,8 @@ struct ReferencePlaybackView: View {
     @State private var lyricsViewportHeight: CGFloat = 0
     @State private var isDraggingLyrics = false
     @State private var showArtistHome = false
-    @State private var showAlbumDetail = false
+    @State private var pickedArtistName: String = ""
+    @State private var selectedAlbum: Album?
     @State private var resumeTask: Task<Void, Never>?
     @State private var coverDominantColor: RGBColor?
 
@@ -99,14 +100,23 @@ struct ReferencePlaybackView: View {
         }
         .onDisappear { resumeTask?.cancel() }
         .sheet(isPresented: $showArtistHome) {
-            if let song {
-                AllSourcesArtistHomeSheet(artistName: song.artists, initialSongs: [song])
+            if !pickedArtistName.isEmpty {
+                AllSourcesArtistHomeSheet(artistName: pickedArtistName, initialSongs: song.map { [$0] } ?? [])
                     .environmentObject(player)
                     .environmentObject(theme)
             }
         }
-        .sheet(isPresented: $showAlbumDetail) {
-            if let album {
+        .sheet(item: $selectedAlbum) { album in
+            if album.source == .synology {
+                NavigationView {
+                    SynologyAlbumView(
+                        albumName: album.name,
+                        artistName: album.artistName,
+                        coverURL: album.coverURL
+                    )
+                    .environmentObject(player)
+                }
+            } else {
                 AlbumDetailView(album: album)
                     .environmentObject(player)
                     .environmentObject(theme)
@@ -415,7 +425,7 @@ struct ReferencePlaybackView: View {
                         SourceBadgeView(source: source, compact: true)
                     }
                 }
-                subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68))
+                subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68), alignment: .leading)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -633,41 +643,22 @@ struct ReferencePlaybackView: View {
         isDraggingLyrics ? focusedLyricID : (focusedLyricID ?? currentPlaybackLyricID)
     }
 
-    private var subtitle: String {
-        guard let song else { return "" }
-        let parts = [song.artists, song.album].filter { !$0.isEmpty }
-        return parts.isEmpty ? "未知歌曲" : parts.joined(separator: " · ")
-    }
-
-    /// 从当前歌曲构造专辑对象，供“点击歌手·专辑处 → 专辑页”跳转。
-    private var album: Album? {
-        guard let song else { return nil }
-        let albumName = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !albumName.isEmpty else { return nil }
-        return Album(
-            id: albumName,
-            name: albumName,
-            artistName: song.artists,
-            coverURL: song.coverURL,
-            source: song.source,
-            trackCount: nil
-        )
-    }
-
-    /// “歌手 · 专辑”处点击弹出小方块菜单，跳转软件内歌手页 / 专辑页。
+    /// “歌手 · 专辑”处点击弹出小方块菜单，分别链接专辑与各个歌手页面
     @ViewBuilder
-    private func subtitleMenu(font: Font, color: Color) -> some View {
-        Menu {
-            Button("歌手页") { showArtistHome = true }
-            if album != nil {
-                Button("专辑页") { showAlbumDetail = true }
+    private func subtitleMenu(font: Font, color: Color, alignment: TextAlignment = .center) -> some View {
+        SongSubtitleMenu(
+            song: song,
+            font: font,
+            color: color,
+            alignment: alignment,
+            onSelectArtist: { artist in
+                pickedArtistName = artist
+                showArtistHome = true
+            },
+            onSelectAlbum: { album in
+                selectedAlbum = album
             }
-        } label: {
-            Text(subtitle)
-                .font(font)
-                .foregroundStyle(color)
-                .contentShape(Rectangle())
-        }
+        )
     }
 
     /// 行高跟随实际内容自然撑开（正文最多两行 + 有译文才加译文行），无固定下限。

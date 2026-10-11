@@ -1166,13 +1166,19 @@ struct PlayerView: View {
                         SourceBadgeView(source: source, compact: true)
                     }
                 }
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(12, .medium))
-                    .foregroundStyle(albumArtistForeground)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .contentShape(Rectangle())
-                    .onTapGesture { openArtistHome() }
+                SongSubtitleMenu(
+                    song: song,
+                    font: ATMusicFont.appFont(12, .medium),
+                    foregroundStyle: albumArtistForeground,
+                    alignment: .leading,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                )
             }
             Spacer(minLength: 0)
 
@@ -1225,19 +1231,25 @@ struct PlayerView: View {
             .multilineTextAlignment(.center)
 
             HStack(spacing: 6) {
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(12.5, .medium))
-                    .foregroundStyle(albumArtistForeground)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                SongSubtitleMenu(
+                    song: song,
+                    font: ATMusicFont.appFont(12.5, .medium),
+                    foregroundStyle: albumArtistForeground,
+                    alignment: .center,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                )
                 if let source = song?.source {
                     SourceBadgeView(source: source, compact: true)
                 }
             }
             .frame(maxWidth: .infinity)
             .multilineTextAlignment(.center)
-            .contentShape(Rectangle())
-            .onTapGesture { openArtistHome() }
         }
     }
 
@@ -1497,14 +1509,20 @@ struct PlayerView: View {
                     }
                 }
                 .shadow(color: albumTextGlow ? palette.accent.opacity(0.30) : .clear, radius: albumTextGlow ? 10 : 0)
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(14, .medium))
-                    .foregroundStyle(albumArtistForeground)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .shadow(color: albumGlow(albumArtistColor), radius: albumTextGlow ? 7 : 0, y: 1)
-                    .contentShape(Rectangle())
-                    .onTapGesture { openArtistHome() }
+                SongSubtitleMenu(
+                    song: song,
+                    font: ATMusicFont.appFont(14, .medium),
+                    foregroundStyle: albumArtistForeground,
+                    alignment: .center,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                )
+                .shadow(color: albumGlow(albumArtistColor), radius: albumTextGlow ? 7 : 0, y: 1)
             }
             .padding(.horizontal, 36)
             .modifier(Layoutable(part: .title, enabled: layoutMode, data: $layoutData, style: legacyLayoutStyle))
@@ -1649,13 +1667,19 @@ struct PlayerView: View {
                         }
                     }
                     HStack(spacing: 8) {
-                        Text(song?.artists ?? "")
-                            .font(ATMusicFont.appFont(12))
-                            .foregroundStyle(palette.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .contentShape(Rectangle())
-                            .onTapGesture { openArtistHome() }
+                        SongSubtitleMenu(
+                            song: song,
+                            font: ATMusicFont.appFont(12),
+                            color: palette.secondary,
+                            alignment: .leading,
+                            onSelectArtist: { artist in
+                                pickedArtistName = artist
+                                showArtistHome = true
+                            },
+                            onSelectAlbum: { album in
+                                selectedAlbum = album
+                            }
+                        )
                         Text(atmusicTimeString(clock.progress))
                             .font(ATMusicFont.appFont(11, .medium))
                             .foregroundStyle(palette.secondary.opacity(0.78))

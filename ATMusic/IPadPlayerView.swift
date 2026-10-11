@@ -31,6 +31,9 @@ struct IPadPlayerView: View {
     @State private var scrubProgress: Double = 0
     @State private var autoScrollEnabled = true
     @State private var volume: Float = 0.5
+    @State private var pickedArtistName = ""
+    @State private var selectedAlbum: Album?
+    @State private var showArtistHome = false
 
     enum RightPaneMode: String, CaseIterable, Identifiable {
         case lyrics = "实时歌词"
@@ -98,6 +101,32 @@ struct IPadPlayerView: View {
                     .padding(.horizontal, 32)
                     .padding(.bottom, 24)
                 }
+            }
+        }
+        .sheet(isPresented: $showArtistHome) {
+            if !pickedArtistName.isEmpty {
+                AllSourcesArtistHomeSheet(
+                    artistName: pickedArtistName,
+                    initialSongs: song.map { [$0] } ?? []
+                )
+                .environmentObject(player)
+                .environmentObject(theme)
+            }
+        }
+        .sheet(item: $selectedAlbum) { album in
+            if album.source == .synology {
+                NavigationView {
+                    SynologyAlbumView(
+                        albumName: album.name,
+                        artistName: album.artistName,
+                        coverURL: album.coverURL
+                    )
+                    .environmentObject(player)
+                }
+            } else {
+                AlbumDetailView(album: album)
+                    .environmentObject(player)
+                    .environmentObject(theme)
             }
         }
     }
@@ -206,10 +235,19 @@ struct IPadPlayerView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(song?.artist ?? "AT Music")
-                    .font(ATMusicFont.appFont(17, .medium))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .lineLimit(1)
+                SongSubtitleMenu(
+                    song: song,
+                    font: ATMusicFont.appFont(17, .medium),
+                    color: .white.opacity(0.78),
+                    alignment: .leading,
+                    onSelectArtist: { artist in
+                        pickedArtistName = artist
+                        showArtistHome = true
+                    },
+                    onSelectAlbum: { album in
+                        selectedAlbum = album
+                    }
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
