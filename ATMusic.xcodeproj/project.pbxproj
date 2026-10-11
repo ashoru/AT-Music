@@ -25,6 +25,7 @@
 		22FEE5D9E6A51A91D9952941 /* ATMusicLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C14C4989C5544E73D1CCBB /* ATMusicLogger.swift */; };
 		244085B9A36EB7719B9E272A /* PlayerLayoutEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A62D1A99E625A522106F6A /* PlayerLayoutEditorSheet.swift */; };
 		2802CAD851751AE7D612E336 /* ThirdPartySourceManagerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE690F3FC1681BF4460BEA64 /* ThirdPartySourceManagerSheet.swift */; };
+		2B68F27BF0E3BEBC8776BD85 /* MediaSquareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3258011412906ABA010A0177 /* MediaSquareCard.swift */; };
 		32E692D30D1BB14B62B25FC0 /* QQLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCBDE17B8061DB6C1A7C796 /* QQLoginSheet.swift */; };
 		34BD71C5486E4514862594D7 /* LocalMusicSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD81682400062D3794713DC5 /* LocalMusicSection.swift */; };
 		37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */; };
@@ -50,6 +51,7 @@
 		75D91E2FB7AE9A4E969ABECB /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1721CFEECF4A7DC127E28B /* CrashReporter.swift */; };
 		76547F07FB1898F1EF52754C /* LocalLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB34D56EF6CB027C4038CE1 /* LocalLibraryStore.swift */; };
 		8008D35367183B7BF9EE6A6E /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D8F9882B899BB6F9A68343D /* MiniPlayerView.swift */; };
+		8056859434F32FC523BD9903 /* FeaturedAggregateCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */; };
 		817F2B75418BA9519791FEA4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B6B38928CB266BEBA49D0E /* RootView.swift */; };
 		81AD67B3104FBD8701C13DFC /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 317645748BE52D51685C249B /* Models.swift */; };
 		828DE3C3CD07DDFE70F324B6 /* FavoritePlaylistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */; };
@@ -114,6 +116,7 @@
 		13C7BDFB126FAF8F565D1A97 /* PlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistView.swift; sourceTree = "<group>"; };
 		1459FCC51AA2F14DD5D12CCB /* QQWebLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQWebLoginSheet.swift; sourceTree = "<group>"; };
 		147F7858574B4E3FA9C52715 /* ATMusic.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ATMusic.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturedAggregateCache.swift; sourceTree = "<group>"; };
 		1B1721CFEECF4A7DC127E28B /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		1BE517BFC0BE337D3EA60C66 /* SearchHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchHistoryStore.swift; sourceTree = "<group>"; };
 		1C46C18D14DB38C08EDD9822 /* SleepTimerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheet.swift; sourceTree = "<group>"; };
@@ -128,6 +131,7 @@
 		2DE201D82DC395218749E6CF /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		3123252340404F4D56DB878E /* PlayerLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerLayout.swift; sourceTree = "<group>"; };
 		317645748BE52D51685C249B /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		3258011412906ABA010A0177 /* MediaSquareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSquareCard.swift; sourceTree = "<group>"; };
 		342A8A3ABD041E2B522B25B6 /* SongCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongCell.swift; sourceTree = "<group>"; };
 		364EE63876EFCB284F7CC007 /* KugouLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KugouLoginSheet.swift; sourceTree = "<group>"; };
 		37E1482D17E6CAA32D05DB6E /* SynologyMusicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyMusicView.swift; sourceTree = "<group>"; };
@@ -243,6 +247,7 @@
 				7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */,
 				95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */,
 				8E791FF8CB1DF14CEDCE4193 /* FavoritesStore.swift */,
+				1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */,
 				3C440DC1ACFF6C8F26F28BA2 /* FontManager.swift */,
 				6DB148C7425FBC4602176295 /* HighRefreshKeeper.swift */,
 				2DE201D82DC395218749E6CF /* HistoryView.swift */,
@@ -263,6 +268,7 @@
 				5732EF36636984BF688738D7 /* LogViewer.swift */,
 				513F4C38F0BD75C2DAC2AB0C /* LXScriptSourceRunner.swift */,
 				765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */,
+				3258011412906ABA010A0177 /* MediaSquareCard.swift */,
 				6D8F9882B899BB6F9A68343D /* MiniPlayerView.swift */,
 				317645748BE52D51685C249B /* Models.swift */,
 				AC63BC06FD9B7C11B052AD31 /* MusicCacheManager.swift */,
@@ -430,6 +436,7 @@
 				37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */,
 				828DE3C3CD07DDFE70F324B6 /* FavoritePlaylistStore.swift in Sources */,
 				F8483EDD015C5B9F0405AE44 /* FavoritesStore.swift in Sources */,
+				8056859434F32FC523BD9903 /* FeaturedAggregateCache.swift in Sources */,
 				9207FE230AAF916D0BFBB421 /* FontManager.swift in Sources */,
 				4CFB4FEC3DB9B1A93B67B957 /* HighRefreshKeeper.swift in Sources */,
 				06F051C601F10296285A343C /* HistoryView.swift in Sources */,
@@ -449,6 +456,7 @@
 				8C82482D215CA8D463798AC5 /* LogViewer.swift in Sources */,
 				C81DCF3A3DA458EAFEA83E0B /* LoginView.swift in Sources */,
 				03DC9AD785F3D1D089D102D1 /* LyricBackgroundStore.swift in Sources */,
+				2B68F27BF0E3BEBC8776BD85 /* MediaSquareCard.swift in Sources */,
 				8008D35367183B7BF9EE6A6E /* MiniPlayerView.swift in Sources */,
 				81AD67B3104FBD8701C13DFC /* Models.swift in Sources */,
 				A79B05DFB8BE5616F27EF2E8 /* MusicCacheManager.swift in Sources */,
@@ -524,13 +532,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.5;
+				MARKETING_VERSION = 1.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
@@ -599,13 +607,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 53;
+				CURRENT_PROJECT_VERSION = 54;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.5;
+				MARKETING_VERSION = 1.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";

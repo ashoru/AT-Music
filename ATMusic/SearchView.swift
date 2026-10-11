@@ -1083,20 +1083,9 @@ struct SearchView: View {
                                 ATMusicHaptics.tap()
                                 selectedPlaylist = playlist
                             } label: {
-                                VStack(alignment: .leading, spacing: 7) {
-                                    CoverImage(url: playlist.coverURL, size: 150, cornerRadius: 14)
-                                    Text(playlist.name)
-                                        .font(ATMusicFont.appFont(15, .medium))
-                                        .foregroundStyle(Color.atmusicLabel)
-                                        .lineLimit(2)
-                                    Text("\(playlist.source.atmusicDisplayName) · \(playlist.trackCount) 首")
-                                        .font(ATMusicFont.appFont(12))
-                                        .foregroundStyle(Color.atmusicComment)
-                                        .lineLimit(1)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                MediaSquareCard(playlist: playlist)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -1274,21 +1263,7 @@ struct SearchView: View {
                         ATMusicHaptics.tap()
                         openAlbum(album)
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            CoverImage(url: album.coverURL, size: 106, cornerRadius: 12)
-                            Text(album.name)
-                                .font(ATMusicFont.appFont(13, .medium))
-                                .foregroundStyle(Color.atmusicLabel)
-                                .lineLimit(2)
-                            Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                                .lineLimit(1)
-                            Text(album.source.atmusicDisplayName)
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        MediaSquareCard(album: album)
                     }
                     .buttonStyle(GlassPressButtonStyle(scale: 0.98))
                 }
@@ -1305,18 +1280,7 @@ struct SearchView: View {
                         ATMusicHaptics.tap()
                         selectedPlaylist = playlist
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            CoverImage(url: playlist.coverURL, size: 106, cornerRadius: 12)
-                            Text(playlist.name)
-                                .font(ATMusicFont.appFont(13, .medium))
-                                .foregroundStyle(Color.atmusicLabel)
-                                .lineLimit(2)
-                            Text("\(playlist.source.atmusicDisplayName) · \(playlist.trackCount) 首")
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        MediaSquareCard(playlist: playlist)
                     }
                     .buttonStyle(GlassPressButtonStyle(scale: 0.98))
                 }
@@ -1673,19 +1637,7 @@ struct SearchView: View {
                                     searchController.dismissKeyboard()
                                     openAlbum(album)
                                 } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        CoverImage(url: album.coverURL, size: 150, cornerRadius: 14)
-                                        Text(album.name)
-                                            .font(ATMusicFont.appFont(15, .medium))
-                                            .foregroundStyle(Color.atmusicLabel)
-                                            .lineLimit(2)
-                                        Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
-                                            .font(ATMusicFont.appFont(12))
-                                            .foregroundStyle(Color.atmusicComment)
-                                            .lineLimit(1)
-                                        SourceBadgeView(source: album.source, compact: true)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    MediaSquareCard(album: album)
                                 }
                                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                             }

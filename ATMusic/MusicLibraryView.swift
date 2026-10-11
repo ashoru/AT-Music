@@ -579,24 +579,9 @@ struct MusicLibraryHomeView: View {
                                 NavigationLink {
                                     PlaylistView(playlist: playlist)
                                 } label: {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        CoverImage(url: playlist.coverURL, size: 180, cornerRadius: 14)
-                                            .aspectRatio(1, contentMode: .fit)
-                                            .frame(maxWidth: .infinity)
-                                        Text(playlist.name)
-                                            .font(ATMusicFont.appFont(14, .semibold))
-                                            .foregroundStyle(Color.atmusicLabel)
-                                            .lineLimit(1)
-                                        HStack(spacing: 4) {
-                                            SourceBadgeView(source: playlist.source)
-                                            Text(playlist.creatorName.isEmpty ? playlist.source.atmusicDisplayName : playlist.creatorName)
-                                                .font(ATMusicFont.appFont(12))
-                                                .foregroundStyle(Color.atmusicComment)
-                                                .lineLimit(1)
-                                        }
-                                    }
+                                    MediaSquareCard(playlist: playlist)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                                 .contextMenu {
                                     Button(role: .destructive) {
                                         favPlaylistStore.remove(playlist)
@@ -613,26 +598,9 @@ struct MusicLibraryHomeView: View {
                                     NavigationLink {
                                         PlaylistView(playlist: playlist)
                                     } label: {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            CoverImage(url: playlist.coverURL, size: 124, cornerRadius: 12)
-                                                .frame(width: 124, height: 124)
-                                                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-                                            Text(playlist.name)
-                                                .font(ATMusicFont.appFont(13, .semibold))
-                                                .foregroundStyle(Color.atmusicLabel)
-                                                .lineLimit(1)
-                                                .frame(width: 124, alignment: .leading)
-                                            HStack(spacing: 4) {
-                                                SourceBadgeView(source: playlist.source)
-                                                Text(playlist.creatorName.isEmpty ? playlist.source.atmusicDisplayName : playlist.creatorName)
-                                                    .font(ATMusicFont.appFont(11.5, .medium))
-                                                    .foregroundStyle(Color.atmusicComment)
-                                                    .lineLimit(1)
-                                            }
-                                            .frame(width: 124, alignment: .leading)
-                                        }
+                                        MediaSquareCard(playlist: playlist, fixedCoverSize: 124)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                                     .contextMenu {
                                         Button(role: .destructive) {
                                             favPlaylistStore.remove(playlist)
@@ -781,40 +749,22 @@ struct MusicLibraryHomeView: View {
             NavigationLink {
                 PlaylistView(playlist: playlist)
             } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    CoverImage(url: item.coverURL, size: 180, cornerRadius: 14)
-                        .aspectRatio(1, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                    Text(item.title)
-                        .font(ATMusicFont.appFont(14, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                        .lineLimit(1)
-                    Text(item.subtitle)
-                        .font(ATMusicFont.appFont(12))
-                        .foregroundStyle(Color.atmusicComment)
-                        .lineLimit(1)
-                }
+                MediaSquareCard(playlist: playlist)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
         case .local(let id):
             NavigationLink {
                 LocalPlaylistBrowserView(playlistID: id)
             } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    CoverImage(url: item.coverURL, size: 180, cornerRadius: 14)
-                        .aspectRatio(1, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                    Text(item.title)
-                        .font(ATMusicFont.appFont(14, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                        .lineLimit(1)
-                    Text(item.subtitle)
-                        .font(ATMusicFont.appFont(12))
-                        .foregroundStyle(Color.atmusicComment)
-                        .lineLimit(1)
-                }
+                MediaSquareCard(
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    coverURL: item.coverURL,
+                    source: .local,
+                    showSourceBadge: true
+                )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
         }
     }
 

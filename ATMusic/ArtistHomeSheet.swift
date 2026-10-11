@@ -273,24 +273,9 @@ struct ArtistHomeSheet: View {
                                     .environmentObject(theme)
                             }
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                CoverImage(url: album.coverURL, size: 88, cornerRadius: 12)
-                                    .frame(maxWidth: .infinity)
-                                Text(album.name)
-                                    .font(ATMusicFont.appFont(11, .medium))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                    .lineLimit(1)
-                                if let count = album.trackCount {
-                                    Text(atmusicSongCountText(count))
-                                        .font(ATMusicFont.appFont(10))
-                                        .foregroundStyle(Color.atmusicComment)
-                                }
-                            }
-                            .padding(6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+                            MediaSquareCard(album: album, showSourceBadge: false)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                     }
                 }
                 .padding(.horizontal, 10)
@@ -691,24 +676,9 @@ struct AllSourcesArtistHomeSheet: View {
                                     .environmentObject(theme)
                             }
                         } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                CoverImage(url: album.coverURL, size: 110, cornerRadius: 12)
-                                Text(album.name)
-                                    .font(ATMusicFont.appFont(12, .medium))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                    .lineLimit(2)
-                                HStack(spacing: 4) {
-                                    SourceBadgeView(source: album.source, compact: true)
-                                    if let count = album.trackCount {
-                                        Text(atmusicSongCountText(count))
-                                            .font(ATMusicFont.appFont(10))
-                                            .foregroundStyle(Color.atmusicComment)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            MediaSquareCard(album: album, showSourceBadge: true)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                     }
                 }
                 .padding(.horizontal, 16)

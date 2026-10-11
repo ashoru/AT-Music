@@ -446,7 +446,8 @@ struct FeaturedView: View {
     /// 最近一次已执行的加载键，避免返回页面时重复重载列表。
     @State private var lastLoadedTaskID = ""
 
-    private let pageSize = 40
+    private let singlePageSize = 30
+    private let aggregateLimit = 14
 
     private var featuredSource: FeaturedSource {
         FeaturedSource(rawValue: featuredSourceRaw) ?? .netease
@@ -631,30 +632,15 @@ struct FeaturedView: View {
                         .environmentObject(auth)
                         .environmentObject(player)
                 } label: {
-                    VStack(alignment: .leading, spacing: 7) {
-                        CoverImage(url: playlist.coverURL, size: 170, cornerRadius: 14)
-                            .frame(maxWidth: .infinity)
-                        HStack(spacing: 5) {
-                            Text(playlist.name)
-                                .font(ATMusicFont.appFont(13, .medium))
-                                .foregroundStyle(Color.atmusicLabel)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                            if isAggregate {
-                                SourceBadgeView(source: playlist.source, compact: true)
-                            }
-                        }
-                        Text(playlistSubtitle(playlist))
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                            .lineLimit(1)
-                    }
-                    .padding(8)
-                    .background {
-                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
+                    MediaSquareCard(
+                        title: playlist.name,
+                        subtitle: playlistSubtitle(playlist),
+                        coverURL: playlist.coverURL,
+                        source: playlist.source,
+                        showSourceBadge: isAggregate
+                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                 .id(playlist.identityKey)
                 .onAppear {
                     guard playlist.identityKey == playlists.last?.identityKey else { return }
@@ -678,21 +664,53 @@ struct FeaturedView: View {
         }
     }
 
+    private func fetchWithTimeout<T: Sendable>(seconds: Double, fallback: T, operation: @Sendable @escaping () async throws -> T) async -> T {
+        await withTaskGroup(of: T.self) { group in
+            group.addTask {
+                (try? await operation()) ?? fallback
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return fallback
+            }
+            if let first = await group.next() {
+                group.cancelAll()
+                return first
+            }
+            return fallback
+        }
+    }
+
     private func load(reset: Bool) async {
         if reset {
-            isLoading = true
             isLoadingMore = false
             nextOffset = 0
             hasMorePlaylists = true
-            playlists = []
             scrollID = nil
+            // 聚合模式下若已有缓存且是全部分类，优先显示缓存实现 0ms 秒开，避免白屏
+            if isAggregate && query.isEmpty && selectedCategory == "全部" {
+                if let cached = FeaturedAggregateCache.shared.get(category: selectedCategory), !cached.isEmpty, playlists.isEmpty {
+                    playlists = cached
+                    isLoading = false
+                } else if playlists.isEmpty {
+                    isLoading = true
+                }
+            } else if playlists.isEmpty {
+                isLoading = true
+            }
         } else {
             guard !isLoading, !isLoadingMore, hasMorePlaylists else { return }
             isLoadingMore = true
         }
         errorMessage = nil
+
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isAggregate {
+            await loadAggregateProgressive(keyword: keyword, reset: reset)
+            return
+        }
+
         do {
-            let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
             let loaded: [Playlist]
             switch featuredSource {
             case .netease:
@@ -702,27 +720,26 @@ struct FeaturedView: View {
             case .kugou:
                 loaded = try await loadKugou(keyword: keyword)
             case .aggregate:
-                loaded = try await loadAggregate(keyword: keyword)
+                loaded = []
             }
             guard !Task.isCancelled else { return }
-            let countBeforeMerge = playlists.count
-            var seen = Set(playlists.map { "\($0.source.rawValue)|\($0.id)" })
-            playlists.append(contentsOf: loaded.filter {
-                seen.insert("\($0.source.rawValue)|\($0.id)").inserted
-            })
+            if reset {
+                playlists = loaded
+            } else {
+                let countBeforeMerge = playlists.count
+                var seen = Set(playlists.map(\.identityKey))
+                playlists.append(contentsOf: loaded.filter { seen.insert($0.identityKey).inserted })
+                hasMorePlaylists = !loaded.isEmpty && playlists.count > countBeforeMerge
+            }
             nextOffset += loaded.count
-            // 网易 / QQ / 酷狗搜索与分类、酷狗歌单广场均支持 offset 分页；
-            // QQ 热门歌单（官网推荐位）一次取完，返回空页或重复页即停止翻页。
-            hasMorePlaylists = !loaded.isEmpty && playlists.count > countBeforeMerge
             isLoading = false
             isLoadingMore = false
         } catch {
             isLoading = false
             isLoadingMore = false
-            if reset {
+            if reset && playlists.isEmpty {
                 errorMessage = error.localizedDescription
             } else {
-                // 翻页失败：静默停止翻页，保留已加载内容，不打断滚动体验
                 hasMorePlaylists = false
             }
         }
@@ -733,75 +750,153 @@ struct FeaturedView: View {
     }
 
     private func loadNetEase(keyword: String) async throws -> [Playlist] {
-        if !keyword.isEmpty {
-            return try await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)
-        }
-        switch selectedCategory {
-        case "精品歌单":
-            return try await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: pageSize, offset: nextOffset)
-        case "全部", "推荐歌单":
-            return try await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: pageSize, offset: nextOffset)
-        default:
-            return try await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: pageSize, offset: nextOffset)
+        await fetchWithTimeout(seconds: 4.5, fallback: []) {
+            if !keyword.isEmpty {
+                return try await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: singlePageSize, offset: nextOffset)
+            }
+            switch selectedCategory {
+            case "精品歌单":
+                return try await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: singlePageSize, offset: nextOffset)
+            case "全部", "推荐歌单":
+                return try await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: singlePageSize, offset: nextOffset)
+            default:
+                return try await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: singlePageSize, offset: nextOffset)
+            }
         }
     }
 
     private func loadQQ(keyword: String) async throws -> [Playlist] {
-        if !keyword.isEmpty {
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)
-        }
-        switch selectedCategory {
-        case "精品歌单":
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)
-        case "全部", "推荐歌单":
-            return try await QQMusicAPI.shared.allPlaylists(limit: pageSize, offset: nextOffset)
-        default:
-            return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)
+        await fetchWithTimeout(seconds: 4.5, fallback: []) {
+            if !keyword.isEmpty {
+                return try await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: singlePageSize, offset: nextOffset)
+            }
+            switch selectedCategory {
+            case "精品歌单":
+                return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: singlePageSize, offset: nextOffset)
+            case "全部", "推荐歌单":
+                return try await QQMusicAPI.shared.allPlaylists(limit: singlePageSize, offset: nextOffset)
+            default:
+                return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: singlePageSize, offset: nextOffset)
+            }
         }
     }
 
     private func loadKugou(keyword: String) async throws -> [Playlist] {
-        if !keyword.isEmpty {
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)
-        }
-        switch selectedCategory {
-        case "精品歌单":
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)
-        case "全部", "推荐歌单":
-            return try await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize, offset: nextOffset)
-        default:
-            return try await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)
+        await fetchWithTimeout(seconds: 4.5, fallback: []) {
+            if !keyword.isEmpty {
+                return try await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: singlePageSize, offset: nextOffset)
+            }
+            switch selectedCategory {
+            case "精品歌单":
+                return try await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: singlePageSize, offset: nextOffset)
+            case "全部", "推荐歌单":
+                return try await KugouMusicAPI.shared.recommendPlaylists(limit: singlePageSize, offset: nextOffset)
+            default:
+                return try await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: singlePageSize, offset: nextOffset)
+            }
         }
     }
 
-    /// 聚合：三平台并行拉取后合并，单卡附带平台徽标。
-    private func loadAggregate(keyword: String) async throws -> [Playlist] {
-        if !keyword.isEmpty {
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: pageSize, offset: nextOffset)) ?? []
-            let (n, q, k) = try await (netease, qq, kugou)
-            return interleave(n, q, k)
-        }
-        switch selectedCategory {
-        case "精品歌单":
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: pageSize, offset: nextOffset)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: pageSize, offset: nextOffset)) ?? []
-            let (n, q, k) = try await (netease, qq, kugou)
-            return interleave(n, q, k)
-        case "全部", "推荐歌单":
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: pageSize, offset: nextOffset)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.allPlaylists(limit: pageSize, offset: nextOffset)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.recommendPlaylists(limit: pageSize, offset: nextOffset)) ?? []
-            let (n, q, k) = try await (netease, qq, kugou)
-            return interleave(n, q, k)
-        default:
-            async let netease: [Playlist] = (try? await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: pageSize, offset: nextOffset)) ?? []
-            async let qq: [Playlist] = (try? await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
-            async let kugou: [Playlist] = (try? await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: pageSize, offset: nextOffset)) ?? []
-            let (n, q, k) = try await (netease, qq, kugou)
-            return interleave(n, q, k)
+    /// 聚合渐进式流式加载：多平台并行，单个平台先回包立即先显示，单平台 3.5 秒硬超时保护
+    private func loadAggregateProgressive(keyword: String, reset: Bool) async {
+        let limit = aggregateLimit
+        let currentOffset = nextOffset
+
+        typealias PlatformResult = (SongSource, [Playlist])
+        await withTaskGroup(of: PlatformResult.self) { group in
+            // 1. 网易云任务
+            group.addTask {
+                let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
+                    if !keyword.isEmpty {
+                        return try await NetEaseAPI.shared.searchPlaylists(keyword: keyword, limit: limit, offset: currentOffset)
+                    }
+                    switch selectedCategory {
+                    case "精品歌单":
+                        return try await NetEaseAPI.shared.highQualityPlaylists(cat: "全部", limit: limit, offset: currentOffset)
+                    case "全部", "推荐歌单":
+                        return try await NetEaseAPI.shared.playlistSquare(cat: "全部", order: "hot", limit: limit, offset: currentOffset)
+                    default:
+                        return try await NetEaseAPI.shared.playlistSquare(cat: selectedCategory, order: "hot", limit: limit, offset: currentOffset)
+                    }
+                }
+                return (.netease, list)
+            }
+
+            // 2. QQ音乐任务
+            group.addTask {
+                let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
+                    if !keyword.isEmpty {
+                        return try await QQMusicAPI.shared.searchPlaylists(keyword: keyword, limit: limit, offset: currentOffset)
+                    }
+                    switch selectedCategory {
+                    case "精品歌单":
+                        return try await QQMusicAPI.shared.searchPlaylists(keyword: "精选", limit: limit, offset: currentOffset)
+                    case "全部", "推荐歌单":
+                        return try await QQMusicAPI.shared.allPlaylists(limit: limit, offset: currentOffset)
+                    default:
+                        return try await QQMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: limit, offset: currentOffset)
+                    }
+                }
+                return (.qq, list)
+            }
+
+            // 3. 酷狗音乐任务
+            group.addTask {
+                let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
+                    if !keyword.isEmpty {
+                        return try await KugouMusicAPI.shared.searchPlaylists(keyword: keyword, limit: limit, offset: currentOffset)
+                    }
+                    switch selectedCategory {
+                    case "精品歌单":
+                        return try await KugouMusicAPI.shared.searchPlaylists(keyword: "精选", limit: limit, offset: currentOffset)
+                    case "全部", "推荐歌单":
+                        return try await KugouMusicAPI.shared.recommendPlaylists(limit: limit, offset: currentOffset)
+                    default:
+                        return try await KugouMusicAPI.shared.searchPlaylists(keyword: selectedCategory, limit: limit, offset: currentOffset)
+                    }
+                }
+                return (.kugou, list)
+            }
+
+            var neteaseList: [Playlist] = []
+            var qqList: [Playlist] = []
+            var kugouList: [Playlist] = []
+            var totalCount = 0
+
+            for await (source, items) in group {
+                guard !Task.isCancelled else { break }
+                switch source {
+                case .netease: neteaseList = items
+                case .qq: qqList = items
+                case .kugou: kugouList = items
+                default: break
+                }
+                totalCount += items.count
+
+                let currentCombined = interleave(neteaseList, qqList, kugouList)
+                if !currentCombined.isEmpty {
+                    if reset {
+                        var seen = Set<String>()
+                        self.playlists = currentCombined.filter { seen.insert($0.identityKey).inserted }
+                        self.isLoading = false
+                    } else {
+                        var seen = Set(self.playlists.map(\.identityKey))
+                        let fresh = currentCombined.filter { seen.insert($0.identityKey).inserted }
+                        if !fresh.isEmpty {
+                            self.playlists.append(contentsOf: fresh)
+                        }
+                    }
+                }
+            }
+
+            self.nextOffset += totalCount
+            self.hasMorePlaylists = totalCount > 0
+            self.isLoading = false
+            self.isLoadingMore = false
+
+            if reset && keyword.isEmpty && !self.playlists.isEmpty {
+                FeaturedAggregateCache.shared.set(self.playlists, category: selectedCategory)
+            }
         }
     }
 
@@ -816,6 +911,7 @@ struct FeaturedView: View {
         }
         return result
     }
+
     /// 网易云来源远程分类丰富：接口正常时使用服务端全部分类；失败时保留通用分类兜底。
     private func enrichCategoriesFromNetEase() async {
         guard featuredSource == .netease else { return }
