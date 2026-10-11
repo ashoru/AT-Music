@@ -203,10 +203,61 @@ struct MusicLibraryHomeView: View {
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
     @ObservedObject private var synology = SynologyAPI.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var favorites = FavoritesStore.shared
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
+    @State private var playlistFilter: String = "全部"
+    @State private var showCreatePlaylist = false
+    @State private var newPlaylistName = ""
+
+    private var allFavoriteSongs: [Song] {
+        var songs: [Song] = []
+        var seen = Set<String>()
+        if let localFav = localStore.playlists.first(where: { $0.name == "我的收藏歌单" || $0.name == "三平台喜欢" }) {
+            for song in localFav.songs where !seen.contains(song.identityKey) {
+                seen.insert(song.identityKey)
+                songs.append(song)
+            }
+        }
+        for song in favorites.neteaseFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.qqFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.kugouFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.synologyFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        return songs
+    }
 
     private var isNativeClean: Bool {
         ATMusicUIStyle(rawValue: uiStyleRaw) == .nativeClean
+    }
+
+
+    private var filteredPlaylists: [MusicLibraryPlaylistItem] {
+        let all = homePlaylists
+        switch playlistFilter {
+        case "本地":
+            return all.filter { $0.source == .local }
+        case "网易云":
+            return all.filter { $0.source == .netease }
+        case "QQ":
+            return all.filter { $0.source == .qq }
+        case "酷狗":
+            return all.filter { $0.source == .kugou }
+        case "NAS":
+            return all.filter { $0.source == .synology }
+        default:
+            return all
+        }
     }
 
     private var homePlaylists: [MusicLibraryPlaylistItem] {
@@ -267,6 +318,7 @@ struct MusicLibraryHomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: isNativeClean ? 26 : 22) {
                         header
+                        favoriteHeroCard
                         quickAccess
                         favoritePlaylistsSection
                         playlistsPreview
@@ -299,44 +351,198 @@ struct MusicLibraryHomeView: View {
         }
     }
 
-    private var quickAccess: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("浏览")
-                .font(ATMusicFont.appFont(18, .bold))
-                .foregroundStyle(Color.atmusicLabel)
-            HStack(spacing: 10) {
-                NavigationLink {
-                    MusicLibraryHistoryView()
-                } label: {
-                    MusicLibraryQuickCard(
-                        title: "最近播放",
-                        subtitle: "\(player.history.count) 首",
-                        systemImage: "clock.arrow.circlepath",
-                        enabled: true
-                    )
+    private var favoriteHeroCard: some View {
+        NavigationLink {
+            UnifiedFavoritesDetailView()
+        } label: {
+            HStack(spacing: 15) {
+                // 封面展示：前几首歌曲的封面缩略图或高质感红心微光背景
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(red: 0.94, green: 0.22, blue: 0.35), Color(red: 0.88, green: 0.14, blue: 0.45)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 80, height: 80)
+                        .shadow(color: Color.red.opacity(0.28), radius: 8, y: 4)
+
+                    let covers = Array(allFavoriteSongs.compactMap(\.coverURL).prefix(4))
+                    if covers.count >= 4 {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 2), GridItem(.flexible(), spacing: 2)], spacing: 2) {
+                            ForEach(0..<4, id: \.self) { idx in
+                                CoverImage(url: covers[idx], size: 36, cornerRadius: 4)
+                            }
+                        }
+                        .frame(width: 74, height: 74)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.black.opacity(0.22))
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .shadow(radius: 4)
+                        }
+                    } else if let firstCover = covers.first {
+                        CoverImage(url: firstCover, size: 80, cornerRadius: 18)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.black.opacity(0.24))
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 28, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .shadow(radius: 4)
+                            }
+                    } else {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
                 }
-                NavigationLink {
-                    LocalMusicBrowserView()
-                } label: {
-                    MusicLibraryQuickCard(
-                        title: "本地音乐",
-                        subtitle: "\(localStore.importedSongs.count) 首",
-                        systemImage: "internaldrive.fill",
-                        enabled: true
-                    )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("我喜欢的音乐")
+                        .font(ATMusicFont.appFont(18, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+
+                    Text("\(allFavoriteSongs.count) 首歌曲 · 同步本地与平台红心")
+                        .font(ATMusicFont.appFont(12, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            if !allFavoriteSongs.isEmpty {
+                                player.play(songs: allFavoriteSongs, startAt: 0)
+                                ATMusicHaptics.tap()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("播放全部")
+                                    .font(ATMusicFont.appFont(12, .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color.atmusicAmber, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            if !allFavoriteSongs.isEmpty {
+                                player.play(songs: allFavoriteSongs.shuffled(), startAt: 0)
+                                ATMusicHaptics.tap()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "shuffle")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("随机播放")
+                                    .font(ATMusicFont.appFont(12, .semibold))
+                            }
+                            .foregroundStyle(Color.atmusicLabel)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 2)
                 }
-                NavigationLink {
-                    SynologyFileLibraryView()
-                } label: {
-                    MusicLibraryQuickCard(
-                        title: "NAS 文件",
-                        subtitle: synology.isLoggedIn ? "浏览文件夹" : "未连接",
-                        systemImage: "externaldrive.fill",
-                        enabled: synology.isLoggedIn
-                    )
-                }
+
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.atmusicComment.opacity(0.6))
             }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            .padding(14)
+            .background {
+                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
+    }
+
+    private var quickAccess: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("快捷浏览")
+                .font(ATMusicFont.appFont(16, .bold))
+                .foregroundStyle(Color.atmusicLabel)
+
+            // 若 NAS 已连接展示 2x2 四宫格；若未连接则自动隐藏 NAS，3 个入口平分横排，不占版面
+            if synology.isLoggedIn {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    recentCard
+                    localCard
+                    favPlaylistsCard
+                    nasCard
+                }
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            } else {
+                HStack(spacing: 10) {
+                    recentCard
+                    localCard
+                    favPlaylistsCard
+                }
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            }
+        }
+    }
+
+    private var recentCard: some View {
+        NavigationLink {
+            MusicLibraryHistoryView()
+        } label: {
+            MusicLibraryQuickCard(
+                title: "最近播放",
+                subtitle: "\(player.history.count) 首",
+                systemImage: "clock.arrow.circlepath",
+                enabled: true
+            )
+        }
+    }
+
+    private var localCard: some View {
+        NavigationLink {
+            LocalMusicBrowserView()
+        } label: {
+            MusicLibraryQuickCard(
+                title: "本地音乐",
+                subtitle: "\(localStore.importedSongs.count) 首",
+                systemImage: "internaldrive.fill",
+                enabled: true
+            )
+        }
+    }
+
+    private var favPlaylistsCard: some View {
+        NavigationLink {
+            MusicLibraryAllPlaylistsView()
+        } label: {
+            MusicLibraryQuickCard(
+                title: "收藏歌单",
+                subtitle: "\(favPlaylistStore.playlists.count) 个",
+                systemImage: "heart.rectangle.fill",
+                enabled: true
+            )
+        }
+    }
+
+    private var nasCard: some View {
+        NavigationLink {
+            SynologyFileLibraryView()
+        } label: {
+            MusicLibraryQuickCard(
+                title: "NAS 文件",
+                subtitle: "浏览文件夹",
+                systemImage: "externaldrive.fill",
+                enabled: true
+            )
         }
     }
 
@@ -353,6 +559,18 @@ struct MusicLibraryHomeView: View {
                             .font(ATMusicFont.appFont(12, .medium))
                             .foregroundStyle(Color.atmusicComment)
                         Spacer()
+                        NavigationLink {
+                            MusicLibraryAllPlaylistsView()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("全部")
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicComment)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
@@ -432,6 +650,15 @@ struct MusicLibraryHomeView: View {
         }
     }
 
+    private var availableFilterTags: [String] {
+        var tags = ["全部", "本地"]
+        if platformPrefs.isEnabled(SearchProvider.netease) { tags.append("网易云") }
+        if platformPrefs.isEnabled(SearchProvider.qq) { tags.append("QQ") }
+        if platformPrefs.isEnabled(SearchProvider.kugou) { tags.append("酷狗") }
+        if platformPrefs.isEnabled(SearchProvider.synology) { tags.append("NAS") }
+        return tags
+    }
+
     private var playlistsPreview: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -439,30 +666,73 @@ struct MusicLibraryHomeView: View {
                     .font(ATMusicFont.appFont(18, .bold))
                     .foregroundStyle(Color.atmusicLabel)
                 Spacer()
-                NavigationLink {
-                    MusicLibraryAllPlaylistsView()
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("全部")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .bold))
+                HStack(spacing: 12) {
+                    Button {
+                        newPlaylistName = ""
+                        showCreatePlaylist = true
+                        ATMusicHaptics.tap()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("新建")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                        }
+                        .foregroundStyle(Color.atmusicAmber)
                     }
-                    .font(ATMusicFont.appFont(13, .semibold))
-                    .foregroundStyle(Color.atmusicComment)
+                    .buttonStyle(.plain)
+
+                    NavigationLink {
+                        MusicLibraryAllPlaylistsView()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("全部")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicComment)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
 
-            if homePlaylists.isEmpty {
+            // 分类胶囊筛选行 [ 全部 / 本地 / 网易云 / QQ / 酷狗 ]
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(availableFilterTags, id: \.self) { tag in
+                        let isSelected = playlistFilter == tag
+                        Button {
+                            playlistFilter = tag
+                            ATMusicHaptics.select()
+                        } label: {
+                            Text(tag)
+                                .font(ATMusicFont.appFont(12, isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? Color.white : Color.atmusicLabel)
+                                .padding(.horizontal, 12)
+                                .frame(height: 28)
+                                .background(
+                                    isSelected ? Color.atmusicAmber : Color.primary.opacity(0.06),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+
+            let displayList = filteredPlaylists
+            if displayList.isEmpty {
                 HStack(spacing: 12) {
                     Image(systemName: "music.note.list")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(Color.atmusicAmber)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("还没有歌单")
+                        Text(playlistFilter == "全部" ? "还没有歌单" : "没有\(playlistFilter)分类歌单")
                             .font(ATMusicFont.appFont(14, .semibold))
                             .foregroundStyle(Color.atmusicLabel)
-                        Text("登录音乐平台或新建本地歌单后会显示在这里")
+                        Text(playlistFilter == "本地" ? "点击右上角「新建」可创建本地歌单" : "登录平台或新建歌单后会显示在这里")
                             .font(ATMusicFont.appFont(12))
                             .foregroundStyle(Color.atmusicComment)
                     }
@@ -472,15 +742,15 @@ struct MusicLibraryHomeView: View {
                 .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
             } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                 LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16), spacing: 18) {
-                    ForEach(homePlaylists) { item in
+                    ForEach(displayList) { item in
                         iPadPlaylistItemCard(item)
                     }
                 }
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(homePlaylists) { item in
+                    ForEach(displayList) { item in
                         playlistLink(item)
-                        if item.id != homePlaylists.last?.id {
+                        if item.id != displayList.last?.id {
                             Divider()
                                 .overlay(Color.atmusicComment.opacity(0.12))
                                 .padding(.leading, 66)
@@ -489,6 +759,17 @@ struct MusicLibraryHomeView: View {
                 }
                 .padding(.vertical, 4)
                 .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+            }
+        }
+        .alert("新建本地歌单", isPresented: $showCreatePlaylist) {
+            TextField("歌单名称", text: $newPlaylistName)
+            Button("取消", role: .cancel) {}
+            Button("创建") {
+                let trimmed = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                _ = localStore.createPlaylist(name: trimmed)
+                ATMusicHaptics.success()
+                ToastCenter.shared.show("已创建歌单「\(trimmed)」")
             }
         }
     }
@@ -1365,5 +1646,133 @@ struct SynologyFileLibraryView: View {
             .navigationTitle("NAS 文件")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+
+// MARK: - 统一我喜欢的音乐详情页
+
+struct UnifiedFavoritesDetailView: View {
+    @EnvironmentObject private var player: PlayerManager
+    @EnvironmentObject private var theme: ThemeStore
+    @ObservedObject private var localStore = LocalLibraryStore.shared
+    @ObservedObject private var favorites = FavoritesStore.shared
+    @State private var query = ""
+
+    private var allSongs: [Song] {
+        var songs: [Song] = []
+        var seen = Set<String>()
+        if let localFav = localStore.playlists.first(where: { $0.name == "我的收藏歌单" || $0.name == "三平台喜欢" }) {
+            for song in localFav.songs where !seen.contains(song.identityKey) {
+                seen.insert(song.identityKey)
+                songs.append(song)
+            }
+        }
+        for song in favorites.neteaseFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.qqFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.kugouFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        for song in favorites.synologyFavoriteSongs where !seen.contains(song.identityKey) {
+            seen.insert(song.identityKey)
+            songs.append(song)
+        }
+        return songs
+    }
+
+    private var displayedSongs: [Song] {
+        let kw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else { return allSongs }
+        return allSongs.filter {
+            $0.name.lowercased().contains(kw)
+                || $0.artists.lowercased().contains(kw)
+                || $0.album.lowercased().contains(kw)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
+            List {
+                if !displayedSongs.isEmpty {
+                    Section {
+                        HStack(spacing: 10) {
+                            GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                player.play(songs: displayedSongs, startAt: 0)
+                            }
+                            GlassButton(title: "随机播放", systemName: "shuffle") {
+                                player.play(songs: displayedSongs.shuffled(), startAt: 0)
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                }
+
+                Section {
+                    ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                        HStack(spacing: 12) {
+                            CoverImage(url: song.coverURL, size: 48, cornerRadius: 8)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(song.name)
+                                    .font(ATMusicFont.appFont(15, .semibold))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                    .lineLimit(1)
+                                HStack(spacing: 6) {
+                                    SourceBadgeView(source: song.source, compact: true)
+                                    Text("\(song.artists) · \(song.album)")
+                                        .font(ATMusicFont.appFont(12))
+                                        .foregroundStyle(Color.atmusicComment)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Button {
+                                Task {
+                                    await favorites.toggleFavorite(song)
+                                }
+                            } label: {
+                                Image(systemName: "heart.fill")
+                                    .foregroundStyle(.red)
+                                    .font(.system(size: 16))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            player.play(songs: displayedSongs, startAt: index)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                Task {
+                                    await favorites.toggleFavorite(song)
+                                }
+                            } label: {
+                                Label("取消收藏", systemImage: "heart.slash")
+                            }
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("\(displayedSongs.count) 首歌曲")
+                            .font(ATMusicFont.appFont(12, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+                        Spacer()
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .searchable(text: $query, prompt: "搜索收藏歌曲")
+            .atmusicScrollContentBackgroundHidden()
+        }
+        .navigationTitle("我喜欢的音乐")
+        .navigationBarTitleDisplayMode(.large)
     }
 }

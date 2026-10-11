@@ -2698,6 +2698,10 @@ struct PlayerView: View {
             self.lyrics = parsed
             return !parsed.isEmpty
         }
+        // 优先检查本地歌词磁盘缓存
+        if let cached = ATMusicCacheCoordinator.shared.cachedLyric(for: song), !cached.isEmpty {
+            if apply(LyricParser.parse(cached)) { return }
+        }
         var loaded = false
         if song.source == .local, let relativePath = song.localRelativePath {
             let lrcPath = (relativePath as NSString).deletingPathExtension + ".lrc"
@@ -2708,22 +2712,28 @@ struct PlayerView: View {
         } else if song.source == .synology {
             if let raw = try? await SynologyAPI.shared.lyrics(song: song) {
                 loaded = apply(LyricParser.parse(raw))
+                if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
             }
         } else if song.source == .kugou, let hash = song.kugouHash {
             let raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
             loaded = apply(LyricParser.parse(raw))
+            if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
         } else if song.source == .qq, let mid = song.qqMid {
             if let raw = try? await QQMusicAPI.shared.lyric(songmid: mid) {
                 loaded = apply(LyricParser.parse(raw))
+                if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
             }
         } else {
             if let (lrc, tlyric) = try? await NetEaseAPI.shared.lyricWithTranslation(id: song.id) {
                 loaded = apply(LyricParser.parse(lrc ?? "", translationRaw: tlyric))
+                if loaded, let full = lrc { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: full) }
             }
         }
         guard !loaded, self.song?.identityKey == identity else { return }
         if let raw = await autoMatchedLyrics(for: song) {
-            _ = apply(LyricParser.parse(raw))
+            if apply(LyricParser.parse(raw)) {
+                ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw)
+            }
         }
     }
 
