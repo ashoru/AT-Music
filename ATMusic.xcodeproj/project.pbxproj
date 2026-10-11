@@ -22,6 +22,7 @@
 		10DCDA1698C23EB196A69AD1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F39452605945742735AE2DFC /* Assets.xcassets */; };
 		156ED57D67259C92E4263D06 /* UnblockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7323AE174C932FD2F378EC /* UnblockService.swift */; };
 		22FEE5D9E6A51A91D9952941 /* ATMusicLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C14C4989C5544E73D1CCBB /* ATMusicLogger.swift */; };
+		244085B9A36EB7719B9E272A /* PlayerLayoutEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A62D1A99E625A522106F6A /* PlayerLayoutEditorSheet.swift */; };
 		2802CAD851751AE7D612E336 /* ThirdPartySourceManagerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE690F3FC1681BF4460BEA64 /* ThirdPartySourceManagerSheet.swift */; };
 		32E692D30D1BB14B62B25FC0 /* QQLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCBDE17B8061DB6C1A7C796 /* QQLoginSheet.swift */; };
 		34BD71C5486E4514862594D7 /* LocalMusicSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD81682400062D3794713DC5 /* LocalMusicSection.swift */; };
@@ -173,6 +174,7 @@
 		AE5A1866E8F01E1DCFB50529 /* CoverPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverPalette.swift; sourceTree = "<group>"; };
 		AFF3FDA30331564FB5CDE67B /* Changelog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Changelog.swift; sourceTree = "<group>"; };
 		B86C94266C456F24E23AB1D0 /* NetEaseCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetEaseCrypto.swift; sourceTree = "<group>"; };
+		C0A62D1A99E625A522106F6A /* PlayerLayoutEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerLayoutEditorSheet.swift; sourceTree = "<group>"; };
 		C27911D6F7004B023C9758ED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C85AF1A1169E446F5B96FC2B /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
 		C8FA993E8E37413E52E53C18 /* ATMusicLogSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATMusicLogSanitizer.swift; sourceTree = "<group>"; };
@@ -269,6 +271,7 @@
 				96D777FC5F8A9F728B289BB5 /* PlatformPreferenceStore.swift */,
 				27F568A6CDBD00D24F0ACCA8 /* PlayerAmbience.swift */,
 				3123252340404F4D56DB878E /* PlayerLayout.swift */,
+				C0A62D1A99E625A522106F6A /* PlayerLayoutEditorSheet.swift */,
 				D680CC248A855457AE97AF53 /* PlayerManager.swift */,
 				2634BD6CE38C5E9B12783D55 /* PlayerView.swift */,
 				13C7BDFB126FAF8F565D1A97 /* PlaylistView.swift */,
@@ -452,6 +455,7 @@
 				63FDBF4448810FC614C45115 /* PlatformPreferenceStore.swift in Sources */,
 				57AB807217531A3DF4D2E72D /* PlayerAmbience.swift in Sources */,
 				862BC8A92285FE921FFDB043 /* PlayerLayout.swift in Sources */,
+				244085B9A36EB7719B9E272A /* PlayerLayoutEditorSheet.swift in Sources */,
 				C3042256C079CBC926A74020 /* PlayerManager.swift in Sources */,
 				A84A3E92DCE58A652BBD1246 /* PlayerView.swift in Sources */,
 				DA46EA0E74EB527CF0E9DCE2 /* PlaylistView.swift in Sources */,
@@ -512,13 +516,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 52;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.3;
+				MARKETING_VERSION = 1.9.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
@@ -587,13 +591,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 52;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.3;
+				MARKETING_VERSION = 1.9.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
