@@ -859,6 +859,11 @@ struct ReferencePlaybackView: View {
         return Color(red: 1.0, green: 0.28, blue: 0.36)
     }
 
+    private var primaryColor: Color {
+        if primaryHex.hasPrefix("#"), let color = Color(hex: primaryHex) { return color }
+        return Color(red: 1.0, green: 0.28, blue: 0.36)
+    }
+
     private var volumeColor: Color {
         if volumeHex.hasPrefix("#"), let color = Color(hex: volumeHex) { return color }
         return primaryColor

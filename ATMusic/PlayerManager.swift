@@ -739,32 +739,33 @@ final class PlayerManager: NSObject, ObservableObject {
             let strictUnlock = shouldLockOfficialOnly(song)
             let quality = (forceKugouStandard && song.source == .kugou) ? .standard : ATMusicAudioQuality.current
             let thirdPartyQuality = ThirdPartyAudioQuality.current
-            ATMusicLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 官方受限=\(strictUnlock ? "是" : "否")", level: .info)
+            let needThirdPartyFirst = enableUnblock && officialCannotProvideFullHighQuality(song: song, quality: quality)
+            ATMusicLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 优先第三方=\(needThirdPartyFirst ? "是" : "否") 官方受限=\(strictUnlock ? "是" : "否")", level: .info)
             if song.source == .local, let relativePath = song.localRelativePath,
                let localURL = try? ManagedAudioPath.resolve(relativePath) {
                 urlString = localURL.absoluteString
             } else if song.source == .synology {
                 urlString = SynologyAPI.shared.songURL(song: song)
             } else if song.source == .kugou {
-                urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)
-                if urlString == nil {
+                if needThirdPartyFirst {
                     resolvedThirdParty = await kugouFallback(
                         song: song,
                         thirdPartyQuality: thirdPartyQuality,
                         enableUnblock: enableUnblock
                     )
                 }
+                if resolvedThirdParty == nil {
+                    urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)
+                    if urlString == nil, enableUnblock {
+                        resolvedThirdParty = await kugouFallback(
+                            song: song,
+                            thirdPartyQuality: thirdPartyQuality,
+                            enableUnblock: enableUnblock
+                        )
+                    }
+                }
             } else if song.source == .qq, let mid = song.qqMid {
-                // QQ 官方地址失败后只走 QQ 第三方音源，不跨平台匹配同名歌曲。
-                let officialResult = try? await QQMusicAPI.shared.songURLResult(
-                    songmid: mid,
-                    mediaMid: song.qqMediaMid,
-                    quality: quality
-                )
-                urlString = officialResult?.url
-                qqOfficialBR = officialResult?.br
-                attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
-                if urlString == nil {
+                if needThirdPartyFirst {
                     (urlString, resolvedThirdParty) = await qqFallback(
                         song: song,
                         quality: quality,
@@ -772,6 +773,36 @@ final class PlayerManager: NSObject, ObservableObject {
                         enableUnblock: enableUnblock,
                         strict: strictUnlock
                     )
+                }
+                if resolvedThirdParty == nil {
+                    let officialResult = try? await QQMusicAPI.shared.songURLResult(
+                        songmid: mid,
+                        mediaMid: song.qqMediaMid,
+                        quality: quality
+                    )
+                    let preferredBR = QQMusicAPI.qqBR(for: quality)
+                    let gotPreferredQuality = officialResult?.br == preferredBR
+                    // QQ 音乐中，非 VIP 账号在 VIP 歌曲上获取到的 C400 通常是 60 秒试听片段
+                    let isVIPTrial = song.isVIP && !hasMembership(for: .qq) && (officialResult?.br == "C400" || !gotPreferredQuality)
+
+                    if !isVIPTrial, let url = officialResult?.url {
+                        urlString = url
+                        qqOfficialBR = officialResult?.br
+                        attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
+                    } else if enableUnblock {
+                        (urlString, resolvedThirdParty) = await qqFallback(
+                            song: song,
+                            quality: quality,
+                            thirdPartyQuality: thirdPartyQuality,
+                            enableUnblock: enableUnblock,
+                            strict: strictUnlock
+                        )
+                        if resolvedThirdParty == nil, let url = officialResult?.url, !song.isVIP {
+                            urlString = url
+                            qqOfficialBR = officialResult?.br
+                            attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
+                        }
+                    }
                 }
             } else {
                 (urlString, resolvedThirdParty) = await neteaseResolve(
@@ -826,7 +857,21 @@ final class PlayerManager: NSObject, ObservableObject {
         }
     }
 
-    /// 网易云播放地址解析：按设置音质取 URL，VIP/灰色歌曲交给第三方解锁。
+    /// 判断当前歌曲在官方平台是否无法获取完整高音质音频（例如 VIP/付费歌曲、非会员请求高音质等）
+    private func officialCannotProvideFullHighQuality(song: Song, quality: ATMusicAudioQuality) -> Bool {
+        if song.source == .local || song.source == .synology {
+            return false
+        }
+        if song.isVIP && !hasMembership(for: song.source) {
+            return true
+        }
+        if quality != .standard && !hasMembership(for: song.source) {
+            return true
+        }
+        return false
+    }
+
+    /// 网易云播放地址解析：官方无法提供完整高音质或 VIP/灰色歌曲时，优先通过第三方音源获取。
     private func neteaseResolve(
         song: Song,
         quality: ATMusicAudioQuality,
@@ -836,19 +881,63 @@ final class PlayerManager: NSObject, ObservableObject {
     ) async -> (String?, UnblockService.Resolved?) {
         var urlString: String?
         var resolved: UnblockService.Resolved?
+
+        let needThirdPartyFirst = enableUnblock && officialCannotProvideFullHighQuality(song: song, quality: quality)
+
+        // 1. 如果开启了第三方音源，且官方无法提供完整高音质（如 VIP 歌曲或非会员请求高音质），优先从第三方音源获取完整高音质
+        if needThirdPartyFirst {
+            resolved = await UnblockService.resolve(
+                name: song.name,
+                artists: song.artists,
+                neteaseID: song.id,
+                songSource: .netease,
+                quality: thirdPartyQuality,
+                strict: strict
+            )
+            if let resolved {
+                ATMusicLogger.shared.log("网易云优先第三方高音质命中：\(song.name) 音源=\(resolved.sourceTitle)", level: .info)
+                return (nil, resolved)
+            }
+        }
+
+        // 2. 尝试官方接口获取
         let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.level)
         var info = infos?[song.id]
-        if (info?.url == nil || info?.freeTrial == true), quality != .standard {
-            // 高音质拿不到时自动回落到标准音质
-            let fallback = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
-            info = fallback?[song.id]
+        let isOfficialTrial = (info?.url == nil || info?.freeTrial == true)
+
+        if isOfficialTrial {
+            // 如果官方试听/无地址且前面尚未尝试过第三方，走第三方兜底
+            if enableUnblock && resolved == nil {
+                resolved = await UnblockService.resolve(
+                    name: song.name,
+                    artists: song.artists,
+                    neteaseID: song.id,
+                    songSource: .netease,
+                    quality: thirdPartyQuality,
+                    strict: strict
+                )
+                if let resolved {
+                    ATMusicLogger.shared.log("网易云官方试听/失效，第三方兜底命中：\(song.name)", level: .info)
+                    return (nil, resolved)
+                }
+            }
+
+            // 第三方也未命中时，如果此前请求的是高音质，最后降级尝试官方标准音质
+            if quality != .standard {
+                let fallback = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
+                info = fallback?[song.id]
+            }
         }
+
         ATMusicLogger.shared.log("网易云解析：\(song.name) 音质=\(quality.level) 官方URL=\(info?.url == nil ? "无" : "有") 试听=\(info?.freeTrial == true ? "是" : "否")", level: .debug)
-        // 试听片段 / 无 URL 一律不直接播放，交给第三方解锁，避免"只能试听"
+
+        // 试听片段 / 无 URL 一律不直接作为官方地址播放，避免"只能听十几秒试听"
         if let u = info?.url, info?.freeTrial != true {
             urlString = u
         }
-        if urlString == nil, enableUnblock {
+
+        // 如果官方仍无有效完整地址，最后再次确保第三方兜底
+        if urlString == nil, enableUnblock, resolved == nil {
             resolved = await UnblockService.resolve(
                 name: song.name,
                 artists: song.artists,
@@ -858,11 +947,12 @@ final class PlayerManager: NSObject, ObservableObject {
                 strict: strict
             )
         }
+
         ATMusicLogger.shared.log("网易云结果：\(song.name) 官方=\(urlString != nil ? "是" : "否") 第三方=\(resolved != nil ? "命中" : "未用/未命中")", level: .debug)
         return (urlString, resolved)
     }
 
-    /// QQ 歌曲兜底：官方失败后只走 QQ 第三方接口，不跨平台匹配同名歌曲。
+    /// QQ 歌曲兜底：优先 QQ 第三方接口，未命中则通过歌名+歌手在全网第三方音源（网易云/酷我等）跨源匹配。
     private func qqFallback(
         song: Song,
         quality _: ATMusicAudioQuality,
@@ -878,7 +968,6 @@ final class PlayerManager: NSObject, ObservableObject {
         let resolved = await UnblockService.resolve(
             name: song.name,
             artists: song.artists,
-            // QQ 专属音源要求传数字 songId；mid 仅作为兼容接口的后备参数。
             neteaseID: song.id,
             songSource: .qq,
             qqMid: song.qqMid,
@@ -887,8 +976,35 @@ final class PlayerManager: NSObject, ObservableObject {
             strict: strict,
             excludedHosts: excludedHosts
         )
-        ATMusicLogger.shared.log("QQ兜底：\(song.name) QQ第三方=\(resolved != nil ? "命中" : "未命中")", level: .debug)
-        return (nil, resolved)
+        if let resolved {
+            ATMusicLogger.shared.log("QQ兜底：\(song.name) QQ第三方=命中", level: .debug)
+            return (nil, resolved)
+        }
+
+        // 如果 QQ 专属音源未命中，尝试通过歌名+歌手匹配网易云音源兜底（绝大多数用户导入的自定义音源基于网易云/咪咕/酷我）
+        if let matched = await matchNetEaseSong(
+            name: song.name,
+            artists: song.artists,
+            durationMS: Int(song.duration * 1000),
+            strict: strict
+        ) {
+            let matchedResolved = await UnblockService.resolve(
+                name: matched.name,
+                artists: matched.artists,
+                neteaseID: matched.id,
+                songSource: .netease,
+                quality: thirdPartyQuality,
+                strict: strict,
+                excludedHosts: excludedHosts
+            )
+            if let matchedResolved {
+                ATMusicLogger.shared.log("QQ兜底转网易云音源：\(song.name) -> \(matched.name) 第三方=命中", level: .debug)
+                return (nil, matchedResolved)
+            }
+        }
+
+        ATMusicLogger.shared.log("QQ兜底：\(song.name) QQ第三方=未命中", level: .debug)
+        return (nil, nil)
     }
 
     /// 酷狗兜底：官方播放失败后使用内置音源作为备选。
@@ -1577,16 +1693,10 @@ final class PlayerManager: NSObject, ObservableObject {
                 excludedHosts: excludedHosts
             ).1
         case .kugou:
-            let kugouID = song.kugouHash ?? song.kugouAlbumAudioId
-            guard let kugouID, !kugouID.isEmpty else { return nil }
-            return await UnblockService.resolve(
-                name: song.name,
-                artists: song.artists,
-                neteaseID: 0,
-                songSource: .kugou,
-                kugouID: kugouID,
-                quality: quality,
-                excludedHosts: excludedHosts
+            return await kugouFallback(
+                song: song,
+                thirdPartyQuality: quality,
+                enableUnblock: true
             )
         case .local:
             return nil

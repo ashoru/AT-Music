@@ -61,11 +61,24 @@ extension Song {
 
 // MARK: - 歌手与专辑快捷跳转弹窗菜单（小框）
 
-struct SongSubtitleMenu<Content: View>: View {
+struct SongSubtitleMenu: View {
     let song: Song?
     let onSelectArtist: (String) -> Void
     let onSelectAlbum: (Album) -> Void
-    @ViewBuilder let content: () -> Content
+    let content: AnyView
+
+    /// 自定义内容（trailing closure）构造
+    init(
+        song: Song?,
+        onSelectArtist: @escaping (String) -> Void,
+        onSelectAlbum: @escaping (Album) -> Void,
+        @ViewBuilder content: () -> some View
+    ) {
+        self.song = song
+        self.onSelectArtist = onSelectArtist
+        self.onSelectAlbum = onSelectAlbum
+        self.content = AnyView(content())
+    }
 
     var body: some View {
         Menu {
@@ -91,13 +104,13 @@ struct SongSubtitleMenu<Content: View>: View {
                 }
             }
         } label: {
-            content()
+            content
         }
         .menuStyle(.borderlessButton)
     }
 }
 
-extension SongSubtitleMenu where Content == Text {
+extension SongSubtitleMenu {
     init(
         song: Song?,
         font: Font,
@@ -110,15 +123,14 @@ extension SongSubtitleMenu where Content == Text {
         self.song = song
         self.onSelectArtist = onSelectArtist
         self.onSelectAlbum = onSelectAlbum
-        self.content = {
+        self.content = AnyView(
             Text(song?.subtitleText ?? "未知歌曲")
                 .font(font)
                 .foregroundStyle(color)
                 .lineLimit(lineLimit)
                 .truncationMode(.tail)
                 .multilineTextAlignment(alignment)
-                .contentShape(Rectangle())
-        }
+        )
     }
 
     init(
@@ -133,14 +145,13 @@ extension SongSubtitleMenu where Content == Text {
         self.song = song
         self.onSelectArtist = onSelectArtist
         self.onSelectAlbum = onSelectAlbum
-        self.content = {
+        self.content = AnyView(
             Text(song?.subtitleText ?? "未知歌曲")
                 .font(font)
                 .foregroundStyle(foregroundStyle)
                 .lineLimit(lineLimit)
                 .truncationMode(.tail)
                 .multilineTextAlignment(alignment)
-                .contentShape(Rectangle())
-        }
+        )
     }
 }
