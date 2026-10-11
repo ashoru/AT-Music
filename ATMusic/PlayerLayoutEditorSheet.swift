@@ -37,6 +37,7 @@ struct PlayerLayoutEditorSheet: View {
     @AppStorage("atmusic.lyricColor") private var lyricColorRaw = "accent"
     @AppStorage("atmusic.lyricDimColor") private var lyricDimColorRaw = "dim"
     @AppStorage("atmusic.lyricGlow") private var lyricGlowLevel = 1
+    @AppStorage("atmusic.lyricGlowColorRaw") private var lyricGlowColorRaw = ""
     @AppStorage("atmusic.lyricBlurAmount") private var lyricBlurAmount = 1.1
 
     // 编辑器界面状态
@@ -45,6 +46,7 @@ struct PlayerLayoutEditorSheet: View {
     @State private var selectedApplePart: AppleMusicLayoutPart = .cover
     @State private var selectedLegacyPart: PlayerLayoutPart = .cover
     @State private var legacyLayoutData: [String: PlayerLayoutEntry] = PlayerLayoutStore.load()
+    @State private var realLyrics: [LyricLine] = []
 
     private var activeStyle: ATMusicCoverPlayerStyle {
         ATMusicCoverPlayerStyle(rawValue: coverPlayerStyleRaw) ?? .appleMusic
@@ -137,6 +139,25 @@ struct PlayerLayoutEditorSheet: View {
             if activeStyle != .appleMusic {
                 legacyLayoutData = PlayerLayoutStore.load(for: activeLegacyStyle)
             }
+        }
+        .task(id: player.currentSong?.identityKey) {
+            await reloadRealLyrics()
+        }
+    }
+
+    private func reloadRealLyrics() async {
+        guard let song = player.currentSong else {
+            realLyrics = []
+            return
+        }
+        if !player.currentLyrics.isEmpty {
+            realLyrics = player.currentLyrics
+            return
+        }
+        let loaded = await SongLyricsLoader.loadLyrics(for: song)
+        if !loaded.isEmpty {
+            realLyrics = loaded
+            player.updateCurrentLyrics(loaded)
         }
     }
 
@@ -345,7 +366,7 @@ struct PlayerLayoutEditorSheet: View {
                 if activeStyle == .appleMusic {
                     ReferencePlaybackView(
                         song: previewSong,
-                        lyrics: previewLyrics,
+                        lyrics: effectiveLyrics,
                         showLyrics: Binding(get: { previewMode == 1 }, set: { _ in }),
                         onFavorite: {},
                         onQueue: {},
@@ -360,7 +381,7 @@ struct PlayerLayoutEditorSheet: View {
                 } else if activeStyle == .immersive {
                     ImmersivePlayerView(
                         song: previewSong,
-                        lyrics: previewLyrics,
+                        lyrics: effectiveLyrics,
                         isPresented: .constant(true),
                         previewShowLyrics: previewMode == 1,
                         onOpenSettings: {},
@@ -403,12 +424,25 @@ struct PlayerLayoutEditorSheet: View {
         )
     }
 
-    private var previewLyrics: [LyricLine] {
-        [
-            LyricLine(time: 0, text: "秋刀鱼的滋味 猫跟你都想了解"),
-            LyricLine(time: 5, text: "初恋的香味就这麼被我们寻回", translation: "The scent of first love was found by us"),
-            LyricLine(time: 10, text: "那温暖的阳光 像刚切的白面包"),
-            LyricLine(time: 15, text: "窗台蝴蝶 像诗里纷飞的美丽章节")
+    /// 实时联动歌词：
+    /// 1. 优先使用当前播放曲目已加载的真实歌词；
+    /// 2. 若未播放或歌曲无歌词，基于当前播放进度动态生成模拟歌词，保证高亮行与实际时间戳完美契合。
+    private var effectiveLyrics: [LyricLine] {
+        if !realLyrics.isEmpty {
+            return realLyrics
+        }
+        if !player.currentLyrics.isEmpty {
+            return player.currentLyrics
+        }
+        let baseTime = clock.progress
+        let title = previewSong.name
+        let artist = previewSong.artists
+        return [
+            LyricLine(time: max(0, baseTime - 12), text: "\(title) - \(artist)", translation: "Current Track"),
+            LyricLine(time: max(0, baseTime - 6), text: "正在实时播放此曲目", translation: "Now Playing Live Preview"),
+            LyricLine(time: baseTime, text: "歌词排版与发光色彩实时调试中", translation: "Typography and glow effects adjusting"),
+            LyricLine(time: baseTime + 6, text: "所见即所得，毫秒级真机渲染", translation: "WYSIWYG real-time rendering"),
+            LyricLine(time: baseTime + 12, text: "纯粹沉浸，尽享动听旋律", translation: "Enjoy the beautiful melody")
         ]
     }
 
@@ -426,6 +460,17 @@ struct PlayerLayoutEditorSheet: View {
     private func tabButton(title: String, index: Int, icon: String) -> some View {
         Button {
             editorTab = index
+            if index == 1 || index == 2 {
+                // 歌词排版或色彩发光Tab：自动切到歌词页预览，边调边看
+                previewMode = 1
+            } else if index == 0 {
+                if (activeStyle == .appleMusic && selectedApplePart == .previewLyric) ||
+                   (activeStyle != .appleMusic && selectedLegacyPart == .lyric) {
+                    previewMode = 1
+                } else {
+                    previewMode = 0
+                }
+            }
             ATMusicHaptics.select()
         } label: {
             HStack(spacing: 4) {
@@ -456,6 +501,11 @@ struct PlayerLayoutEditorSheet: View {
                             ForEach(AppleMusicLayoutPart.allCases) { part in
                                 componentPill(name: part.rawValue, isSelected: selectedApplePart == part) {
                                     selectedApplePart = part
+                                    if part == .previewLyric {
+                                        previewMode = 1
+                                    } else {
+                                        previewMode = 0
+                                    }
                                 }
                             }
                         }
@@ -466,6 +516,11 @@ struct PlayerLayoutEditorSheet: View {
                             ForEach(visibleLegacyParts) { part in
                                 componentPill(name: part.rawValue, isSelected: selectedLegacyPart == part) {
                                     selectedLegacyPart = part
+                                    if part == .lyric {
+                                        previewMode = 1
+                                    } else {
+                                        previewMode = 0
+                                    }
                                 }
                             }
                         }
@@ -661,55 +716,84 @@ struct PlayerLayoutEditorSheet: View {
     private var colorAndGlowTab: some View {
         VStack(spacing: 12) {
             VStack(spacing: 14) {
-                // 高亮颜色模式
-                HStack {
-                    Text("高亮歌词颜色模式")
-                        .font(ATMusicFont.appFont(13, .medium))
-                        .foregroundStyle(Color.atmusicLabel)
-                    Spacer()
-                    Picker("模式", selection: $lyricGradMode) {
-                        Text("跟随封面主色").tag(0)
-                        Text("自定义颜色").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 170)
-                }
-
-                if lyricGradMode == 1 {
-                    HStack {
-                        Text("当前高亮行歌词颜色")
-                            .font(ATMusicFont.appFont(13, .medium))
+                // 1. 歌词色彩调整区（根据播放器风格自动适配对应调色盘）
+                if activeStyle == .appleMusic {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Apple Music 专属配色")
+                            .font(ATMusicFont.appFont(13, .semibold))
                             .foregroundStyle(Color.atmusicLabel)
-                        Spacer()
-                        ColorPicker("", selection: Binding(
-                            get: {
-                                if lyricColorRaw.hasPrefix("#"), let c = Color(hex: lyricColorRaw) { return c }
-                                return Color.atmusicAmber
-                            },
-                            set: { lyricColorRaw = $0.hexString }
-                        ), supportsOpacity: false)
-                        .labelsHidden()
-                    }
 
-                    HStack {
-                        Text("常规未播放歌词颜色")
+                        ColorPicker("主图标与当前高亮歌词色", selection: colorBinding(for: $primaryHex, fallback: .white), supportsOpacity: false)
                             .font(ATMusicFont.appFont(13, .medium))
-                            .foregroundStyle(Color.atmusicLabel)
-                        Spacer()
-                        ColorPicker("", selection: Binding(
-                            get: {
-                                if lyricDimColorRaw.hasPrefix("#"), let c = Color(hex: lyricDimColorRaw) { return c }
-                                return Color.gray.opacity(0.85)
-                            },
-                            set: { lyricDimColorRaw = $0.hexString }
-                        ), supportsOpacity: false)
-                        .labelsHidden()
+                        ColorPicker("次级文字与未播放歌词色", selection: colorBinding(for: $secondaryHex, fallback: Color.white.opacity(0.58)), supportsOpacity: false)
+                            .font(ATMusicFont.appFont(13, .medium))
+                        ColorPicker("播放控件高亮强调色", selection: colorBinding(for: $accentHex, fallback: Color.atmusicAmber), supportsOpacity: false)
+                            .font(ATMusicFont.appFont(13, .medium))
+                        ColorPicker("音量条滑动填充色彩", selection: colorBinding(for: $volumeHex, fallback: .white), supportsOpacity: false)
+                            .font(ATMusicFont.appFont(13, .medium))
+
+                        Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                        Toggle("显示音量条", isOn: $showVolume).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13, .medium))
+                        Toggle("显示封面页歌词预览", isOn: $showLyricPreview).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13, .medium))
+                        Toggle("同步主页壁纸", isOn: $syncWallpaper).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13, .medium))
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("高亮歌词颜色模式")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                            Picker("模式", selection: $lyricGradMode) {
+                                Text("跟随封面主色").tag(0)
+                                Text("自定义颜色").tag(1)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 170)
+                        }
+
+                        if lyricGradMode == 1 {
+                            HStack {
+                                Text("当前高亮行歌词颜色")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                ColorPicker("", selection: Binding(
+                                    get: {
+                                        if lyricColorRaw.hasPrefix("#"), let c = Color(hex: lyricColorRaw) { return c }
+                                        return Color.atmusicAmber
+                                    },
+                                    set: { lyricColorRaw = $0.hexString }
+                                ), supportsOpacity: false)
+                                .labelsHidden()
+                            }
+
+                            HStack {
+                                Text("常规未播放歌词颜色")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                ColorPicker("", selection: Binding(
+                                    get: {
+                                        if lyricDimColorRaw.hasPrefix("#"), let c = Color(hex: lyricDimColorRaw) { return c }
+                                        return Color.gray.opacity(0.85)
+                                    },
+                                    set: { lyricDimColorRaw = $0.hexString }
+                                ), supportsOpacity: false)
+                                .labelsHidden()
+                            }
+                        } else {
+                            Text("当前已启用智能取色：随歌曲封面主色调自动渲染高亮行，带来最佳沉浸感。")
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
                     }
                 }
 
                 Divider().overlay(Color.atmusicComment.opacity(0.12))
 
-                // 歌词辉光强度
+                // 2. 歌词发光与光晕渲染（四套播放器通用生效）
                 VStack(spacing: 4) {
                     HStack {
                         Text("歌词双层辉光发光强度")
@@ -727,9 +811,38 @@ struct PlayerLayoutEditorSheet: View {
                     .tint(Color.atmusicAmber)
                 }
 
+                // 自定义发光光晕取色
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("双层发光光晕取色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text(lyricGlowColorRaw.isEmpty ? "默认跟随当前高亮歌词色" : "已自定义发光光晕")
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                    Spacer()
+                    if !lyricGlowColorRaw.isEmpty {
+                        Button("恢复默认") {
+                            lyricGlowColorRaw = ""
+                            ATMusicHaptics.select()
+                        }
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                    }
+                    ColorPicker("", selection: Binding(
+                        get: {
+                            if lyricGlowColorRaw.hasPrefix("#"), let c = Color(hex: lyricGlowColorRaw) { return c }
+                            return Color.atmusicAmber
+                        },
+                        set: { lyricGlowColorRaw = $0.hexString }
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                }
+
                 Divider().overlay(Color.atmusicComment.opacity(0.12))
 
-                // 非当前行高斯虚化模糊
+                // 3. 非当前行高斯虚化模糊（四套播放器通用生效）
                 VStack(spacing: 4) {
                     HStack {
                         Text("非当前行高斯虚化度")
@@ -742,20 +855,6 @@ struct PlayerLayoutEditorSheet: View {
                     }
                     Slider(value: $lyricBlurAmount, in: 0...3.0, step: 0.1)
                         .tint(Color.atmusicAmber)
-                }
-
-                // Apple Music 专属调色
-                if activeStyle == .appleMusic {
-                    Divider().overlay(Color.atmusicComment.opacity(0.12))
-
-                    Toggle("显示音量条", isOn: $showVolume).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13))
-                    Toggle("显示封面页歌词预览", isOn: $showLyricPreview).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13))
-                    Toggle("同步主页壁纸", isOn: $syncWallpaper).tint(Color.atmusicAmber).font(ATMusicFont.appFont(13))
-
-                    ColorPicker("主图标与当前歌词色", selection: colorBinding(for: $primaryHex, fallback: .white), supportsOpacity: false)
-                    ColorPicker("次级文字与时间颜色", selection: colorBinding(for: $secondaryHex, fallback: .gray), supportsOpacity: false)
-                    ColorPicker("高亮强调色", selection: colorBinding(for: $accentHex, fallback: Color.atmusicAmber), supportsOpacity: false)
-                    ColorPicker("音量条滑动色彩", selection: colorBinding(for: $volumeHex, fallback: .white), supportsOpacity: false)
                 }
             }
             .padding(14)

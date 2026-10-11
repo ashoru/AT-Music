@@ -684,11 +684,13 @@ struct PlayerView: View {
             if let song {
                 SongLyricsSearchSheet(song: song, onClear: {
                     lyrics = []
+                    player.updateCurrentLyrics([])
                     Task {
                         await clearLyrics(for: song)
                     }
                 }) { rawLyrics in
                     lyrics = LyricParser.parse(rawLyrics)
+                    player.updateCurrentLyrics(lyrics)
                     if song.source == .synology {
                         Task {
                             do {
@@ -1063,9 +1065,10 @@ struct PlayerView: View {
                 if lyrics.isEmpty {
                     vinylEmptyLyricsView
                 } else {
+                    let align: HorizontalAlignment = (lyricAlignRaw == "left") ? .leading : .center
                     if #available(iOS 18.0, *) {
                         ScrollView(showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 34) {
+                            LazyVStack(alignment: align, spacing: CGFloat(lyricLineSpacing)) {
                                 Color.clear.frame(height: max(vinylLyricsLineSlotHeight * CGFloat(VinylLayoutDefaults.lyricTopRows), 110))
                                 ForEach(lyrics.indices, id: \.self) { index in
                                     vinylLyricLine(lyrics[index], isFocused: vinylCurrentVisualIndex == index)
@@ -1077,6 +1080,7 @@ struct PlayerView: View {
                             .padding(.horizontal, 28)
                         }
                         .scrollPosition(id: $vinylScrollTarget, anchor: .center)
+                        .rotation3DEffect(.degrees(Double(lyricTilt)), axis: (x: 1, y: 0, z: 0))
                         .mask(
                             LinearGradient(
                                 stops: [
@@ -1113,13 +1117,14 @@ struct PlayerView: View {
                         }
                     } else {
                         ScrollView(showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 34) {
+                            LazyVStack(alignment: align, spacing: CGFloat(lyricLineSpacing)) {
                                 ForEach(lyrics.indices, id: \.self) { index in
                                     vinylLyricLine(lyrics[index], isFocused: vinylCurrentLyricIndex == index)
                                 }
                             }
                             .padding(.horizontal, 28)
                         }
+                        .rotation3DEffect(.degrees(Double(lyricTilt)), axis: (x: 1, y: 0, z: 0))
                     }
                 }
             }
@@ -1263,35 +1268,55 @@ struct PlayerView: View {
             ATMusicHaptics.tap()
             player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
         } label: {
-            // 黑胶样式：译文仅在“该行有译文”时渲染，无译文高度为 0；行高跟随内容自然撑开
-            let translation = (line.translation?.isEmpty == false) ? line.translation : nil
-            VStack(alignment: .leading, spacing: 3) {
+            // 黑胶样式：双语翻译受开关控制，无译文高度为 0；行高跟随内容自然撑开
+            let translation = (lyricTranslation && line.translation?.isEmpty == false) ? line.translation : nil
+            let primarySize = CGFloat(lyricFontSize) * 1.35
+            let translationSize = max(11, primarySize * 0.65)
+            let focusedColor = (lyricGradMode == 1) ? lyricCurrentColor : albumTitleColor
+            let dimColor = (lyricGradMode == 1) ? lyricDimColor : albumArtistColor
+            let glowCol = lyricGlowColor ?? focusedColor
+            let align: HorizontalAlignment = (lyricAlignRaw == "left") ? .leading : .center
+
+            VStack(alignment: align, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if align == .center { Spacer(minLength: 0) }
                     Text(line.text.isEmpty ? " " : line.text)
-                        .font(ATMusicFont.appFont(23, .semibold))
-                        .foregroundStyle(albumTitleForeground.opacity(isFocused ? 1 : 0.36))
+                        .font(ATMusicFont.appFont(primarySize, .semibold))
+                        .foregroundStyle(focusedColor.opacity(isFocused ? 1 : 0.36))
+                        .shadow(
+                            color: isFocused ? glowCol.opacity(lyricGlowRadius > 0 ? 0.9 : 0) : .clear,
+                            radius: isFocused ? lyricGlowRadius * 0.45 : 0
+                        )
+                        .shadow(
+                            color: isFocused ? glowCol.opacity(lyricGlowRadius > 0 ? 0.55 : 0) : .clear,
+                            radius: isFocused ? lyricGlowRadius : 0
+                        )
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
-                    Spacer(minLength: 8)
-                    Text(atmusicTimeString(line.time))
-                        .font(ATMusicFont.appFont(11, .semibold, .monospaced))
-                        .foregroundStyle(albumArtistForeground.opacity(isFocused && vinylIsUserScrolling ? 0.82 : 0))
-                        .frame(width: 42, alignment: .trailing)
+                    if align != .center {
+                        Spacer(minLength: 8)
+                        Text(atmusicTimeString(line.time))
+                            .font(ATMusicFont.appFont(11, .semibold, .monospaced))
+                            .foregroundStyle(dimColor.opacity(isFocused && vinylIsUserScrolling ? 0.82 : 0))
+                            .frame(width: 42, alignment: .trailing)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
                 }
                 if let translation {
                     Text(translation)
-                        .font(ATMusicFont.appFont(15, .medium))
-                        .foregroundStyle(albumArtistForeground.opacity(isFocused ? 0.68 : 0))
+                        .font(ATMusicFont.appFont(translationSize, .medium))
+                        .foregroundStyle(dimColor.opacity(isFocused ? 0.68 : 0))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .accessibilityHidden(!isFocused)
                 }
             }
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(align == .leading ? .leading : .center)
+            .frame(maxWidth: .infinity, alignment: align == .leading ? .leading : .center)
             .contentShape(Rectangle())
-            .scaleEffect(isFocused ? 1.16 : 0.92, anchor: .leading)
-            .blur(radius: isFocused ? 0 : 0.7)
+            .scaleEffect(isFocused ? 1.16 : 0.92, anchor: align == .leading ? .leading : .center)
+            .blur(radius: isFocused ? 0 : CGFloat(lyricBlurAmount) * 0.7)
         }
         .buttonStyle(.plain)
     }
@@ -2693,48 +2718,10 @@ struct PlayerView: View {
         lyrics = []
         guard let song else { return }
         let identity = song.identityKey
-        func apply(_ parsed: [LyricLine]) -> Bool {
-            guard self.song?.identityKey == identity else { return false }
-            self.lyrics = parsed
-            return !parsed.isEmpty
-        }
-        // 优先检查本地歌词磁盘缓存
-        if let cached = ATMusicCacheCoordinator.shared.cachedLyric(for: song), !cached.isEmpty {
-            if apply(LyricParser.parse(cached)) { return }
-        }
-        var loaded = false
-        if song.source == .local, let relativePath = song.localRelativePath {
-            let lrcPath = (relativePath as NSString).deletingPathExtension + ".lrc"
-            if let lrcURL = try? ManagedAudioPath.resolve(lrcPath),
-               let raw = try? String(contentsOf: lrcURL, encoding: .utf8) {
-                loaded = apply(LyricParser.parse(raw))
-            }
-        } else if song.source == .synology {
-            if let raw = try? await SynologyAPI.shared.lyrics(song: song) {
-                loaded = apply(LyricParser.parse(raw))
-                if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
-            }
-        } else if song.source == .kugou, let hash = song.kugouHash {
-            let raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
-            loaded = apply(LyricParser.parse(raw))
-            if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
-        } else if song.source == .qq, let mid = song.qqMid {
-            if let raw = try? await QQMusicAPI.shared.lyric(songmid: mid) {
-                loaded = apply(LyricParser.parse(raw))
-                if loaded { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw) }
-            }
-        } else {
-            if let (lrc, tlyric) = try? await NetEaseAPI.shared.lyricWithTranslation(id: song.id) {
-                loaded = apply(LyricParser.parse(lrc ?? "", translationRaw: tlyric))
-                if loaded, let full = lrc { ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: full) }
-            }
-        }
-        guard !loaded, self.song?.identityKey == identity else { return }
-        if let raw = await autoMatchedLyrics(for: song) {
-            if apply(LyricParser.parse(raw)) {
-                ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw)
-            }
-        }
+        let parsed = await SongLyricsLoader.loadLyrics(for: song)
+        guard self.song?.identityKey == identity else { return }
+        self.lyrics = parsed
+        player.updateCurrentLyrics(parsed)
     }
 
     /// 当前歌曲没有歌词时，从可用平台候选中按歌名/歌手/专辑相似度选择最高项。

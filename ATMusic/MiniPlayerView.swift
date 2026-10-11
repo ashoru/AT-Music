@@ -165,25 +165,14 @@ struct MiniPlayerView: View {
         miniLyrics = []
         guard let song = player.currentSong else { return }
         let identity = song.identityKey
-        var raw: String?
-        if song.source == .kugou, let hash = song.kugouHash {
-            raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
-        } else if song.source == .qq, let mid = song.qqMid {
-            raw = try? await QQMusicAPI.shared.lyric(songmid: mid)
-        } else if song.source == .local, let relativePath = song.localRelativePath {
-            let lrcPath = (relativePath as NSString).deletingPathExtension + ".lrc"
-            if let lrcURL = try? ManagedAudioPath.resolve(lrcPath),
-               let lrcRaw = try? String(contentsOf: lrcURL, encoding: .utf8) {
-                raw = lrcRaw
-            }
-        } else if song.source == .synology {
-            raw = try? await SynologyAPI.shared.lyrics(song: song)
-        } else {
-            raw = try? await NetEaseAPI.shared.lyric(id: song.id)
+        if !player.currentLyrics.isEmpty {
+            miniLyrics = player.currentLyrics
+            return
         }
-        guard let raw else { return }
+        let parsed = await SongLyricsLoader.loadLyrics(for: song)
         guard player.currentSong?.identityKey == identity else { return }
-        miniLyrics = LyricParser.parse(raw)
+        miniLyrics = parsed
+        player.updateCurrentLyrics(parsed)
     }
 }
 

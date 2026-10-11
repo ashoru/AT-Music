@@ -47,6 +47,15 @@ struct ReferencePlaybackView: View {
     @AppStorage("atmusic.appleMusic.wallpaperBlur") private var wallpaperBlur = 14.0
     @AppStorage("atmusic.showSongVIPBadge") private var showSongVIPBadge = true
     @AppStorage("atmusic.appleMusic.showLyricPreview") private var showLyricPreview = true
+    @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
+    @AppStorage("atmusic.lyricGradMode") private var lyricGradMode = 0
+    @AppStorage("atmusic.lyricColor") private var lyricColorRaw = "accent"
+    @AppStorage("atmusic.lyricDimColor") private var lyricDimColorRaw = "dim"
+    @AppStorage("atmusic.lyricGlow") private var lyricGlowLevel = 1
+    @AppStorage("atmusic.lyricGlowColorRaw") private var lyricGlowColorRaw = ""
+    @AppStorage("atmusic.lyricBlurAmount") private var lyricBlurAmount = 1.1
+    @AppStorage("atmusic.lyricTilt") private var lyricTilt = 0
+    @AppStorage("atmusic.lyricAlignRaw") private var lyricAlignRaw = "left"
     private let downloadFeatureUnlocked = true
     @State private var lyricCenters: [UUID: CGFloat] = [:]
     @State private var focusedLyricID: UUID?
@@ -228,15 +237,16 @@ struct ReferencePlaybackView: View {
             } else if #available(iOS 18.0, *) {
                 GeometryReader { viewport in
                     let edgeSpacer = max(72, viewport.size.height * 0.50 - lyricRowHeight * 0.50)
+                    let stackAlignment: HorizontalAlignment = (lyricAlignRaw == "center") ? .center : .leading
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: CGFloat(lyricLineSpacing)) {
+                        LazyVStack(alignment: stackAlignment, spacing: CGFloat(lyricLineSpacing)) {
                             Color.clear.frame(height: edgeSpacer)
                             ForEach(lyrics) { line in
                                 lyricLine(line, isFocused: line.id == currentVisualLyricID)
                                     .id(line.id)
                                     .scrollTransition(.interactive, axis: .vertical) { content, phase in
                                         content
-                                            .scaleEffect(phase.isIdentity ? 1.0 : 0.94, anchor: .leading)
+                                            .scaleEffect(phase.isIdentity ? 1.0 : 0.94, anchor: stackAlignment == .center ? .center : .leading)
                                             .opacity(phase.isIdentity ? 1.0 : 0.58)
                                     }
                             }
@@ -245,6 +255,7 @@ struct ReferencePlaybackView: View {
                         .scrollTargetLayout()
                         .padding(.horizontal, 28)
                     }
+                    .rotation3DEffect(.degrees(Double(lyricTilt)), axis: (x: 1, y: 0, z: 0))
                     .scrollPosition(id: $lyricScrollTarget, anchor: .center)
                     .mask(referenceLyricsMask)
                     .onScrollPhaseChange { _, phase in
@@ -283,9 +294,10 @@ struct ReferencePlaybackView: View {
                     }
                 }
             } else {
+                let fallbackAlignment: HorizontalAlignment = (lyricAlignRaw == "center") ? .center : .leading
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: CGFloat(lyricLineSpacing)) {
+                        LazyVStack(alignment: fallbackAlignment, spacing: CGFloat(lyricLineSpacing)) {
                             Color.clear.frame(height: max(72, lyricsViewportHeight * 0.50 - lyricRowHeight * 0.50))
                             ForEach(lyrics) { line in
                                 lyricLine(line, isFocused: line.id == currentVisualLyricID)
@@ -303,6 +315,7 @@ struct ReferencePlaybackView: View {
                         }
                         .padding(.horizontal, 28)
                     }
+                    .rotation3DEffect(.degrees(Double(lyricTilt)), axis: (x: 1, y: 0, z: 0))
                     .coordinateSpace(name: "referenceLyricsViewport")
                     .mask(referenceLyricsMask)
                     .background {
@@ -651,33 +664,47 @@ struct ReferencePlaybackView: View {
         // 行高跟随实际内容自然撑开（正文最多两行 + 有译文才加译文行），无固定槽位下限：
         // 无译文时高度为 0，行距可真正压小；每行自身中心即内容中心，
         // scrollPosition(.center) 将高亮行（含多行/带翻译）滚到视口中心，始终居中。
-        let translation = (line.translation?.isEmpty == false) ? line.translation : nil
+        let translation = (lyricTranslation && line.translation?.isEmpty == false) ? line.translation : nil
         let primarySize = CGFloat(lyricFontSize)
         let translationSize = max(11, primarySize * 0.68)
+        let textAlignment: HorizontalAlignment = (lyricAlignRaw == "center") ? .center : .leading
 
         return Button {
             ATMusicHaptics.tap()
             player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: textAlignment, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if textAlignment == .center { Spacer(minLength: 0) }
+
                     Text(line.text.isEmpty ? " " : line.text)
                         .font(ATMusicFont.appFont(primarySize, .semibold))
                         .foregroundStyle(primaryColor.opacity(isFocused ? 1 : 0.36))
+                        .shadow(
+                            color: isFocused ? glowColor.opacity(lyricGlowRadius > 0 ? 0.9 : 0) : .clear,
+                            radius: isFocused ? lyricGlowRadius * 0.45 : 0
+                        )
+                        .shadow(
+                            color: isFocused ? glowColor.opacity(lyricGlowRadius > 0 ? 0.55 : 0) : .clear,
+                            radius: isFocused ? lyricGlowRadius : 0
+                        )
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
 
-                    Spacer(minLength: 8)
-
-                    // 始终占用同样的宽度；只有手动拖动且当前行聚焦时才显示。
-                    Text(atmusicTimeString(line.time))
-                        .font(ATMusicFont.appFont(11, .semibold, .monospaced))
-                        .foregroundStyle(secondaryColor.opacity(isFocused && isDraggingLyrics ? 0.82 : 0))
-                        .frame(width: 42, alignment: .trailing)
-                        .accessibilityHidden(!(isFocused && isDraggingLyrics))
+                    if textAlignment != .center {
+                        Spacer(minLength: 8)
+                        // 始终占用同样的宽度；只有手动拖动且当前行聚焦时才显示。
+                        Text(atmusicTimeString(line.time))
+                            .font(ATMusicFont.appFont(11, .semibold, .monospaced))
+                            .foregroundStyle(secondaryColor.opacity(isFocused && isDraggingLyrics ? 0.82 : 0))
+                            .frame(width: 42, alignment: .trailing)
+                            .accessibilityHidden(!(isFocused && isDraggingLyrics))
+                    } else {
+                        Spacer(minLength: 0)
+                    }
                 }
 
-                // 翻译区域仅在“该行有译文”时渲染；无译文时高度为 0，行距可真正压小。
+                // 翻译区域仅在“显示翻译且该行有译文”时渲染；无译文时高度为 0，行距可真正压小。
                 if let translation {
                     Text(translation)
                         .font(ATMusicFont.appFont(translationSize, .medium))
@@ -687,11 +714,12 @@ struct ReferencePlaybackView: View {
                         .accessibilityHidden(!isFocused)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(textAlignment == .center ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: textAlignment == .center ? .center : .leading)
             .contentShape(Rectangle())
             // 视觉缩放不会参与 SwiftUI 布局计算，因此不会改变滚动目标的中心点。
-            .scaleEffect(isFocused ? 1.06 : 0.84, anchor: .leading)
-            .blur(radius: isFocused ? 0 : 0.7)
+            .scaleEffect(isFocused ? 1.06 : 0.84, anchor: textAlignment == .center ? .center : .leading)
+            .blur(radius: isFocused ? 0 : CGFloat(lyricBlurAmount) * 0.7)
         }
         .buttonStyle(.plain)
     }
@@ -762,12 +790,30 @@ struct ReferencePlaybackView: View {
 
     private var primaryColor: Color {
         if primaryHex.hasPrefix("#"), let color = Color(hex: primaryHex) { return color }
+        if lyricGradMode == 1, lyricColorRaw.hasPrefix("#"), let color = Color(hex: lyricColorRaw) { return color }
         return .white
     }
 
     private var secondaryColor: Color {
         if secondaryHex.hasPrefix("#"), let color = Color(hex: secondaryHex) { return color }
+        if lyricGradMode == 1, lyricDimColorRaw.hasPrefix("#"), let color = Color(hex: lyricDimColorRaw) { return color }
         return .white.opacity(0.58)
+    }
+
+    private var glowColor: Color {
+        if lyricGlowColorRaw.hasPrefix("#"), let color = Color(hex: lyricGlowColorRaw) { return color }
+        return primaryColor
+    }
+
+    private var lyricGlowRadius: CGFloat {
+        switch lyricGlowLevel {
+        case 0: return 0
+        case 1: return 6
+        case 2: return 12
+        case 3: return 18
+        case 4: return 25
+        default: return 32
+        }
     }
 
     private var accentColor: Color {

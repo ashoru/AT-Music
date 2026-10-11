@@ -201,6 +201,13 @@ final class PlayerManager: NSObject, ObservableObject {
         queue.indices.contains(currentIndex) ? queue[currentIndex] : nil
     }
 
+    /// 当前播放歌曲的解析后歌词，供主界面、微播放器与布局编辑器实时联动
+    @Published var currentLyrics: [LyricLine] = []
+
+    func updateCurrentLyrics(_ lyrics: [LyricLine]) {
+        self.currentLyrics = lyrics
+    }
+
     /// 磁盘播放缓存跟随“播放音质”，避免设置为无损/Hi-Res 时误命中旧的 320k 缓存。
     private func playbackCacheQuality() -> ThirdPartyAudioQuality {
         switch ATMusicAudioQuality.current {

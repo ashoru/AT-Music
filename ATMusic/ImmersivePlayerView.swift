@@ -161,6 +161,14 @@ struct ImmersivePlayerView: View {
     @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
     @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @AppStorage("atmusic.lyricGradMode") private var lyricGradMode = 0
+    @AppStorage("atmusic.lyricColor") private var lyricColorRaw = "accent"
+    @AppStorage("atmusic.lyricDimColor") private var lyricDimColorRaw = "dim"
+    @AppStorage("atmusic.lyricGlow") private var lyricGlowLevel = 1
+    @AppStorage("atmusic.lyricGlowColorRaw") private var lyricGlowColorRaw = ""
+    @AppStorage("atmusic.lyricBlurAmount") private var lyricBlurAmount = 1.1
+    @AppStorage("atmusic.lyricTilt") private var lyricTilt = 0
+    @AppStorage("atmusic.lyricAlignRaw") private var lyricAlignRaw = "center"
 
     // 播放器布局数据（支持布局编辑器自由调整 X/Y/大小/旋转/透明度）
     @State private var layoutData: [String: PlayerLayoutEntry] = PlayerLayoutStore.load(for: .immersive)
@@ -190,6 +198,28 @@ struct ImmersivePlayerView: View {
             return color
         }
         return theme.accent.highlight
+    }
+    private var lyricCurrentColor: Color {
+        if lyricGradMode == 1, lyricColorRaw.hasPrefix("#"), let c = Color(hex: lyricColorRaw) {
+            return c
+        }
+        return accentColor
+    }
+    private var lyricDimColor: Color {
+        if lyricGradMode == 1, lyricDimColorRaw.hasPrefix("#"), let c = Color(hex: lyricDimColorRaw) {
+            return c
+        }
+        return .white.opacity(0.65)
+    }
+    private var lyricGlowRadius: CGFloat {
+        switch lyricGlowLevel {
+        case 0: return 0
+        case 1: return 6
+        case 2: return 12
+        case 3: return 18
+        case 4: return 25
+        default: return 32
+        }
     }
     private var progressAccent: Color {
         if progressAccentHex.hasPrefix("#"), let color = Color(hex: progressAccentHex) {
@@ -499,12 +529,18 @@ struct ImmersivePlayerView: View {
     private func lyricsContainer(geo: GeometryProxy) -> some View {
         LyricsSection(
             lyrics: effectiveLyrics,
-            accent: accentColor,
-            secondary: .white.opacity(0.65),
+            accent: lyricCurrentColor,
+            secondary: lyricDimColor,
+            gradientStart: lyricGradMode == 1 ? lyricCurrentColor : nil,
+            gradientEnd: lyricGradMode == 1 ? lyricCurrentColor : nil,
             baseFontSize: CGFloat(lyricFontSize),
             lineSpacing: CGFloat(lyricLineSpacing),
+            glowRadius: lyricGlowRadius,
             showTranslation: lyricTranslation,
-            alignment: .center,
+            alignment: lyricAlignRaw == "left" ? .leading : .center,
+            glowColorOverride: Color(hex: lyricGlowColorRaw) ?? lyricCurrentColor,
+            blurAmount: CGFloat(lyricBlurAmount),
+            tilt: CGFloat(lyricTilt),
             lyricOffset: CGFloat(lyricOffset),
             onTapLine: { line in
                 ATMusicHaptics.tap()
