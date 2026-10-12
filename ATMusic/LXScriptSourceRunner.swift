@@ -20,6 +20,8 @@ import JavaScriptCore
     func request(_ url: String, _ options: JSValue?, _ callback: JSValue?)
     func on(_ event: String, _ handler: JSValue)
     func send(_ event: String, _ payload: JSValue?)
+    func setTimeout(_ callback: JSValue?, _ delayMs: Double) -> Int
+    func clearTimeout(_ id: Int)
     var EVENT_NAMES: NSDictionary { get }
     var env: NSDictionary { get }
     var utils: ATMusicLXScriptUtilsBridge { get }
@@ -218,12 +220,56 @@ final class ATMusicLXScriptBridge: NSObject, ATMusicLXScriptBridgeExports {
     let version: String
     let currentScriptInfo: NSDictionary
 
+    private let timerLock = NSLock()
+    private var nextTimerId = 1
+    private var timerWorkItems: [Int: DispatchWorkItem] = [:]
+
+    func setTimeout(_ callback: JSValue?, _ delayMs: Double) -> Int {
+        guard let callback else { return 0 }
+        timerLock.lock()
+        let id = nextTimerId
+        nextTimerId += 1
+        timerLock.unlock()
+
+        let delaySec = max(0.001, delayMs / 1000.0)
+        let workItem = DispatchWorkItem { [weak self, weak callback] in
+            guard let self, let callback else { return }
+            self.runtimeQueue.async {
+                callback.call(withArguments: [])
+            }
+            self.timerLock.lock()
+            self.timerWorkItems.removeValue(forKey: id)
+            self.timerLock.unlock()
+        }
+        timerLock.lock()
+        timerWorkItems[id] = workItem
+        timerLock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + delaySec, execute: workItem)
+        return id
+    }
+
+    func clearTimeout(_ id: Int) {
+        timerLock.lock()
+        let item = timerWorkItems.removeValue(forKey: id)
+        timerLock.unlock()
+        item?.cancel()
+    }
+
     init(runtimeQueue: DispatchQueue, source: ThirdPartySource, script: String) {
         self.runtimeQueue = runtimeQueue
         self.version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.6.5.1"
+        var scriptVer = source.headers["version"] ?? ""
+        if scriptVer.isEmpty {
+            let pattern = #"@version\s+([^\r\n]+)"#
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: script, range: NSRange(script.startIndex..<script.endIndex, in: script)),
+               let range = Range(match.range(at: 1), in: script) {
+                scriptVer = String(script[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
         self.currentScriptInfo = [
             "name": source.name,
-            "version": source.headers["version"] ?? "",
+            "version": scriptVer.isEmpty ? "1.0.0" : scriptVer,
             "rawScript": script
         ]
         let config = URLSessionConfiguration.default
@@ -349,14 +395,17 @@ final class ATMusicLXScriptBridge: NSObject, ATMusicLXScriptBridgeExports {
 
 final class ATMusicLXScriptRuntime {
     private let sourceID: String
-    private let queue = DispatchQueue(label: "AT Music.LXScriptRuntime")
+    private let vm: JSVirtualMachine
+    private let queue: DispatchQueue
     private let context: JSContext
     private let bridge: ATMusicLXScriptBridge
     private var handlers: [String: JSValue] = [:]
 
     init?(source: ThirdPartySource, script: String) {
         sourceID = source.id
-        guard let context = JSContext() else { return nil }
+        guard let vm = JSVirtualMachine(), let context = JSContext(virtualMachine: vm) else { return nil }
+        self.vm = vm
+        self.queue = DispatchQueue(label: "ATMusic.LXScriptRuntime.\(source.id)")
         self.context = context
         self.bridge = ATMusicLXScriptBridge(runtimeQueue: queue, source: source, script: script)
         self.bridge.runtime = self
@@ -449,6 +498,54 @@ final class ATMusicLXScriptRuntime {
                             }
                             return JSON.stringify(response && response.body ? response.body : {});
                         });
+                    };
+                }
+                if (typeof globalThis.setTimeout === 'undefined') {
+                    globalThis.setTimeout = function(fn, delay) {
+                        return nativeLX.setTimeout(fn, delay || 0);
+                    };
+                    globalThis.clearTimeout = function(id) {
+                        nativeLX.clearTimeout(id);
+                    };
+                }
+                if (typeof globalThis.setInterval === 'undefined') {
+                    globalThis.setInterval = function(fn, delay) {
+                        return nativeLX.setTimeout(fn, delay || 0);
+                    };
+                    globalThis.clearInterval = function(id) {
+                        nativeLX.clearTimeout(id);
+                    };
+                }
+                if (typeof globalThis.btoa === 'undefined') {
+                    globalThis.btoa = function(str) {
+                        return nativeLX.utils.buffer.from(str, 'utf8').base64;
+                    };
+                }
+                if (typeof globalThis.atob === 'undefined') {
+                    globalThis.atob = function(b64) {
+                        return nativeLX.utils.buffer.bufToString({ __atmusicBuffer: true, base64: b64 }, 'utf8');
+                    };
+                }
+                if (typeof globalThis.URLSearchParams === 'undefined') {
+                    globalThis.URLSearchParams = function(init) {
+                        this.params = {};
+                        if (typeof init === 'string') {
+                            var q = init.indexOf('?') >= 0 ? init.split('?')[1] : init;
+                            var pairs = q.split('&');
+                            for (var i = 0; i < pairs.length; i++) {
+                                var p = pairs[i].split('=');
+                                if (p[0]) this.params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || '');
+                            }
+                        }
+                    };
+                    globalThis.URLSearchParams.prototype.get = function(key) { return this.params[key] || null; };
+                    globalThis.URLSearchParams.prototype.set = function(key, val) { this.params[key] = String(val); };
+                    globalThis.URLSearchParams.prototype.toString = function() {
+                        var res = [];
+                        for (var k in this.params) {
+                            res.push(encodeURIComponent(k) + '=' + encodeURIComponent(this.params[k]));
+                        }
+                        return res.join('&');
                     };
                 }
                 if (typeof globalThis.Buffer === 'undefined') {
@@ -618,7 +715,7 @@ final class ATMusicLXScriptRuntime {
 final class LXScriptSourceRunner {
     static let shared = LXScriptSourceRunner()
 
-    private let runtimeQueue = DispatchQueue(label: "AT Music.LXScriptSourceRunner")
+    private let cacheLock = NSLock()
     private var cache: [String: ATMusicLXScriptRuntime] = [:]
 
     func resolve(
@@ -634,23 +731,21 @@ final class LXScriptSourceRunner {
         quality: String,
         excludedHosts: Set<String>
     ) async -> UnblockService.Resolved? {
-        await withCheckedContinuation { continuation in
-            runtimeQueue.async {
-                continuation.resume(returning: self.resolveSync(
-                    source: source,
-                    script: script,
-                    songSource: songSource,
-                    songID: songID,
-                    qqMid: qqMid,
-                    qqMediaMid: qqMediaMid,
-                    kugouID: kugouID,
-                    name: name,
-                    artists: artists,
-                    quality: quality,
-                    excludedHosts: excludedHosts
-                ))
-            }
-        }
+        await Task.detached(priority: .userInitiated) {
+            self.resolveSync(
+                source: source,
+                script: script,
+                songSource: songSource,
+                songID: songID,
+                qqMid: qqMid,
+                qqMediaMid: qqMediaMid,
+                kugouID: kugouID,
+                name: name,
+                artists: artists,
+                quality: quality,
+                excludedHosts: excludedHosts
+            )
+        }.value
     }
 
     private func resolveSync(
@@ -684,7 +779,7 @@ final class LXScriptSourceRunner {
             ]
         ]
         guard let raw = runtime?.invokeRequest(payload: payload) else { return nil }
-        guard let urlString = extractURLString(from: raw),
+        guard let (urlString, headers) = extractURLAndHeaders(from: raw),
               let url = URL(string: urlString),
               let playable = playableURL(url, excludedHosts: excludedHosts) else {
             return nil
@@ -692,15 +787,24 @@ final class LXScriptSourceRunner {
         return UnblockService.Resolved(
             url: playable,
             source: source.name,
-            quality: ThirdPartyAudioQuality(sourceValue: quality) ?? .kb320
+            quality: ThirdPartyAudioQuality(sourceValue: quality) ?? .kb320,
+            headers: headers
         )
     }
 
     private func runtime(for source: ThirdPartySource, script: String) -> ATMusicLXScriptRuntime? {
         let key = "\(source.id)|\(script.hashValue)"
-        if let cached = cache[key] { return cached }
+        cacheLock.lock()
+        if let cached = cache[key] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+
         guard let runtime = ATMusicLXScriptRuntime(source: source, script: script) else { return nil }
+        cacheLock.lock()
         cache[key] = runtime
+        cacheLock.unlock()
         return runtime
     }
 
@@ -868,9 +972,41 @@ final class LXScriptSourceRunner {
         return current
     }
 
+    private func extractURLAndHeaders(from raw: Any) -> (url: String, headers: [String: String])? {
+        var extractedHeaders: [String: String] = [:]
+        if let dict = raw as? [String: Any] {
+            if let hdrs = dict["headers"] as? [String: String] {
+                extractedHeaders = hdrs
+            } else if let hdrs = dict["headers"] as? [String: Any] {
+                extractedHeaders = hdrs.reduce(into: [String: String]()) { res, pair in
+                    res[pair.key] = String(describing: pair.value)
+                }
+            }
+        } else if let nsDict = raw as? NSDictionary {
+            if let hdrs = nsDict["headers"] as? NSDictionary {
+                extractedHeaders = hdrs.reduce(into: [String: String]()) { res, pair in
+                    if let k = pair.key as? String {
+                        res[k] = String(describing: pair.value)
+                    }
+                }
+            }
+        }
+        guard let urlString = extractURLString(from: raw) else { return nil }
+        if urlString.contains("2026-06-17-195722_104595") ||
+           urlString.contains("music.163.com/404") ||
+           urlString.contains("error.php") ||
+           urlString.contains("error_url") {
+            return nil
+        }
+        return (urlString, extractedHeaders)
+    }
+
     private func playableURL(_ url: URL, excludedHosts: Set<String>) -> URL? {
         guard let host = url.host?.lowercased(), !host.isEmpty else { return url }
         if excludedHosts.contains(host) { return nil }
+        if url.path.contains("404") || url.absoluteString.contains("error.php") {
+            return nil
+        }
         if host.contains("qq.com") || host.contains("qqmusic") || host.contains("gitv.tv") {
             return url
         }

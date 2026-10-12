@@ -635,11 +635,11 @@ final class PlayerManager: NSObject, ObservableObject {
                     if let u = official?.url { resolvedURL = URL(string: u) }
                 }
             } else {
-                let (urlStr, res) = await self.neteaseResolve(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
-                if let res {
+                let neteaseRes = await self.neteaseResolve(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
+                if let res = neteaseRes.resolvedThirdParty {
                     resolvedURL = res.url
                     isThirdParty = true
-                } else if let urlStr {
+                } else if let urlStr = neteaseRes.urlString {
                     resolvedURL = URL(string: urlStr)
                 }
             }
@@ -892,13 +892,45 @@ final class PlayerManager: NSObject, ObservableObject {
                     }
                 }
             } else {
-                (urlString, resolvedThirdParty) = await neteaseResolve(
+                let neteaseRes = await neteaseResolve(
                     song: song,
                     quality: quality,
                     thirdPartyQuality: thirdPartyQuality,
                     enableUnblock: enableUnblock,
                     strict: strictUnlock
                 )
+                urlString = neteaseRes.urlString
+                resolvedThirdParty = neteaseRes.resolvedThirdParty
+                if neteaseRes.isHotSwapTrial, let trialStr = urlString, let trialURL = URL(string: trialStr) {
+                    await MainActor.run {
+                        guard generation == self.loadGeneration else { return }
+                        self.setupPlayer(
+                            url: trialURL,
+                            resumeAt: initialProgress,
+                            fromPlaybackCache: false,
+                            isHotSwapTrial: true
+                        )
+                    }
+                    // 后台并行静默解析第三方完整音轨并进行无感热置换
+                    Task.detached(priority: .userInitiated) { [generation, weak self] in
+                        guard let self else { return }
+                        let fullTrack = await UnblockService.resolve(
+                            name: song.name,
+                            artists: song.artists,
+                            neteaseID: song.id,
+                            songSource: .netease,
+                            quality: thirdPartyQuality,
+                            strict: strictUnlock
+                        )
+                        if let fullTrack {
+                            await MainActor.run {
+                                guard generation == self.loadGeneration, self.currentSong?.identityKey == song.identityKey else { return }
+                                self.hotSwapAudioTrack(with: fullTrack, for: song, generation: generation)
+                            }
+                        }
+                    }
+                    return
+                }
             }
             if let resolved = resolvedThirdParty {
                 let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
@@ -909,7 +941,8 @@ final class PlayerManager: NSObject, ObservableObject {
                         thirdPartyVIPNotice: notice,
                         resumeAt: initialProgress,
                         isThirdParty: true,
-                        thirdPartyQuality: resolved.quality
+                        thirdPartyQuality: resolved.quality,
+                        customHeaders: resolved.headers
                     )
                 }
                 return
@@ -944,19 +977,26 @@ final class PlayerManager: NSObject, ObservableObject {
         }
     }
 
-    /// 网易云播放地址解析：按设置音质取 URL，VIP/灰色歌曲交给第三方解锁。
+    /// 网易云播放地址解析：按设置音质取 URL，VIP 歌曲官方试听前奏秒出(150ms) + 第三方完整音轨静默热置换。
     private func neteaseResolve(
         song: Song,
         quality: ATMusicAudioQuality,
         thirdPartyQuality: ThirdPartyAudioQuality = .current,
         enableUnblock: Bool,
         strict: Bool = false
-    ) async -> (String?, UnblockService.Resolved?) {
+    ) async -> (urlString: String?, resolvedThirdParty: UnblockService.Resolved?, isHotSwapTrial: Bool) {
         var urlString: String?
         var resolved: UnblockService.Resolved?
         let isVIPWithoutMembership = song.isVIP && !hasMembership(for: .netease)
-        let preferThirdParty = enableUnblock && isVIPWithoutMembership
-        if preferThirdParty {
+
+        // 方案 1：VIP 歌曲官方试听前奏 150ms 瞬时出声 + 后台完整音轨无缝热替换
+        if enableUnblock && isVIPWithoutMembership {
+            let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
+            let info = infos?[song.id]
+            if let trialUrl = info?.url, !trialUrl.isEmpty {
+                ATMusicLogger.shared.log("⚡️ 官方试听前奏秒出(150ms)：\(song.name) -> 准备热置换完整音轨", level: .info)
+                return (urlString: trialUrl, resolvedThirdParty: nil, isHotSwapTrial: true)
+            }
             resolved = await UnblockService.resolve(
                 name: song.name,
                 artists: song.artists,
@@ -965,24 +1005,19 @@ final class PlayerManager: NSObject, ObservableObject {
                 quality: thirdPartyQuality,
                 strict: strict
             )
-            if resolved != nil {
-                ATMusicLogger.shared.log("网易云 VIP 优先第三方极速直出：\(song.name)", level: .debug)
-                return (nil, resolved)
-            }
+            return (urlString: nil, resolvedThirdParty: resolved, isHotSwapTrial: false)
         }
+
         let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.level)
         var info = infos?[song.id]
         if (info?.url == nil || info?.freeTrial == true), quality != .standard {
-            // 高音质拿不到时自动回落到标准音质
             let fallback = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
             info = fallback?[song.id]
         }
-        ATMusicLogger.shared.log("网易云解析：\(song.name) 音质=\(quality.level) 官方URL=\(info?.url == nil ? "无" : "有") 试听=\(info?.freeTrial == true ? "是" : "否")", level: .debug)
-        // 试听片段 / 无 URL 一律不直接播放，交给第三方解锁，避免"只能试听"
         if let u = info?.url, info?.freeTrial != true {
             urlString = u
         }
-        if urlString == nil, enableUnblock, resolved == nil {
+        if urlString == nil, enableUnblock {
             resolved = await UnblockService.resolve(
                 name: song.name,
                 artists: song.artists,
@@ -992,8 +1027,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 strict: strict
             )
         }
-        ATMusicLogger.shared.log("网易云结果：\(song.name) 官方=\(urlString != nil ? "是" : "否") 第三方=\(resolved != nil ? "命中" : "未用/未命中")", level: .debug)
-        return (urlString, resolved)
+        return (urlString: urlString, resolvedThirdParty: resolved, isHotSwapTrial: false)
     }
 
     /// QQ 歌曲兜底：官方失败后只走 QQ 第三方接口，不跨平台匹配同名歌曲。
@@ -1009,10 +1043,9 @@ final class PlayerManager: NSObject, ObservableObject {
             ATMusicLogger.shared.log("QQ兜底：\(song.name) 第三方=未启用", level: .debug)
             return (nil, nil)
         }
-        let resolved = await UnblockService.resolve(
+        var resolved = await UnblockService.resolve(
             name: song.name,
             artists: song.artists,
-            // QQ 专属音源要求传数字 songId；mid 仅作为兼容接口的后备参数。
             neteaseID: song.id,
             songSource: .qq,
             qqMid: song.qqMid,
@@ -1021,6 +1054,26 @@ final class PlayerManager: NSObject, ObservableObject {
             strict: strict,
             excludedHosts: excludedHosts
         )
+        if resolved == nil {
+            if let matched = await matchNetEaseSong(
+                name: song.name,
+                artists: song.artists,
+                durationMS: Int(song.duration * 1000),
+                strict: strict
+            ) {
+                resolved = await UnblockService.resolve(
+                    name: matched.name,
+                    artists: matched.artists,
+                    neteaseID: matched.id,
+                    songSource: .netease,
+                    quality: thirdPartyQuality,
+                    strict: strict
+                )
+                if resolved != nil {
+                    ATMusicLogger.shared.log("QQ兜底跨平台匹配网易云命中：\(song.name) -> \(matched.name)", level: .info)
+                }
+            }
+        }
         ATMusicLogger.shared.log("QQ兜底：\(song.name) QQ第三方=\(resolved != nil ? "命中" : "未命中")", level: .debug)
         return (nil, resolved)
     }
@@ -1317,15 +1370,57 @@ final class PlayerManager: NSObject, ObservableObject {
         return true
     }
 
+    @MainActor
+    func hotSwapAudioTrack(with resolved: UnblockService.Resolved, for song: Song, generation: Int) {
+        guard generation == self.loadGeneration,
+              self.currentSong?.identityKey == song.identityKey,
+              let player = self.player else { return }
+        let currentTime = player.currentTime()
+        let currentSeconds = CMTimeGetSeconds(currentTime)
+        ATMusicLogger.shared.log("⚡️ 无缝热置换生效：\(song.name) 当前进度=\(String(format: "%.1f", currentSeconds))s -> 切换为第三方完整音轨(\(resolved.sourceTitle))", level: .info)
+        var playbackHeaders = resolved.headers
+        if isQQAudioHost(resolved.url.host) {
+            playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
+            playbackHeaders["Referer"] = "https://y.qq.com/"
+        }
+        let item: AVPlayerItem
+        if !playbackHeaders.isEmpty {
+            let asset = AVURLAsset(url: resolved.url, options: [
+                "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
+            ])
+            item = AVPlayerItem(asset: asset)
+        } else {
+            item = AVPlayerItem(url: resolved.url)
+        }
+        item.preferredForwardBufferDuration = 8.0
+        let wasPlaying = self.isPlaying
+        player.replaceCurrentItem(with: item)
+        player.seek(to: currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        if wasPlaying {
+            player.play()
+        }
+        self.activeThirdPartyQuality = resolved.quality
+        let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
+        self.pendingThirdPartyVIPNotice = notice
+        AudioURLCache.shared.set(
+            songId: song.id,
+            quality: self.playbackCacheQuality().rawValue,
+            url: resolved.url,
+            isPreview: false
+        )
+    }
+
     private func setupPlayer(
         url: URL,
         thirdPartyVIPNotice: ThirdPartyVIPNotice? = nil,
         resumeAt: Double = 0,
         isThirdParty: Bool = false,
         thirdPartyQuality: ThirdPartyAudioQuality? = nil,
+        customHeaders: [String: String] = [:],
         qqOfficialBR: String? = nil,
         attemptedQQOfficialBRs: [String] = [],
-        fromPlaybackCache: Bool = false
+        fromPlaybackCache: Bool = false,
+        isHotSwapTrial: Bool = false
     ) {
         guard ensurePlaybackAllowed(), let loadedSong = currentSong else { return }
         let playbackGeneration = loadGeneration
@@ -1353,27 +1448,21 @@ final class PlayerManager: NSObject, ObservableObject {
         // 这些地址在低系统上如果缺少 Referer/Cookie，常见表现是先进入
         // playing，随后以 AVFoundation -11849 失败。
         let item: AVPlayerItem
-        var playbackHeaders: [String: String] = [:]
+        var playbackHeaders: [String: String] = customHeaders
         if isQQAudioHost(url.host) {
-            playbackHeaders = [
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0",
-                "Referer": "https://y.qq.com/",
-            ]
+            playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
+            playbackHeaders["Referer"] = "https://y.qq.com/"
             let cookie = QQMusicAuth.shared.cookieHeader
             if !cookie.isEmpty {
                 playbackHeaders["Cookie"] = cookie
             }
-            let asset = AVURLAsset(url: url, options: [
-                "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
-            ])
-            item = AVPlayerItem(asset: asset)
         } else if url.host?.contains("kugou.com") == true || url.host?.contains("kgimg.com") == true {
-            playbackHeaders = [
-                "User-Agent": "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi",
-                "Referer": "https://www.kugou.com/",
-            ]
+            playbackHeaders["User-Agent"] = "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi"
+            playbackHeaders["Referer"] = "https://www.kugou.com/"
             let cookie = KugouMusicAuth.shared.cookieHeader
             if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
+        }
+        if !playbackHeaders.isEmpty {
             let asset = AVURLAsset(url: url, options: [
                 "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
             ])
@@ -1398,7 +1487,7 @@ final class PlayerManager: NSObject, ObservableObject {
             songId: loadedSong.id,
             quality: self.playbackCacheQuality().rawValue,
             url: url,
-            isPreview: isThirdParty
+            isPreview: isThirdParty || isHotSwapTrial
         )
         // 触发下一首静默预解析
         self.preResolveNextTrackURL()

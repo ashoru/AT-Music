@@ -1,17 +1,50 @@
 import Foundation
 
+final class SourceQoSRanking: @unchecked Sendable {
+    static let shared = SourceQoSRanking()
+    private var stats: [String: (success: Int, failure: Int, totalRTT: TimeInterval)] = [:]
+    private let lock = NSLock()
+
+    func record(sourceId: String, success: Bool, rtt: TimeInterval) {
+        lock.lock()
+        defer { lock.unlock() }
+        var s = stats[sourceId] ?? (0, 0, 0)
+        if success {
+            s.success += 1
+            s.totalRTT += rtt
+        } else {
+            s.failure += 1
+        }
+        stats[sourceId] = s
+    }
+
+    func score(sourceId: String) -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let s = stats[sourceId], (s.success + s.failure) > 0 else {
+            return 100.0 // 默认新节点基础分
+        }
+        let rate = Double(s.success) / Double(s.success + s.failure)
+        let avgRTT = s.success > 0 ? (s.totalRTT / Double(s.success)) : 4.0
+        let rttScore = max(0, 100.0 - avgRTT * 20.0)
+        return rate * 70.0 + rttScore * 0.3
+    }
+}
+
 enum UnblockService {
     struct Resolved {
         let url: URL
         let source: String
         let quality: ThirdPartyAudioQuality
+        let headers: [String: String]
 
         var sourceTitle: String { source }
 
-        init(url: URL, source: String, quality: ThirdPartyAudioQuality = .kb320) {
+        init(url: URL, source: String, quality: ThirdPartyAudioQuality = .kb320, headers: [String: String] = [:]) {
             self.url = url
             self.source = source
             self.quality = quality
+            self.headers = headers
         }
     }
 
@@ -84,13 +117,31 @@ enum UnblockService {
         // 相同配置只保留每个请求指纹的第一个，避免重复请求同一个服务。
         var seen = Set<String>()
         let uniqueSources = sources.filter { seen.insert(requestFingerprint(for: $0)).inserted }
+        let rankedSources = uniqueSources.sorted { s1, s2 in
+            SourceQoSRanking.shared.score(sourceId: s1.id) > SourceQoSRanking.shared.score(sourceId: s2.id)
+        }
 
         // 慢源/失效源不要拖住播放：全部候选一起请求，最快命中的播放地址直接返回。
         return await withTaskGroup(of: Resolved?.self) { group in
-            for source in uniqueSources {
+            for source in rankedSources {
                 group.addTask {
+                    let startTime = Date()
+                    let result: Resolved?
                     if isScriptSource(source) {
-                        return await scriptSourceRequest(
+                        result = await scriptSourceRequest(
+                            source: source,
+                            name: name,
+                            artists: artists,
+                            neteaseID: neteaseID,
+                            songSource: songSource,
+                            qqMid: qqMid,
+                            qqMediaMid: qqMediaMid,
+                            kugouID: kugouID,
+                            preferredQuality: quality,
+                            excludedHosts: excludedHosts
+                        )
+                    } else {
+                        result = await presetSourceRequest(
                             source: source,
                             name: name,
                             artists: artists,
@@ -103,18 +154,9 @@ enum UnblockService {
                             excludedHosts: excludedHosts
                         )
                     }
-                    return await presetSourceRequest(
-                        source: source,
-                        name: name,
-                        artists: artists,
-                        neteaseID: neteaseID,
-                        songSource: songSource,
-                        qqMid: qqMid,
-                        qqMediaMid: qqMediaMid,
-                        kugouID: kugouID,
-                        preferredQuality: quality,
-                        excludedHosts: excludedHosts
-                    )
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    SourceQoSRanking.shared.record(sourceId: source.id, success: result != nil, rtt: elapsed)
+                    return result
                 }
             }
             for await result in group {
@@ -392,7 +434,8 @@ enum UnblockService {
         return Resolved(
             url: playURL,
             source: source.name,
-            quality: ThirdPartyAudioQuality(sourceValue: quality) ?? .kb320
+            quality: ThirdPartyAudioQuality(sourceValue: quality) ?? .kb320,
+            headers: source.headers
         )
     }
 
