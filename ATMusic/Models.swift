@@ -1,27 +1,67 @@
 import Foundation
 
-/// 音质等级。
+/// 音质等级（全面对标网易云音乐与 QQ 音乐专业音质体系）。
 enum ATMusicAudioQuality: String, CaseIterable, Identifiable {
+    case auto
     case standard
     case higher
     case exhigh
     case lossless
     case hires
+    case master
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .standard: return atmusicLocalized("标准", "Standard")
-        case .higher: return atmusicLocalized("较高", "Higher")
-        case .exhigh: return atmusicLocalized("极高", "Very High")
-        case .lossless: return atmusicLocalized("无损", "Lossless")
+        case .auto: return atmusicLocalized("智能自适应", "Auto Adaptive")
+        case .standard: return atmusicLocalized("标准音质", "Standard")
+        case .higher: return atmusicLocalized("较高品质", "Higher")
+        case .exhigh: return atmusicLocalized("极高品质", "Very High")
+        case .lossless: return atmusicLocalized("无损音质", "Lossless")
+        case .hires: return atmusicLocalized("超清母带", "Hi-Res Master")
+        case .master: return atmusicLocalized("臻品母带", "Master Quality")
+        }
+    }
+
+    /// 专业音质徽标缩写（对标网易/QQ 音乐）
+    var badgeText: String {
+        switch self {
+        case .auto: return "AUTO"
+        case .standard: return "SD"
+        case .higher: return "HQ"
+        case .exhigh: return "HQ+"
+        case .lossless: return "SQ"
         case .hires: return "Hi-Res"
+        case .master: return "MASTER"
+        }
+    }
+
+    /// 码率与规格参数描述
+    var subtitle: String {
+        switch self {
+        case .auto: return atmusicLocalized("自动匹配网络与设备最佳音质", "Match best network & device quality")
+        case .standard: return "128kbps MP3 · 畅享省流"
+        case .higher: return "192kbps AAC · 平衡流畅"
+        case .exhigh: return "320kbps MP3 · 细节丰富"
+        case .lossless: return "FLAC 16bit/44.1kHz · CD 级"
+        case .hires: return "FLAC 24bit/96kHz · 超解析母带"
+        case .master: return "24bit/192kHz · 顶级录音室母带"
         }
     }
 
     /// 网易云 songURL 的 level 参数
-    var level: String { rawValue }
+    var level: String {
+        switch self {
+        case .auto: return "hires"
+        case .standard: return "standard"
+        case .higher: return "higher"
+        case .exhigh: return "exhigh"
+        case .lossless: return "lossless"
+        case .hires: return "hires"
+        case .master: return "jymaster"
+        }
+    }
 
     /// 当前官方播放音质（默认 Hi-Res；不可用时由各平台接口自行降级）。
     static var current: ATMusicAudioQuality {
@@ -164,7 +204,8 @@ enum ThirdPartyAudioQuality: String, CaseIterable, Identifiable, Sendable, Codab
         case .kb128: return .standard
         case .kb320: return .exhigh
         case .flac: return .lossless
-        case .flac24bit, .hires, .atmos, .atmosPlus, .master: return .hires
+        case .flac24bit, .hires, .atmos, .atmosPlus: return .hires
+        case .master: return .master
         }
     }
 }

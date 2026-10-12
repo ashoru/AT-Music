@@ -214,7 +214,8 @@ final class PlayerManager: NSObject, ObservableObject {
         case .standard: return .kb128
         case .higher, .exhigh: return .kb320
         case .lossless: return .flac
-        case .hires: return .hires
+        case .auto, .hires: return .hires
+        case .master: return .master
         }
     }
 
@@ -579,6 +580,82 @@ final class PlayerManager: NSObject, ObservableObject {
         refreshPrefetchTarget()
     }
 
+
+    // MARK: - 队列轻量后台预解析管线（Apple Music 级无感切歌保障）
+
+    private var preResolveTask: Task<Void, Never>?
+
+    private func preResolveNextTrackURL() {
+        guard let nextSong = nextSongForPrefetch() else { return }
+        let quality = playbackCacheQuality()
+        let qualityKey = quality.rawValue
+        guard AudioURLCache.shared.get(songId: nextSong.id, quality: qualityKey) == nil else { return }
+
+        preResolveTask?.cancel()
+        preResolveTask = Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            // 轻微延迟 1.5 秒，让当前歌曲起播网络吞吐完全优先
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+
+            let enableUnblock = await MainActor.run { self.externalSourcesEnabled }
+            let strictUnlock = await MainActor.run { self.shouldLockOfficialOnly(nextSong) }
+            let thirdPartyQuality = ThirdPartyAudioQuality.current
+            let hasMember = await MainActor.run { self.hasMembership(for: nextSong.source) }
+            let isVIPWithoutMembership = nextSong.isVIP && !hasMember
+            let preferThirdParty = enableUnblock && isVIPWithoutMembership
+
+            var resolvedURL: URL?
+            var isThirdParty = false
+
+            if nextSong.source == .local, let relativePath = nextSong.localRelativePath,
+               let localURL = try? ManagedAudioPath.resolve(relativePath) {
+                resolvedURL = localURL
+            } else if nextSong.source == .synology {
+                if let urlStr = await MainActor.run(body: { SynologyAPI.shared.songURL(song: nextSong) }) {
+                    resolvedURL = URL(string: urlStr)
+                }
+            } else if nextSong.source == .kugou {
+                if preferThirdParty {
+                    let res = await self.kugouFallback(song: nextSong, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock)
+                    if let res { resolvedURL = res.url; isThirdParty = true }
+                }
+                if resolvedURL == nil {
+                    if let urlStr = try? await KugouMusicAPI.shared.songURL(song: nextSong, quality: .standard) {
+                        resolvedURL = URL(string: urlStr)
+                    }
+                }
+            } else if nextSong.source == .qq, let mid = nextSong.qqMid {
+                if preferThirdParty {
+                    let (_, res) = await self.qqFallback(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
+                    if let res { resolvedURL = res.url; isThirdParty = true }
+                }
+                if resolvedURL == nil {
+                    let official = try? await QQMusicAPI.shared.songURLResult(songmid: mid, mediaMid: nextSong.qqMediaMid, quality: .standard)
+                    if let u = official?.url { resolvedURL = URL(string: u) }
+                }
+            } else {
+                let (urlStr, res) = await self.neteaseResolve(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
+                if let res {
+                    resolvedURL = res.url
+                    isThirdParty = true
+                } else if let urlStr {
+                    resolvedURL = URL(string: urlStr)
+                }
+            }
+
+            if let resolvedURL, !Task.isCancelled {
+                AudioURLCache.shared.set(
+                    songId: nextSong.id,
+                    quality: qualityKey,
+                    url: resolvedURL,
+                    isPreview: isThirdParty
+                )
+                ATMusicLogger.shared.log("🚀 下一首队列预解析完成并写入内存池：\(nextSong.name)", level: .debug)
+            }
+        }
+    }
+
     // MARK: - 睡眠定时
 
     func startSleepTimer(minutes: Int) {
@@ -712,6 +789,26 @@ final class PlayerManager: NSObject, ObservableObject {
                 MusicCacheManager.shared.cancelPrefetch()
                 MusicCacheManager.shared.markCurrentPlayback(song: song, quality: cacheQuality)
             }
+            // 0. AudioURLCache 内存级极速直通（0ms 秒播，免网络往返）
+            let cacheQualityKey = cacheQuality.rawValue
+            if let cachedResolved = AudioURLCache.shared.get(songId: song.id, quality: cacheQualityKey) {
+                await MainActor.run {
+                    guard generation == self.loadGeneration,
+                          self.currentSong?.identityKey == song.identityKey else { return }
+                    ATMusicLogger.shared.log(
+                        "⚡️ AudioURLCache 内存直通命中：\(song.name)｜0ms秒播",
+                        level: .info
+                    )
+                    self.setupPlayer(
+                        url: cachedResolved.url,
+                        resumeAt: initialProgress,
+                        isThirdParty: cachedResolved.isPreview
+                    )
+                    self.preResolveNextTrackURL()
+                }
+                return
+            }
+
             if song.source != .local {
                 let cachedURL = await MainActor.run {
                     MusicCacheManager.shared.cachedURL(for: song, quality: cacheQuality)
@@ -1289,12 +1386,22 @@ final class PlayerManager: NSObject, ObservableObject {
             "AVPlayer 准备播放：\(currentSong?.name ?? "?")｜URL=\(playbackURLSummary(url))｜第三方=\(isThirdParty ? "是" : "否")｜headers=\(playbackHeaders.isEmpty ? "未添加" : "已添加")｜headerKeys=\(headerKeys.isEmpty ? "无" : headerKeys)",
             level: .debug
         )
+        // 优化：8 秒前向缓冲，允许低缓冲快速起播，边播边下
+        item.preferredForwardBufferDuration = 8.0
         let player = AVPlayer(playerItem: item)
-        // QQ CDN 返回的首包较小，避免 AVPlayer 为了预缓冲过久而表现为
-        // “点击后没反应”；真正不可播放时仍由 item 失败回调触发音质降级。
         player.automaticallyWaitsToMinimizeStalling = false
         player.rate = Float(rate)
         self.player = player
+
+        // 写入 AudioURLCache 内存池
+        AudioURLCache.shared.set(
+            songId: loadedSong.id,
+            quality: self.playbackCacheQuality().rawValue,
+            url: url,
+            isPreview: isThirdParty
+        )
+        // 触发下一首静默预解析
+        self.preResolveNextTrackURL()
         configureEqualizer(for: item)
         playbackConfirmed = false
         itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in

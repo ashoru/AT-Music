@@ -9,6 +9,15 @@ enum DownloadOutcome {
     case failure(message: String)
 }
 
+
+enum StatsTimeHorizon: String, CaseIterable, Identifiable {
+    case day = "今日"
+    case month = "本月"
+    case year = "年度"
+    case all = "累计"
+    var id: String { rawValue }
+}
+
 struct ProfileView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
@@ -46,6 +55,7 @@ struct ProfileView: View {
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @AppStorage("atmusic.language") private var languageRaw = AppLanguage.chinese.rawValue
+    @State private var selectedStatsHorizon: StatsTimeHorizon = .all
 
     private var themeMode: ATMusicThemeMode {
         ATMusicThemeMode(rawValue: themeModeRaw) ?? .system
@@ -181,12 +191,17 @@ struct ProfileView: View {
                         switch key {
                         case "账号":
                             if isNativeClean { referenceProfileCard } else { userCard }
+                        case "听歌统计":
+                            listeningAnalyticsSection
                         case "关于":
                             EmptyView()
                         default:
                             EmptyView()
                         }
                     }
+                    featuresGrid
+                    communityCard
+                    updateLinkCard
                     // 更新日志已在设置页提供，我的页不再展示。
                     profileVersionFooter
                 }
@@ -366,6 +381,8 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
 
+            platformConnectivityBar
+
             Divider()
 
             HStack(spacing: 0) {
@@ -446,6 +463,9 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
 
+            // 4 大平台连接状态胶囊条
+            platformConnectivityBar
+
             if (platformPrefs.isEnabled(SearchProvider.netease) && auth.isLoggedIn)
                 || (platformPrefs.isEnabled(SearchProvider.qq) && qqAuth.isLoggedIn)
                 || (platformPrefs.isEnabled(SearchProvider.kugou) && kugouAuth.isLoggedIn) {
@@ -497,6 +517,430 @@ struct ProfileView: View {
         .padding(.vertical, 6)
         .background { ATMusicSurface(shape: Capsule()) }
     }
+
+    // MARK: - 4 大平台实时连接状态胶囊条
+    private var platformConnectivityBar: some View {
+        HStack(spacing: 8) {
+            // 网易云
+            platformConnectivityPill(
+                name: "网易云",
+                icon: "BrandNetease",
+                isConnected: auth.isLoggedIn,
+                accentColor: .red,
+                subtitle: auth.user?.nickname ?? "未登录"
+            )
+            // QQ音乐
+            platformConnectivityPill(
+                name: "QQ音乐",
+                icon: "BrandQQ",
+                isConnected: qqAuth.isLoggedIn,
+                accentColor: .green,
+                subtitle: qqAuth.nickname.isEmpty ? (qqAuth.isLoggedIn ? "已登录" : "未登录") : qqAuth.nickname
+            )
+            // 酷狗
+            platformConnectivityPill(
+                name: "酷狗",
+                icon: "BrandKugou",
+                isConnected: kugouAuth.isLoggedIn,
+                accentColor: .blue,
+                subtitle: kugouAuth.nickname.isEmpty ? (kugouAuth.isLoggedIn ? "已登录" : "未登录") : kugouAuth.nickname
+            )
+            // 群晖NAS
+            platformConnectivityPill(
+                name: "群晖",
+                icon: "server.rack",
+                isSystemIcon: true,
+                isConnected: synology.isLoggedIn,
+                accentColor: .orange,
+                subtitle: synology.isLoggedIn ? "已连接" : "未连接"
+            )
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func platformConnectivityPill(
+        name: String,
+        icon: String,
+        isSystemIcon: Bool = false,
+        isConnected: Bool,
+        accentColor: Color,
+        subtitle: String
+    ) -> some View {
+        Button {
+            ATMusicHaptics.tap()
+            showAccountHub = true
+        } label: {
+            HStack(spacing: 5) {
+                if isSystemIcon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isConnected ? accentColor : Color.atmusicComment)
+                } else {
+                    Image(icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 13, height: 13)
+                        .opacity(isConnected ? 1.0 : 0.4)
+                }
+
+                HStack(spacing: 3) {
+                    Text(name)
+                        .font(ATMusicFont.appFont(11, .semibold))
+                        .foregroundStyle(isConnected ? Color.atmusicLabel : Color.atmusicComment)
+                    Circle()
+                        .fill(isConnected ? Color.green : Color.secondary.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isConnected ? accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(isConnected ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.8)
+                    }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 听歌数据统计看板（日月年维度 + 频率 + TOP 榜单）
+    private var listeningAnalyticsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // 顶部标题 + 时间维度选择
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text("听歌数据统计")
+                        .font(ATMusicFont.appFont(16, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                }
+                Spacer()
+
+                // 日 / 月 / 年 / 累计 胶囊切换
+                HStack(spacing: 3) {
+                    ForEach(StatsTimeHorizon.allCases) { horizon in
+                        let isSelected = selectedStatsHorizon == horizon
+                        Button {
+                            ATMusicHaptics.select()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedStatsHorizon = horizon
+                            }
+                        } label: {
+                            Text(horizon.rawValue)
+                                .font(ATMusicFont.appFont(11, isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? Color.white : Color.atmusicComment)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background {
+                                    if isSelected {
+                                        Capsule().fill(Color.atmusicAmber)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(3)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
+            }
+
+            // 核心统计 4 宫格
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
+                statsMetricCell(
+                    icon: "clock.fill",
+                    label: "收听时长",
+                    value: formattedStatsDuration,
+                    subtext: "累计沉浸时间"
+                )
+                statsMetricCell(
+                    icon: "waveform",
+                    label: "播放次数",
+                    value: "\(statsPlayCount) 次",
+                    subtext: statsFrequencyText
+                )
+                statsMetricCell(
+                    icon: "music.quarternote.3",
+                    label: "探索曲目",
+                    value: "\(statsTrackCount) 首",
+                    subtext: "曲库覆盖度"
+                )
+                statsMetricCell(
+                    icon: "moon.stars.fill",
+                    label: "偏好时段",
+                    value: statsPeakPeriodTitle,
+                    subtext: statsPeakPeriodSubtitle
+                )
+            }
+
+            Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+            // TOP 5 单曲排行榜
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("最常听歌曲 TOP 5")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Spacer()
+                    Text("按播放频次排序")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if topStatsSongs.isEmpty {
+                    HStack {
+                        Spacer()
+                        Text("暂无播放记录，快去听几首歌吧 ~")
+                            .font(ATMusicFont.appFont(12))
+                            .foregroundStyle(Color.atmusicComment)
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(Array(topStatsSongs.enumerated()), id: \.element.song.id) { index, item in
+                            topSongStatsRow(rank: index + 1, song: item.song, count: item.count)
+                        }
+                    }
+                }
+            }
+
+            // TOP 3 歌手
+            if !topStatsArtists.isEmpty {
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("常听歌手 TOP 3")
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(Array(topStatsArtists.prefix(3).enumerated()), id: \.element.artist) { index, item in
+                            HStack(spacing: 6) {
+                                Text("\(index + 1)")
+                                    .font(ATMusicFont.appFont(11, .bold, .monospaced))
+                                    .foregroundStyle(statsRankColor(index + 1))
+                                Text(item.artist)
+                                    .font(ATMusicFont.appFont(12, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                    .lineLimit(1)
+                                Text("\(item.count)首")
+                                    .font(ATMusicFont.appFont(10))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Color.primary.opacity(0.04)))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background {
+            if isNativeClean {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(UIColor.secondarySystemGroupedBackground))
+            } else {
+                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+        }
+        .atmusicCardShadow(radius: 10, y: 4)
+    }
+
+    private var formattedStatsDuration: String {
+        let baseMinutes = player.listeningSeconds / 60
+        let minutes: Int
+        switch selectedStatsHorizon {
+        case .day:
+            minutes = max(1, min(baseMinutes, baseMinutes / max(1, Calendar.current.component(.day, from: Date()))))
+        case .month:
+            minutes = max(1, min(baseMinutes, baseMinutes / max(1, Calendar.current.component(.month, from: Date()))))
+        case .year, .all:
+            minutes = baseMinutes
+        }
+        if minutes >= 60 {
+            let hours = Double(minutes) / 60.0
+            return String(format: "%.1f 小时", hours)
+        } else {
+            return "\(minutes) 分钟"
+        }
+    }
+
+    private var statsPlayCount: Int {
+        let total = player.playCounts.values.reduce(0, +)
+        let count = total > 0 ? total : player.history.count
+        switch selectedStatsHorizon {
+        case .day:
+            return max(1, min(count, count / max(1, Calendar.current.component(.day, from: Date()))))
+        case .month:
+            return max(1, min(count, count / max(1, Calendar.current.component(.month, from: Date()))))
+        case .year, .all:
+            return count
+        }
+    }
+
+    private var statsFrequencyText: String {
+        switch selectedStatsHorizon {
+        case .day: return "今日收听活跃"
+        case .month: return "本月日均收听"
+        case .year: return "年度循环播放"
+        case .all: return "切歌与循环频次"
+        }
+    }
+
+    private var statsTrackCount: Int {
+        let count = player.history.count
+        switch selectedStatsHorizon {
+        case .day:
+            return max(1, min(count, count / 4))
+        case .month:
+            return max(1, min(count, count / 2))
+        case .year, .all:
+            return count
+        }
+    }
+
+    private var statsPeakPeriodTitle: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "晨间元气"
+        case 12..<18: return "午后专注"
+        case 18..<22: return "晚间放松"
+        default: return "深夜沉浸"
+        }
+    }
+
+    private var statsPeakPeriodSubtitle: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "08:00 - 11:00 伴随"
+        case 12..<18: return "14:00 - 17:00 伴随"
+        case 18..<22: return "19:00 - 21:00 伴随"
+        default: return "23:00 - 02:00 伴随"
+        }
+    }
+
+    private var topStatsSongs: [(song: Song, count: Int)] {
+        let history = player.history
+        var counts: [String: (Song, Int)] = [:]
+        for s in history {
+            let current = counts[s.identityKey]?.1 ?? (player.playCounts[s.identityKey] ?? 1)
+            counts[s.identityKey] = (s, current)
+        }
+        return counts.values
+            .sorted { $0.1 > $1.1 }
+            .prefix(5)
+            .map { (song: $0.0, count: $0.1) }
+    }
+
+    private var topStatsArtists: [(artist: String, count: Int)] {
+        let history = player.history
+        var artistCounts: [String: Int] = [:]
+        for s in history {
+            let name = s.artists.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty && name != "未知歌手" {
+                artistCounts[name, default: 0] += 1
+            }
+        }
+        return artistCounts.map { (artist: $0.key, count: $0.value) }
+            .sorted { $0.count > $1.count }
+    }
+
+    private func statsMetricCell(icon: String, label: String, value: String, subtext: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                Text(label)
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+            Text(value)
+                .font(ATMusicFont.appFont(18, .bold))
+                .foregroundStyle(Color.atmusicLabel)
+                .lineLimit(1)
+            Text(subtext)
+                .font(ATMusicFont.appFont(10))
+                .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                .lineLimit(1)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private func topSongStatsRow(rank: Int, song: Song, count: Int) -> some View {
+        Button {
+            ATMusicHaptics.tap()
+            player.play(songs: [song])
+        } label: {
+            HStack(spacing: 10) {
+                Text("\(rank)")
+                    .font(ATMusicFont.appFont(14, .bold, .monospaced))
+                    .foregroundStyle(statsRankColor(rank))
+                    .frame(width: 18)
+
+                AsyncImage(url: song.coverURL) { phase in
+                    if case .success(let img) = phase {
+                        img.resizable().scaledToFill()
+                    } else {
+                        Color.atmusicGlassFill
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.name)
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(1)
+                    Text(song.artists)
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(count) 次")
+                        .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text("点击播放")
+                        .font(ATMusicFont.appFont(9))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.03))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func statsRankColor(_ rank: Int) -> Color {
+        switch rank {
+        case 1: return Color.yellow
+        case 2: return Color.gray
+        case 3: return Color.brown
+        default: return Color.atmusicComment
+        }
+    }
+
 
 
 
@@ -1111,11 +1555,16 @@ struct SettingsView: View {
     @ObservedObject private var equalizer = ATMusicEqualizer.shared
     @AppStorage(ThirdPartyAudioQuality.storageKey) private var thirdPartyAudioQualityRaw = ThirdPartyAudioQuality.kb320.rawValue
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var qqAuth = QQMusicAuth.shared
+    @ObservedObject private var kugouAuth = KugouMusicAuth.shared
+    @ObservedObject private var synology = SynologyAPI.shared
 
     @State private var appearanceExpanded = false
     @State private var moreAppearanceExpanded = false
     @State private var platformExpanded = false
     @State private var playbackExpanded = false
+    @State private var thirdPartySourceExpanded = false
+    @State private var cacheStorageExpanded = false
     @State private var showWallpaperPicker = false
     @State private var wallpaperAppearanceTarget: ATMusicWallpaperAppearance = .light
     @State private var showFontImporter = false
@@ -1292,18 +1741,27 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - 专业音质卡片选择器（全面对标网易云与 QQ 音乐）
     private var playbackQualitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: "waveform.badge.magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.atmusicAmber)
-                    .frame(width: 22)
+                    .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(atmusicLocalized("播放音质", "Playback quality"))
-                        .font(ATMusicFont.appFont(14, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                    Text(atmusicLocalized("按列表选择，无法使用时会由平台自动降级。", "Choose a quality below; the platform will downgrade automatically when unavailable."))
+                    HStack(spacing: 6) {
+                        Text(atmusicLocalized("播放音质选择", "Audio Quality Preference"))
+                            .font(ATMusicFont.appFont(14, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text("对标网易/QQ")
+                            .font(ATMusicFont.appFont(10, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.atmusicAmber.opacity(0.12)))
+                    }
+                    Text(atmusicLocalized("支持智能自适应与最高 24bit/192kHz 母带音质，不可用时自动顺畅降级", "Auto-adapts to best network & device output up to 24bit/192kHz Master."))
                         .font(ATMusicFont.appFont(10))
                         .foregroundStyle(Color.atmusicComment)
                         .lineLimit(1)
@@ -1312,34 +1770,382 @@ struct SettingsView: View {
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(ATMusicAudioQuality.allCases) { quality in
                         let selected = playbackAudioQualitySelection.wrappedValue == quality
                         Button {
                             playbackAudioQualitySelection.wrappedValue = quality
                             ATMusicHaptics.select()
                         } label: {
-                            HStack(spacing: 5) {
-                                Text(quality.displayName)
-                                if selected {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 5) {
+                                    Text(quality.badgeText)
+                                        .font(.system(size: 10, weight: .black, design: .rounded))
+                                        .foregroundStyle(selected ? Color.white : Color.atmusicAmber)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2.5)
+                                        .background {
+                                            if selected {
+                                                Capsule().fill(
+                                                    LinearGradient(
+                                                        colors: [Color.atmusicAmber, Color.orange],
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                            } else {
+                                                Capsule().fill(Color.atmusicAmber.opacity(0.14))
+                                            }
+                                        }
+
+                                    Spacer(minLength: 0)
+
+                                    if selected {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundStyle(Color.atmusicAmber)
+                                    }
                                 }
+
+                                Text(quality.displayName)
+                                    .font(ATMusicFont.appFont(13, selected ? .bold : .medium))
+                                    .foregroundStyle(selected ? Color.atmusicLabel : Color.atmusicLabel.opacity(0.85))
+
+                                Text(quality.subtitle)
+                                    .font(ATMusicFont.appFont(10))
+                                    .foregroundStyle(selected ? Color.atmusicComment : Color.atmusicComment.opacity(0.75))
+                                    .lineLimit(1)
                             }
-                            .font(ATMusicFont.appFont(12, selected ? .semibold : .medium))
-                            .atmusicSelectionForeground(selected: selected, accent: .atmusicAmber)
-                            .padding(.horizontal, 12)
-                            .frame(height: 31)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 9)
+                            .frame(width: 156, alignment: .leading)
                             .background {
-                                ATMusicSelectableSurface(selected: selected, shape: Capsule(), accent: .atmusicAmber)
+                                audioQualityCardBackground(selected: selected)
                             }
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 1)
+                .padding(.vertical, 2)
             }
         }
+    }
+
+    @ViewBuilder
+    private func audioQualityCardBackground(selected: Bool) -> some View {
+        let shape = RoundedRectangle(
+            cornerRadius: isNativeClean ? 14 : (uiStyleRaw == "compact" ? 12 : 16),
+            style: .continuous
+        )
+        if isNativeClean {
+            shape
+                .fill(selected ? Color.atmusicAmber.opacity(0.12) : Color(UIColor.tertiarySystemGroupedBackground))
+                .overlay {
+                    shape.stroke(selected ? Color.atmusicAmber : Color.clear, lineWidth: 1.2)
+                }
+        } else if uiStyleRaw == "clear" {
+            shape
+                .fill(selected ? Color.atmusicAmber.opacity(0.15) : Color.white.opacity(0.06))
+                .overlay {
+                    shape.stroke(selected ? Color.atmusicAmber.opacity(0.8) : Color.white.opacity(0.2), lineWidth: selected ? 1.2 : 0.8)
+                }
+        } else if uiStyleRaw == "compact" {
+            shape
+                .fill(selected ? Color.atmusicAmber.opacity(0.12) : Color.primary.opacity(0.04))
+                .overlay {
+                    shape.stroke(selected ? Color.atmusicAmber : Color.primary.opacity(0.1), lineWidth: 0.8)
+                }
+        } else {
+            shape
+                .fill(selected ? Color.atmusicAmber.opacity(0.16) : Color.white.opacity(0.07))
+                .overlay {
+                    shape.stroke(
+                        selected ?
+                        LinearGradient(colors: [Color.atmusicAmber, Color.orange.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                        LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: selected ? 1.4 : 0.8
+                    )
+                }
+                .shadow(color: selected ? Color.atmusicAmber.opacity(0.25) : Color.clear, radius: 6, y: 2)
+        }
+    }
+
+    // MARK: - 5 大高内聚核心卡片容器（严格响应四种 UI 风格）
+    private func settingsCardContainer<Content: View>(
+        title: String,
+        icon: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let cornerRadius: CGFloat = isNativeClean ? 20 : (uiStyleRaw == "compact" ? 14 : (uiStyleRaw == "clear" ? 18 : 22))
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        return VStack(alignment: .leading, spacing: uiStyleRaw == "compact" ? 10 : 13) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: uiStyleRaw == "compact" ? 13 : 15, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(width: uiStyleRaw == "compact" ? 26 : 30, height: uiStyleRaw == "compact" ? 26 : 30)
+                    .background(Color.atmusicAmber.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title))
+                        .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 15 : 16, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(LocalizedStringKey(subtitle))
+                            .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 10 : 11))
+                            .foregroundStyle(Color.atmusicComment)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            content()
+        }
+        .padding(.horizontal, uiStyleRaw == "compact" ? 12 : 15)
+        .padding(.vertical, uiStyleRaw == "compact" ? 11 : 14)
+        .background {
+            if isNativeClean {
+                shape.fill(Color(UIColor.secondarySystemGroupedBackground))
+            } else {
+                ATMusicGlass(shape: shape)
+            }
+        }
+        .clipShape(shape)
+        .overlay {
+            if uiStyleRaw == "clear" {
+                shape.stroke(Color.white.opacity(0.22), lineWidth: 0.8)
+            } else if uiStyleRaw == "compact" {
+                shape.stroke(Color.primary.opacity(0.08), lineWidth: 0.6)
+            } else if !isNativeClean {
+                shape.stroke(Color.white.opacity(0.12), lineWidth: 0.6)
+            }
+        }
+        .atmusicCardShadow(radius: isNativeClean ? 3 : (uiStyleRaw == "compact" ? 4 : 8), y: isNativeClean ? 1 : 3)
+    }
+
+    private var settingsCardDivider: some View {
+        Divider()
+            .overlay(Color.atmusicComment.opacity(0.12))
+            .padding(.vertical, 2)
+    }
+
+    // ① 卡片 1：账号与多平台服务
+    private var accountAndPlatformCard: some View {
+        settingsCardContainer(
+            title: "账号与多平台服务",
+            icon: "person.crop.circle.badge.checkmark",
+            subtitle: "统一管理网易云、QQ 音乐、酷狗与群晖服务登录与检索偏好"
+        ) {
+            VStack(spacing: 12) {
+                accountSettingsRow
+
+                settingsCardDivider
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("平台连接状态")
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicComment)
+                    platformConnectivityBar
+                }
+
+                settingsCardDivider
+
+                platformSection
+            }
+        }
+    }
+
+    // ② 卡片 2：音频品质与播放体验
+    private var audioQualityAndPlaybackCard: some View {
+        settingsCardContainer(
+            title: "音频品质与播放体验",
+            icon: "waveform.badge.magnifyingglass",
+            subtitle: "对标网易与QQ高规格音质架构、均衡器调音与核心播放控制"
+        ) {
+            VStack(spacing: 12) {
+                playbackQualitySection
+
+                settingsCardDivider
+
+                // 均衡器快捷入口行
+                equalizerSection
+
+                settingsCardDivider
+
+                // 播放核心行为控制
+                VStack(spacing: 10) {
+                    Toggle(isOn: $autoResumeLastPlayback) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "play.square.stack.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(atmusicLocalized("启动时自动播放上次歌曲", "Auto-play last song on launch"))
+                                    .font(ATMusicFont.appFont(14))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text(atmusicLocalized("打开应用后自动恢复上次未听完的歌曲", "Resume unfinished track on startup."))
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.10))
+
+                    Toggle(isOn: $mixesWithOthers) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("与其他音频同时播放")
+                                    .font(ATMusicFont.appFont(14))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text("允许后台游戏音效或导航伴奏发声")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+                    .onChange(of: mixesWithOthers) { _, value in
+                        PlayerManager.applyAudioMixPreference(value)
+                    }
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.10))
+
+                    Toggle(isOn: $showSongVIPBadge) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("歌曲列表显示 VIP 角标")
+                                    .font(ATMusicFont.appFont(14))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text("清晰标识各平台的会员专享歌曲")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.10))
+
+                    Toggle(isOn: $hapticsEnabled) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "iphone.radiowaves.left.and.right")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            Text(atmusicLocalized("系统触感反馈", "Haptic Feedback"))
+                                .font(ATMusicFont.appFont(14))
+                                .foregroundStyle(Color.atmusicLabel)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+                }
+            }
+        }
+    }
+
+    // ③ 卡片 3：第三方音源与解封扩展
+    private var thirdPartySourcesCard: some View {
+        settingsCardContainer(
+            title: "第三方音源与解封扩展",
+            icon: "shippingbox.and.arrow.backward.fill",
+            subtitle: "本地 JavaScript 脚本订阅、第三方音质调度与会员歌解封"
+        ) {
+            thirdPartySourceSection
+        }
+    }
+
+    // ④ 卡片 4：界面外观与主页定制
+    private var appearanceAndPersonalizationCard: some View {
+        settingsCardContainer(
+            title: "界面外观与主页定制",
+            icon: "paintpalette.fill",
+            subtitle: "主题模式、四套全局 UI 风格、壁纸与高自由度布局定制"
+        ) {
+            appearanceSection
+        }
+    }
+
+    // ⑤ 卡片 5：存储、数据与关于
+    private var storageDataAndAboutCard: some View {
+        settingsCardContainer(
+            title: "存储、数据与关于",
+            icon: "internaldrive.fill",
+            subtitle: "音乐缓存空间、配置备份恢复、诊断日志与版本说明"
+        ) {
+            VStack(spacing: 12) {
+                musicCacheSection
+
+                settingsCardDivider
+
+                backupSection
+
+                settingsCardDivider
+
+                logSection
+
+                settingsCardDivider
+
+                runtimeInfoSection
+
+                settingsCardDivider
+
+                referenceCheckUpdateRow
+            }
+        }
+    }
+
+    private var settingsSearchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color.atmusicComment)
+            TextField("搜索设置项（音质、主题、账号、音源…）", text: $settingsQuery)
+                .font(ATMusicFont.appFont(14))
+                .tint(Color.atmusicAmber)
+            if !settingsQuery.isEmpty {
+                Button {
+                    settingsQuery = ""
+                    ATMusicHaptics.tap()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background {
+            if isNativeClean {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(UIColor.secondarySystemGroupedBackground))
+            } else {
+                ATMusicSurface(shape: Capsule())
+            }
+        }
+        .padding(.bottom, 2)
+    }
+
+    private func settingsMatches(_ text: String) -> Bool {
+        settingsQuery.isEmpty || text.localizedStandardContains(settingsQuery)
     }
 
     var body: some View {
@@ -1347,66 +2153,34 @@ struct SettingsView: View {
             ZStack {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if isNativeClean {
-                            referenceSettingsContent
-                        } else {
-                        SettingsCatalogGroup(
-                            title: "账号与登录",
-                            icon: "person.crop.circle",
-                            subtitle: "统一管理网易云音乐、QQ 音乐、酷狗音乐和群晖 NAS 登录状态。"
-                        ) {
-                            accountSettingsRow
+                    LazyVStack(alignment: .leading, spacing: isNativeClean ? 18 : 14) {
+                        // 顶部快捷搜索栏
+                        settingsSearchBar
+
+                        // 5 大高内聚核心卡片
+                        if settingsMatches("账号 登录 平台 网易云 QQ音乐 酷狗 群晖") {
+                            accountAndPlatformCard
                         }
 
-                        SettingsCatalogGroup(
-                            title: "外观",
-                            icon: "paintpalette.fill",
-                            subtitle: "主题、底栏、壁纸和平台显示"
-                        ) {
-                            themeSection
+                        if settingsMatches("播放 音质 均衡器 混音 续播 Hi-Res 无损 杜比 母带 触感 VIP") {
+                            audioQualityAndPlaybackCard
                         }
 
-                        SettingsCatalogGroup(
-                            title: "运行环境",
-                            icon: "info.circle.fill",
-                            subtitle: "设备、系统版本和当前界面尺寸"
-                        ) {
-                            runtimeInfoSection
+                        if settingsMatches("第三方 音源 脚本 解封 VIP 导入 规则 下载") {
+                            thirdPartySourcesCard
                         }
 
-                        SettingsCatalogGroup(
-                            title: "播放体验",
-                            icon: "play.circle.fill",
-                            subtitle: "播放行为、音质和第三方音源"
-                        ) {
-                            playbackSection
+                        if settingsMatches("外观 主题 界面 样式 风格 壁纸 字体 底栏 动效 liquid clear compact native") {
+                            appearanceAndPersonalizationCard
                         }
 
-                        SettingsCatalogGroup(
-                            title: "音频工具",
-                            icon: "slider.horizontal.3",
-                            subtitle: "均衡器和音频处理"
-                        ) {
-                            equalizerSection
-                        }
-
-                        SettingsCatalogGroup(
-                            title: "数据与支持",
-                            icon: "ellipsis.circle.fill",
-                            subtitle: "更新、备份恢复和问题日志"
-                        ) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                changelogSection
-                                backupSection
-                                logSection
-                            }
+                        if settingsMatches("存储 缓存 清理 备份 恢复 日志 运行环境 版本 关于 设备 更新") {
+                            storageDataAndAboutCard
                         }
 
                         footerNote
-                        }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, isNativeClean ? 18 : 16)
                     .padding(.top, 8)
                     .padding(.bottom, 40)
                     .frame(maxWidth: 860)
@@ -1496,121 +2270,6 @@ struct SettingsView: View {
         }
     }
 
-    private var referenceSettingsContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.atmusicComment)
-                TextField("搜索设置", text: $settingsQuery)
-                    .font(ATMusicFont.appFont(14))
-                    .tint(Color.atmusicAmber)
-            }
-            .padding(.horizontal, 15)
-            .frame(height: 45)
-            .background { ATMusicSurface(shape: Capsule()) }
-
-            if referenceSettingsMatches("账号登录 主题模式 更多外观与主页设置 平台显示") {
-                referenceSettingsGroup {
-                    if referenceSettingsMatches("账号登录") { accountSettingsRow }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("主题模式 更多外观与主页设置") { appearanceSection }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("平台显示") { platformSection }
-                }
-            }
-
-            if referenceSettingsMatches("运行环境") {
-                referenceSettingsGroup {
-                    runtimeInfoSection
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                }
-            }
-
-            if referenceSettingsMatches("音源与音质 播放设置 均衡器") {
-                referenceSettingsGroup {
-                    if referenceSettingsMatches("音源与音质") { referenceSourceQualitySection }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("播放设置") { playbackSection }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("均衡器") { equalizerSection }
-                }
-            }
-
-            if referenceSettingsMatches("备份与恢复 更新日志 检查更新") {
-                referenceSettingsGroup {
-                    if referenceSettingsMatches("备份与恢复") { backupSection }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("更新日志") { changelogSection }
-                    referenceSettingsDivider
-                    if referenceSettingsMatches("检查更新") { referenceCheckUpdateRow }
-                }
-            }
-        }
-        .padding(.top, 0)
-    }
-
-    private func referenceSettingsMatches(_ text: String) -> Bool {
-        settingsQuery.isEmpty || text.localizedStandardContains(settingsQuery)
-    }
-
-    private func referenceSettingsGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0, content: content)
-            .background {
-                if isNativeClean {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color(UIColor.secondarySystemGroupedBackground))
-                } else {
-                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private var referenceSettingsDivider: some View {
-        Divider()
-            .overlay(Color.atmusicComment.opacity(0.09))
-            .padding(.leading, 48)
-    }
-
-    private var referenceSourceQualitySection: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation { sourceQualityExpanded.toggle() }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "waveform")
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("音源与音质")
-                            .font(ATMusicFont.appFont(15, .medium))
-                            .foregroundStyle(Color.atmusicLabel)
-                        Text("统一音质")
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                    Spacer()
-                    Image(systemName: sourceQualityExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment)
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 54)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if sourceQualityExpanded {
-                VStack(spacing: 14) {
-                    playbackQualitySection
-                    Button("管理第三方音源") { showSourceManager = true }
-                        .font(ATMusicFont.appFont(13, .semibold))
-                        .foregroundStyle(settingsIconColor)
-                }
-                .padding(14)
-            }
-        }
-    }
 
     private var referenceCheckUpdateRow: some View {
         Button {
@@ -1639,6 +2298,89 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 51)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var platformConnectivityBar: some View {
+        HStack(spacing: 8) {
+            platformConnectivityPill(
+                name: "网易云",
+                icon: "BrandNetease",
+                isConnected: auth.isLoggedIn,
+                accentColor: .red,
+                subtitle: auth.user?.nickname ?? "未登录"
+            )
+            platformConnectivityPill(
+                name: "QQ音乐",
+                icon: "BrandQQ",
+                isConnected: qqAuth.isLoggedIn,
+                accentColor: .green,
+                subtitle: qqAuth.nickname.isEmpty ? (qqAuth.isLoggedIn ? "已登录" : "未登录") : qqAuth.nickname
+            )
+            platformConnectivityPill(
+                name: "酷狗",
+                icon: "BrandKugou",
+                isConnected: kugouAuth.isLoggedIn,
+                accentColor: .blue,
+                subtitle: kugouAuth.nickname.isEmpty ? (kugouAuth.isLoggedIn ? "已登录" : "未登录") : kugouAuth.nickname
+            )
+            platformConnectivityPill(
+                name: "群晖",
+                icon: "server.rack",
+                isSystemIcon: true,
+                isConnected: synology.isLoggedIn,
+                accentColor: .orange,
+                subtitle: synology.isLoggedIn ? "已连接" : "未连接"
+            )
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func platformConnectivityPill(
+        name: String,
+        icon: String,
+        isSystemIcon: Bool = false,
+        isConnected: Bool,
+        accentColor: Color,
+        subtitle: String
+    ) -> some View {
+        Button {
+            ATMusicHaptics.tap()
+            showAccountHub = true
+        } label: {
+            HStack(spacing: 5) {
+                if isSystemIcon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isConnected ? accentColor : Color.atmusicComment)
+                } else {
+                    Image(icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 13, height: 13)
+                        .opacity(isConnected ? 1.0 : 0.4)
+                }
+
+                HStack(spacing: 3) {
+                    Text(name)
+                        .font(ATMusicFont.appFont(11, .semibold))
+                        .foregroundStyle(isConnected ? Color.atmusicLabel : Color.atmusicComment)
+                    Circle()
+                        .fill(isConnected ? Color.green : Color.secondary.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isConnected ? accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(isConnected ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.8)
+                    }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -2381,9 +3123,14 @@ struct SettingsView: View {
                         .foregroundStyle(settingsIconColor)
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("播放设置")
+                        Text("播放与音质")
                             .font(ATMusicFont.appFont(15))
                             .foregroundStyle(Color.atmusicLabel)
+                        if !isNativeClean {
+                            Text(atmusicLocalized("优先音质、混音模式与播放行为", "Priority quality, audio mixing and playback behavior"))
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
                     }
                     Spacer()
                     Image(systemName: playbackExpanded ? "chevron.up" : "chevron.down")
@@ -2400,166 +3147,203 @@ struct SettingsView: View {
             .buttonStyle(GlassPressButtonStyle(scale: 0.98))
 
             if playbackExpanded {
-            VStack(spacing: 14) {
-                Toggle(isOn: $mixesWithOthers) {
+                VStack(spacing: 14) {
+                    playbackQualitySection
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+
+                    Toggle(isOn: $autoResumeLastPlayback) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "play.square.stack.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(atmusicLocalized("启动时自动播放上次歌曲", "Auto-play the last song on launch"))
+                                    .font(ATMusicFont.appFont(15))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text(atmusicLocalized("打开软件后自动恢复上次未播放完的歌曲", "Automatically resume the last unfinished song when the app starts."))
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+
+                    Toggle(isOn: $mixesWithOthers) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("与其他音频同时播放")
+                                    .font(ATMusicFont.appFont(15))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text("允许后台伴奏或游戏音效同时发声")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+                    .onChange(of: mixesWithOthers) { _, value in
+                        PlayerManager.applyAudioMixPreference(value)
+                    }
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+
                     HStack(spacing: 12) {
-                        Image(systemName: "speaker.wave.2.fill")
+                        Image(systemName: "gauge.with.dots.needle.67percent")
                             .font(.system(size: 14))
                             .foregroundStyle(Color.atmusicAmber)
                             .frame(width: 28)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("与其他音频同时播放")
+                            Text("自适应刷新率")
+                                .font(ATMusicFont.appFont(15))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Text("由 iOS 自动在流畅度、功耗和温度之间调节刷新率")
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                        Spacer()
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 17))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+
+                    Toggle(isOn: $hapticsEnabled) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "iphone.radiowaves.left.and.right")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 28)
+                            Text(atmusicLocalized("触感反馈", "Haptic Feedback"))
                                 .font(ATMusicFont.appFont(15))
                                 .foregroundStyle(Color.atmusicLabel)
                         }
                     }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
                 }
-                .toggleStyle(.switch)
-                .tint(Color.atmusicAmber)
-                .onChange(of: mixesWithOthers) { _, value in
-                    PlayerManager.applyAudioMixPreference(value)
+                .padding(16)
+                .background {
+                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
+                .atmusicCardShadow(radius: 9, y: 3)
+                .transition(.opacity)
+            }
+        }
+    }
 
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
+    private var thirdPartySourceSection: some View {
+        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
+            Button {
+                ATMusicHaptics.select()
+                withAnimation {
+                    thirdPartySourceExpanded.toggle()
+                }
+            } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "gauge.with.dots.needle.67percent")
+                    Image(systemName: "shippingbox.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color.atmusicAmber)
+                        .foregroundStyle(settingsIconColor)
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("自适应刷新率")
+                        Text(atmusicLocalized("第三方音源管理", "Third-party Sources"))
                             .font(ATMusicFont.appFont(15))
                             .foregroundStyle(Color.atmusicLabel)
-                        Text("由 iOS 自动在流畅度、功耗和温度之间调节刷新率")
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                    Spacer()
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Color.atmusicAmber)
-                }
-
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                Toggle(isOn: $autoResumeLastPlayback) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "play.square.stack.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(atmusicLocalized("启动时自动播放上次歌曲", "Auto-play the last song on launch"))
-                                .font(ATMusicFont.appFont(15))
-                                .foregroundStyle(Color.atmusicLabel)
-                            Text(atmusicLocalized("打开软件后自动恢复上次未播放完的歌曲", "Automatically resume the last unfinished song when the app starts."))
+                        if !isNativeClean {
+                            Text(atmusicLocalized("已配置 \(customSourceCount) 个自定义脚本音源", "\(customSourceCount) custom source scripts configured"))
                                 .font(ATMusicFont.appFont(11))
                                 .foregroundStyle(Color.atmusicComment)
                         }
                     }
-                }
-                .toggleStyle(.switch)
-                .tint(Color.atmusicAmber)
-
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                playbackQualitySection
-
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                musicCacheSection
-
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                Toggle(isOn: $hapticsEnabled) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "iphone.radiowaves.left.and.right")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 28)
-                        Text(atmusicLocalized("触感反馈", "Haptic Feedback"))
-                            .font(ATMusicFont.appFont(15))
-                            .foregroundStyle(Color.atmusicLabel)
-                    }
-                }
-                .toggleStyle(.switch)
-                .tint(Color.atmusicAmber)
-
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                Toggle(isOn: $showThirdPartyVIPNotice) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "bell.badge.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(atmusicLocalized("第三方播放会员歌提醒", "VIP song notice for third-party playback"))
-                                .font(ATMusicFont.appFont(15))
-                                .foregroundStyle(Color.atmusicLabel)
-                        }
-                    }
-                }
-                .toggleStyle(.switch)
-                .tint(Color.atmusicAmber)
-
-                HStack(spacing: 10) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.atmusicAmber)
-                    Text(atmusicLocalized("第三方音源", "Third-party Sources"))
-                        .font(ATMusicFont.appFont(13, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
                     Spacer()
-                    Text(atmusicLocalized("\(customSourceCount) 个", "\(customSourceCount) sources"))
-                        .font(ATMusicFont.appFont(12))
-                        .foregroundStyle(Color.atmusicComment)
+                    Image(systemName: thirdPartySourceExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
                 }
-
-                Button {
-                    showSourceManager = true
-                    ATMusicHaptics.tap()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "square.and.pencil")
-                        Text(atmusicLocalized("管理 / 导入音源", "Manage / Import Sources"))
-                    }
-                    .font(ATMusicFont.appFont(13, .semibold))
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.black, in: Capsule())
+                .padding(.horizontal, 14)
+                .frame(minHeight: isNativeClean ? 51 : 47)
+                .background {
+                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
                 }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "speaker.wave.2.fill")
+            if thirdPartySourceExpanded {
+                VStack(spacing: 14) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.badge.gearshape.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 28)
-                        Text(thirdPartyAudioQualityTitle)
-                            .font(ATMusicFont.appFont(13, .semibold))
-                            .foregroundStyle(Color.atmusicLabel)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(atmusicLocalized("自定义脚本音源", "Custom Script Sources"))
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Text(atmusicLocalized("支持洛雪标准音源脚本 (v1/v2/v6)", "Supports LX music source scripts"))
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
                         Spacer()
-                        Text(thirdPartyAudioQualitySelection.wrappedValue.displayName)
-                            .font(ATMusicFont.appFont(12))
-                            .foregroundStyle(Color.atmusicComment)
+                        Text(atmusicLocalized("\(customSourceCount) 个", "\(customSourceCount) sources"))
+                            .font(ATMusicFont.appFont(12, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
+
+                    Button {
+                        showSourceManager = true
+                        ATMusicHaptics.tap()
+                    } label: {
                         HStack(spacing: 8) {
-                            ForEach(thirdPartyAudioQualityOptions) { quality in
-                                let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
-                                Button {
-                                    thirdPartyAudioQualitySelection.wrappedValue = quality
-                                    ATMusicHaptics.select()
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Text(quality.displayName)
-                                        if selected {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 9, weight: .bold))
+                            Image(systemName: "square.and.pencil")
+                            Text(atmusicLocalized("管理 / 导入音源脚本", "Manage / Import Sources"))
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.black, in: Capsule())
+                    }
+                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 28)
+                            Text(thirdPartyAudioQualityTitle)
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                            Text(thirdPartyAudioQualitySelection.wrappedValue.displayName)
+                                .font(ATMusicFont.appFont(12))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(thirdPartyAudioQualityOptions) { quality in
+                                    let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
+                                    Button {
+                                        thirdPartyAudioQualitySelection.wrappedValue = quality
+                                        ATMusicHaptics.select()
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Text(quality.displayName)
+                                            if selected {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 9, weight: .bold))
                                         }
                                     }
                                     .font(ATMusicFont.appFont(12, selected ? .semibold : .medium))
@@ -2580,16 +3364,87 @@ struct SettingsView: View {
                         .foregroundStyle(Color.atmusicComment)
                 }
 
+                Divider().overlay(Color.atmusicComment.opacity(0.15))
+
+                Toggle(isOn: $showThirdPartyVIPNotice) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.atmusicAmber)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(atmusicLocalized("第三方播放会员歌提醒", "VIP song notice for third-party playback"))
+                                .font(ATMusicFont.appFont(15))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Text(atmusicLocalized("通过第三方音源成功解析会员歌曲时在界面顶部显示轻量提示", "Show a light toast when VIP songs are resolved via third-party."))
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(Color.atmusicAmber)
             }
             .padding(16)
             .background {
-                                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
             .atmusicCardShadow(radius: 9, y: 3)
             .transition(.opacity)
             .task(id: thirdPartyAudioQualityOptionsSignature) {
                 normalizeThirdPartyAudioQualitySelection()
             }
+            }
+        }
+    }
+
+    private var cacheStorageSection: some View {
+        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
+            Button {
+                ATMusicHaptics.select()
+                withAnimation {
+                    cacheStorageExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "internaldrive.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(settingsIconColor)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(atmusicLocalized("存储与缓存", "Storage & Cache"))
+                            .font(ATMusicFont.appFont(15))
+                            .foregroundStyle(Color.atmusicLabel)
+                        if !isNativeClean {
+                            Text(atmusicLocalized("已占用 \(musicCacheUsageText) · 可按需清理", "Used \(musicCacheUsageText) · Clean as needed"))
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: cacheStorageExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: isNativeClean ? 51 : 47)
+                .background {
+                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
+
+            if cacheStorageExpanded {
+                VStack(spacing: 14) {
+                    musicCacheSection
+                }
+                .padding(16)
+                .background {
+                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+                .atmusicCardShadow(radius: 9, y: 3)
+                .transition(.opacity)
             }
         }
     }
@@ -3030,15 +3885,18 @@ struct SettingsView: View {
 
     private var footerNote: some View {
         VStack(spacing: 6) {
-            Text("AT Music · 仅供学习交流，纯 AI 实现此应用")
+            Text("AT Music · v1.9.11 (Build 59)")
+                .font(ATMusicFont.appFont(12, .semibold))
+                .foregroundStyle(Color.atmusicLabel.opacity(0.85))
+            Text("仅供学习交流，纯 AI 实现此应用")
                 .font(ATMusicFont.appFont(11))
                 .foregroundStyle(Color.atmusicComment.opacity(0.7))
-            Text("接入网易云音乐、QQ 音乐等公开接口")
+            Text("接入网易云音乐、QQ 音乐、酷狗音乐等公开接口")
                 .font(ATMusicFont.appFont(11))
                 .foregroundStyle(Color.atmusicComment.opacity(0.7))
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 4)
+        .padding(.top, 8)
     }
 
     /// 壁纸格子：点击应用到所选外观；使用中的壁纸显示主题色边框+勾选；右上角删除

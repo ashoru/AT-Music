@@ -12,7 +12,7 @@ enum SectionOrderStore {
     /// 主页板块默认顺序
     static let homeDefaults = ["每日推荐", "最近播放", "排行榜"]
     /// 我的界面板块默认顺序
-    static let profileDefaults = ["账号", "关于"]
+    static let profileDefaults = ["账号", "听歌统计", "关于"]
 
     /// 读取已保存顺序：自动补全新板块、剔除已废弃板块
     static func load(_ key: String, defaults: [String]) -> [String] {
