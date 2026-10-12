@@ -78,12 +78,12 @@ enum UnblockService {
                 return isScriptSource(source)
                     || canUse(source: source, songSource: songSource, neteaseID: neteaseID, qqMid: qqMid, kugouID: kugouID)
             }
-        guard !sources.isEmpty else {
+        if sources.isEmpty {
             ATMusicLogger.shared.log(
-                "没有启用的自定义音源：平台=\(songSource.rawValue)",
+                "没有启用的自定义音源，直接调用原生车机专线保底：\(name)",
                 level: .debug
             )
-            return nil
+            return await nativeFastResolve(name: name, artists: artists, preferredQuality: quality)
         }
 
         return await resolveSources(
@@ -123,6 +123,12 @@ enum UnblockService {
 
         // 慢源/失效源不要拖住播放：全部候选一起请求，最快命中的播放地址直接返回。
         return await withTaskGroup(of: Resolved?.self) { group in
+            // 原生车机极速专线并发竞速 (跨源秒级直出全曲)
+            if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                group.addTask {
+                    await nativeFastResolve(name: name, artists: artists, preferredQuality: quality)
+                }
+            }
             for source in rankedSources {
                 group.addTask {
                     let startTime = Date()
@@ -664,4 +670,109 @@ enum UnblockService {
         string.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? string
     }
 
+    /// 原生车机专线极速直出全曲：绕过 JS 虚拟机开销，直接基于 URLSession 竞速解析
+    static func nativeFastResolve(
+        name: String,
+        artists: String,
+        preferredQuality: ThirdPartyAudioQuality = .kb320
+    ) async -> Resolved? {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return nil }
+        let kw = ([artists, cleanName].filter { !$0.isEmpty }).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let encoded = kw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let searchURL = URL(string: "http://search.kuwo.cn/r.s?client=kt&all=\(encoded)&pn=0&rn=5&ver=kwplayer_ar_9.2.1&vipver=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json") else {
+            return nil
+        }
+
+        var searchReq = URLRequest(url: searchURL)
+        searchReq.timeoutInterval = 2.5
+        searchReq.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
+
+        guard let (data, _) = try? await session.data(for: searchReq),
+              let rawStr = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        let jsonStr = rawStr.replacingOccurrences(of: "'", with: "\"")
+        guard let jsonData = jsonStr.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let abslist = json["abslist"] as? [[String: Any]],
+              !abslist.isEmpty else {
+            return nil
+        }
+
+        let br: String
+        switch preferredQuality {
+        case .kb128:
+            br = "128kmp3"
+        case .flac, .flac24bit, .hires, .atmos, .atmosPlus, .master:
+            br = "2000kflac"
+        default:
+            br = "320kmp3"
+        }
+
+        for item in abslist.prefix(4) {
+            let rawRid = (item["DC_TARGETID"] as? String) ?? (item["MUSICRID"] as? String)?.replacingOccurrences(of: "MUSIC_", with: "") ?? ""
+            guard !rawRid.isEmpty else { continue }
+
+            // 渠道 1: 车机专线 convert_url2 (极速响应 ~30ms)
+            if let url1 = URL(string: "http://anymatch.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk&type=convert_url2") {
+                var req1 = URLRequest(url: url1)
+                req1.timeoutInterval = 2.0
+                req1.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
+                if let (data1, _) = try? await session.data(for: req1),
+                   let text1 = String(data: data1, encoding: .utf8),
+                   let match = text1.range(of: "url=") {
+                    let rest = text1[match.upperBound...]
+                    let line = rest.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if (line.hasPrefix("http://") || line.hasPrefix("https://")) && !line.contains("404") && !line.contains("error.php"),
+                       let finalURL = URL(string: line) {
+                        ATMusicLogger.shared.log("⚡️ 原生车机专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
+                        return Resolved(
+                            url: finalURL,
+                            source: "车机极速专线",
+                            quality: preferredQuality,
+                            headers: [
+                                "User-Agent": "okhttp/3.10.0",
+                                "Referer": "http://kuwo.cn/"
+                            ]
+                        )
+                    }
+                }
+            }
+
+            // 渠道 2: 车机签名通道 convert_url_with_sign (~120ms)
+            guard let playURL = URL(string: "https://mobi.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=jiakong&type=convert_url_with_sign&surl=1") else {
+                continue
+            }
+
+            var playReq = URLRequest(url: playURL)
+            playReq.timeoutInterval = 2.0
+            playReq.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
+
+            guard let (playData, _) = try? await session.data(for: playReq),
+                  let playJson = try? JSONSerialization.jsonObject(with: playData) as? [String: Any],
+                  let dataDict = playJson["data"] as? [String: Any],
+                  let finalUrlStr = (dataDict["surl"] as? String) ?? (dataDict["url"] as? String),
+                  let finalURL = URL(string: finalUrlStr),
+                  (finalUrlStr.hasPrefix("http://") || finalUrlStr.hasPrefix("https://")),
+                  !finalUrlStr.contains("404"),
+                  !finalUrlStr.contains("error.php") else {
+                continue
+            }
+
+            ATMusicLogger.shared.log("⚡️ 原生车机签名专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
+            return Resolved(
+                url: finalURL,
+                source: "车机极速专线",
+                quality: preferredQuality,
+                headers: [
+                    "User-Agent": "okhttp/3.10.0",
+                    "Referer": "http://kuwo.cn/"
+                ]
+            )
+        }
+        return nil
+    }
 }

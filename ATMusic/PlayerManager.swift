@@ -302,6 +302,7 @@ final class PlayerManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        AudioURLCache.shared.clear()
         listeningSeconds = defaults.integer(forKey: listeningSecondsKey)
         if let raw = defaults.string(forKey: playModeKey),
            let saved = PlayMode(rawValue: raw) {
@@ -589,7 +590,9 @@ final class PlayerManager: NSObject, ObservableObject {
         guard let nextSong = nextSongForPrefetch() else { return }
         let quality = playbackCacheQuality()
         let qualityKey = quality.rawValue
-        guard AudioURLCache.shared.get(songId: nextSong.id, quality: qualityKey) == nil else { return }
+        if let entry = AudioURLCache.shared.get(songId: nextSong.id, quality: qualityKey), !entry.isPreview {
+            return
+        }
 
         preResolveTask?.cancel()
         preResolveTask = Task.detached(priority: .utility) { [weak self] in
@@ -635,12 +638,28 @@ final class PlayerManager: NSObject, ObservableObject {
                     if let u = official?.url { resolvedURL = URL(string: u) }
                 }
             } else {
-                let neteaseRes = await self.neteaseResolve(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
-                if let res = neteaseRes.resolvedThirdParty {
-                    resolvedURL = res.url
-                    isThirdParty = true
-                } else if let urlStr = neteaseRes.urlString {
-                    resolvedURL = URL(string: urlStr)
+                if preferThirdParty {
+                    let res = await UnblockService.resolve(
+                        name: nextSong.name,
+                        artists: nextSong.artists,
+                        neteaseID: nextSong.id,
+                        songSource: .netease,
+                        quality: thirdPartyQuality,
+                        strict: strictUnlock
+                    )
+                    if let res {
+                        resolvedURL = res.url
+                        isThirdParty = true
+                    }
+                }
+                if resolvedURL == nil {
+                    let neteaseRes = await self.neteaseResolve(song: nextSong, quality: .standard, thirdPartyQuality: thirdPartyQuality, enableUnblock: enableUnblock, strict: strictUnlock)
+                    if let res = neteaseRes.resolvedThirdParty {
+                        resolvedURL = res.url
+                        isThirdParty = true
+                    } else if !neteaseRes.isHotSwapTrial, let urlStr = neteaseRes.urlString {
+                        resolvedURL = URL(string: urlStr)
+                    }
                 }
             }
 
@@ -649,7 +668,7 @@ final class PlayerManager: NSObject, ObservableObject {
                     songId: nextSong.id,
                     quality: qualityKey,
                     url: resolvedURL,
-                    isPreview: isThirdParty
+                    isPreview: false
                 )
                 ATMusicLogger.shared.log("🚀 下一首队列预解析完成并写入内存池：\(nextSong.name)", level: .debug)
             }
@@ -791,7 +810,8 @@ final class PlayerManager: NSObject, ObservableObject {
             }
             // 0. AudioURLCache 内存级极速直通（0ms 秒播，免网络往返）
             let cacheQualityKey = cacheQuality.rawValue
-            if let cachedResolved = AudioURLCache.shared.get(songId: song.id, quality: cacheQualityKey) {
+            if let cachedResolved = AudioURLCache.shared.get(songId: song.id, quality: cacheQualityKey),
+               !cachedResolved.isPreview {
                 await MainActor.run {
                     guard generation == self.loadGeneration,
                           self.currentSong?.identityKey == song.identityKey else { return }
@@ -802,7 +822,7 @@ final class PlayerManager: NSObject, ObservableObject {
                     self.setupPlayer(
                         url: cachedResolved.url,
                         resumeAt: initialProgress,
-                        isThirdParty: cachedResolved.isPreview
+                        isThirdParty: false
                     )
                     self.preResolveNextTrackURL()
                 }
@@ -977,6 +997,37 @@ final class PlayerManager: NSObject, ObservableObject {
         }
     }
 
+    private enum TimeoutRaceResult<T: Sendable>: Sendable {
+        case value(T)
+        case timedOut
+    }
+
+    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escaping @Sendable () async -> T?) async -> T? {
+        await withTaskGroup(of: TimeoutRaceResult<T?>.self) { group in
+            group.addTask {
+                let val = await operation()
+                return .value(val)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return .timedOut
+            }
+            while let first = await group.next() {
+                switch first {
+                case .value(let val):
+                    if let val {
+                        group.cancelAll()
+                        return val
+                    }
+                case .timedOut:
+                    group.cancelAll()
+                    return nil
+                }
+            }
+            return nil
+        }
+    }
+
     /// 网易云播放地址解析：按设置音质取 URL，VIP 歌曲官方试听前奏秒出(150ms) + 第三方完整音轨静默热置换。
     private func neteaseResolve(
         song: Song,
@@ -991,12 +1042,30 @@ final class PlayerManager: NSObject, ObservableObject {
 
         // 方案 1：VIP 歌曲官方试听前奏 150ms 瞬时出声 + 后台完整音轨无缝热替换
         if enableUnblock && isVIPWithoutMembership {
+            // 极速竞速：如果第三方全曲在 350ms 内秒级解析成功（如原生车机专线），直接以全曲起播！
+            let fastFullTrack = await withTimeout(seconds: 0.35) {
+                await UnblockService.resolve(
+                    name: song.name,
+                    artists: song.artists,
+                    neteaseID: song.id,
+                    songSource: .netease,
+                    quality: thirdPartyQuality,
+                    strict: strict
+                )
+            }
+            if let fastFullTrack {
+                ATMusicLogger.shared.log("⚡️ 第三方全曲极速直出 (≤350ms)：\(song.name)", level: .info)
+                return (urlString: nil, resolvedThirdParty: fastFullTrack, isHotSwapTrial: false)
+            }
+
+            // 超过 350ms 仍未就绪，使用官方 150ms 试听前奏先秒级发声，后台无缝热替换为全曲
             let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
             let info = infos?[song.id]
             if let trialUrl = info?.url, !trialUrl.isEmpty {
                 ATMusicLogger.shared.log("⚡️ 官方试听前奏秒出(150ms)：\(song.name) -> 准备热置换完整音轨", level: .info)
                 return (urlString: trialUrl, resolvedThirdParty: nil, isHotSwapTrial: true)
             }
+            // 官方无试听，继续等待第三方完整音轨
             resolved = await UnblockService.resolve(
                 name: song.name,
                 artists: song.artists,
@@ -1375,38 +1444,18 @@ final class PlayerManager: NSObject, ObservableObject {
         guard generation == self.loadGeneration,
               self.currentSong?.identityKey == song.identityKey,
               let player = self.player else { return }
-        let currentTime = player.currentTime()
-        let currentSeconds = CMTimeGetSeconds(currentTime)
-        ATMusicLogger.shared.log("⚡️ 无缝热置换生效：\(song.name) 当前进度=\(String(format: "%.1f", currentSeconds))s -> 切换为第三方完整音轨(\(resolved.sourceTitle))", level: .info)
-        var playbackHeaders = resolved.headers
-        if isQQAudioHost(resolved.url.host) {
-            playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
-            playbackHeaders["Referer"] = "https://y.qq.com/"
-        }
-        let item: AVPlayerItem
-        if !playbackHeaders.isEmpty {
-            let asset = AVURLAsset(url: resolved.url, options: [
-                "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
-            ])
-            item = AVPlayerItem(asset: asset)
-        } else {
-            item = AVPlayerItem(url: resolved.url)
-        }
-        item.preferredForwardBufferDuration = 8.0
-        let wasPlaying = self.isPlaying
-        player.replaceCurrentItem(with: item)
-        player.seek(to: currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        if wasPlaying {
-            player.play()
-        }
-        self.activeThirdPartyQuality = resolved.quality
+        let currentSeconds = player.currentTime().seconds
+        let resumeAt = (currentSeconds.isFinite && currentSeconds > 0) ? currentSeconds : 0
+        ATMusicLogger.shared.log("⚡️ 无缝热置换生效：\(song.name) 当前进度=\(String(format: "%.1f", resumeAt))s -> 切换为第三方完整音轨(\(resolved.sourceTitle))", level: .info)
         let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
-        self.pendingThirdPartyVIPNotice = notice
-        AudioURLCache.shared.set(
-            songId: song.id,
-            quality: self.playbackCacheQuality().rawValue,
+        self.setupPlayer(
             url: resolved.url,
-            isPreview: false
+            thirdPartyVIPNotice: notice,
+            resumeAt: resumeAt,
+            isThirdParty: true,
+            thirdPartyQuality: resolved.quality,
+            customHeaders: resolved.headers,
+            isHotSwapTrial: false
         )
     }
 
@@ -1482,13 +1531,15 @@ final class PlayerManager: NSObject, ObservableObject {
         player.rate = Float(rate)
         self.player = player
 
-        // 写入 AudioURLCache 内存池
-        AudioURLCache.shared.set(
-            songId: loadedSong.id,
-            quality: self.playbackCacheQuality().rawValue,
-            url: url,
-            isPreview: isThirdParty || isHotSwapTrial
-        )
+        // 写入 AudioURLCache 内存池（试听片段不写入缓存，避免污染后续播放）
+        if !isHotSwapTrial {
+            AudioURLCache.shared.set(
+                songId: loadedSong.id,
+                quality: self.playbackCacheQuality().rawValue,
+                url: url,
+                isPreview: false
+            )
+        }
         // 触发下一首静默预解析
         self.preResolveNextTrackURL()
         configureEqualizer(for: item)
@@ -1591,7 +1642,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: confirmation)
             }
         }
-        if resumeAt > 0.5 {
+        if resumeAt > 0.05 {
             let seekTime = CMTime(seconds: resumeAt, preferredTimescale: 600)
             player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
             progress = resumeAt

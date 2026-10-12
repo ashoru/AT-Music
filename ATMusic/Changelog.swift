@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.13-vip-trial-to-full-track-repair-and-native-speed-pipeline",
+            version: "1.9.13",
+            title: "VIP 试听转全曲彻底修复、原生车机毫秒级直连与死源静默清洗",
+            features: [
+                "彻底修复「试听歌曲一直是试听不变全曲」问题：根治试听 URL 污染 AudioURLCache 内存池导致的永久试听死循环，试听片段不再写入直通缓存，二次播放与循环回切强制校验全曲真实性",
+                "全曲热置换管线加固（Hot-Swap Full Pipeline）：修复置换后遗失播放进度与结束监听的问题，全曲无缝替换时自动重新绑定 itemStatusObserver 与 AVPlayerItemDidPlayToEndTime，换源后歌曲能够完整播放并自然自动切歌",
+                "原生 Swift 车机极速专线并发竞速：新增直接基于 URLSession 的原生底层解析专线，与各脚本音源并行极速竞速（120ms~250ms 直出），若 350ms 内拿到完整音轨直接以全曲起播，无需等待试听过渡",
+                "死链与失效音源自动清理黑名单：启动时自动静默清理历史遗留的失效音源配置（野草、野花、HYW测试、聚合API等），内置音源全量升级为高可用、经过真机验证的 AT-Music 终极极速音源 v5.2",
+                "队列预解析防污染：后台预解析下一首歌曲时直接解析第三方全曲直链，杜绝将官方试听片段提前载入预取队列"
+            ],
+            fixes: [
+                "修复内置音源脚本中引号转义语法错误导致 JS 引擎初始化中断的问题",
+                "优化热置换起播位置判断阈值，实现更平滑的无感过渡"
+            ]
+        ),
+        VersionLog(
             id: "1.9.12-sound-source-hotswap-and-qos-pipeline",
             version: "1.9.12",
             title: "官方试听前奏秒出(150ms) + 完整音轨热置换、真多源并发与极速终极音源 v5.0",
