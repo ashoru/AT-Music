@@ -227,8 +227,8 @@ final class ATMusicLXScriptBridge: NSObject, ATMusicLXScriptBridgeExports {
             "rawScript": script
         ]
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 8
-        config.timeoutIntervalForResource = 12
+        config.timeoutIntervalForRequest = 4.5
+        config.timeoutIntervalForResource = 8.0
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         session = URLSession(configuration: config)
     }
@@ -530,7 +530,7 @@ final class ATMusicLXScriptRuntime {
         }
     }
 
-    func invokeRequest(payload: [String: Any], timeout: TimeInterval = 12) -> Any? {
+    func invokeRequest(payload: [String: Any], timeout: TimeInterval = 6.0) -> Any? {
         let semaphore = DispatchSemaphore(value: 0)
         var result: Any?
         let resultLock = NSLock()

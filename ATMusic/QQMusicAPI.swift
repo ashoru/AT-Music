@@ -853,7 +853,7 @@ final class QQMusicAPI {
         let guid = Self.deviceGuid
         let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
         let preferredBR = Self.qqBR(for: quality)
-        let fallbackBRs = [preferredBR, "F000", "M800", "M500", "C400"]
+        let fallbackBRs = qqAuth.isVIP ? [preferredBR, "F000", "M800", "M500"] : [preferredBR, "M800"]
         var seenBRs = Set<String>()
         var attemptedBRs: [String] = []
         for br in fallbackBRs where seenBRs.insert(br).inserted {

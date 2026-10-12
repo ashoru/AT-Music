@@ -17,8 +17,8 @@ enum UnblockService {
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 7
-        config.timeoutIntervalForResource = 12
+        config.timeoutIntervalForRequest = 4.5
+        config.timeoutIntervalForResource = 8.0
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)
     }()

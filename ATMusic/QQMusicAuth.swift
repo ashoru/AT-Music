@@ -11,6 +11,8 @@ final class QQMusicAuth: ObservableObject {
     @Published private(set) var nickname = ""
     /// QQ 音乐会员标识：nil 无 / "VIP" / "SVIP"（登录后尽力拉取，失败不阻塞）
     @Published private(set) var vipBadge: String?
+    /// 是否拥有 VIP / SVIP 会员身份
+    var isVIP: Bool { vipBadge != nil }
 
     private var cookies: [String: String] = [:]
     private var qrsig = ""

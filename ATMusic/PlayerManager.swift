@@ -739,32 +739,34 @@ final class PlayerManager: NSObject, ObservableObject {
             let strictUnlock = shouldLockOfficialOnly(song)
             let quality = (forceKugouStandard && song.source == .kugou) ? .standard : ATMusicAudioQuality.current
             let thirdPartyQuality = ThirdPartyAudioQuality.current
-            ATMusicLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 官方受限=\(strictUnlock ? "是" : "否")", level: .info)
+            let isVIPWithoutMembership = song.isVIP && !hasMembership(for: song.source)
+            let preferThirdParty = enableUnblock && isVIPWithoutMembership
+            ATMusicLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 优先第三方=\(preferThirdParty ? "是" : "否") 官方受限=\(strictUnlock ? "是" : "否")", level: .info)
             if song.source == .local, let relativePath = song.localRelativePath,
                let localURL = try? ManagedAudioPath.resolve(relativePath) {
                 urlString = localURL.absoluteString
             } else if song.source == .synology {
                 urlString = SynologyAPI.shared.songURL(song: song)
             } else if song.source == .kugou {
-                urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)
-                if urlString == nil {
+                if preferThirdParty {
                     resolvedThirdParty = await kugouFallback(
                         song: song,
                         thirdPartyQuality: thirdPartyQuality,
                         enableUnblock: enableUnblock
                     )
                 }
+                if resolvedThirdParty == nil {
+                    urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)
+                    if urlString == nil, !preferThirdParty, enableUnblock {
+                        resolvedThirdParty = await kugouFallback(
+                            song: song,
+                            thirdPartyQuality: thirdPartyQuality,
+                            enableUnblock: enableUnblock
+                        )
+                    }
+                }
             } else if song.source == .qq, let mid = song.qqMid {
-                // QQ 官方地址失败后只走 QQ 第三方音源，不跨平台匹配同名歌曲。
-                let officialResult = try? await QQMusicAPI.shared.songURLResult(
-                    songmid: mid,
-                    mediaMid: song.qqMediaMid,
-                    quality: quality
-                )
-                urlString = officialResult?.url
-                qqOfficialBR = officialResult?.br
-                attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
-                if urlString == nil {
+                if preferThirdParty {
                     (urlString, resolvedThirdParty) = await qqFallback(
                         song: song,
                         quality: quality,
@@ -772,6 +774,25 @@ final class PlayerManager: NSObject, ObservableObject {
                         enableUnblock: enableUnblock,
                         strict: strictUnlock
                     )
+                }
+                if resolvedThirdParty == nil && urlString == nil {
+                    let officialResult = try? await QQMusicAPI.shared.songURLResult(
+                        songmid: mid,
+                        mediaMid: song.qqMediaMid,
+                        quality: quality
+                    )
+                    urlString = officialResult?.url
+                    qqOfficialBR = officialResult?.br
+                    attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
+                    if urlString == nil, !preferThirdParty, enableUnblock {
+                        (urlString, resolvedThirdParty) = await qqFallback(
+                            song: song,
+                            quality: quality,
+                            thirdPartyQuality: thirdPartyQuality,
+                            enableUnblock: enableUnblock,
+                            strict: strictUnlock
+                        )
+                    }
                 }
             } else {
                 (urlString, resolvedThirdParty) = await neteaseResolve(
@@ -836,6 +857,22 @@ final class PlayerManager: NSObject, ObservableObject {
     ) async -> (String?, UnblockService.Resolved?) {
         var urlString: String?
         var resolved: UnblockService.Resolved?
+        let isVIPWithoutMembership = song.isVIP && !hasMembership(for: .netease)
+        let preferThirdParty = enableUnblock && isVIPWithoutMembership
+        if preferThirdParty {
+            resolved = await UnblockService.resolve(
+                name: song.name,
+                artists: song.artists,
+                neteaseID: song.id,
+                songSource: .netease,
+                quality: thirdPartyQuality,
+                strict: strict
+            )
+            if resolved != nil {
+                ATMusicLogger.shared.log("网易云 VIP 优先第三方极速直出：\(song.name)", level: .debug)
+                return (nil, resolved)
+            }
+        }
         let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.level)
         var info = infos?[song.id]
         if (info?.url == nil || info?.freeTrial == true), quality != .standard {
@@ -848,7 +885,7 @@ final class PlayerManager: NSObject, ObservableObject {
         if let u = info?.url, info?.freeTrial != true {
             urlString = u
         }
-        if urlString == nil, enableUnblock {
+        if urlString == nil, enableUnblock, resolved == nil {
             resolved = await UnblockService.resolve(
                 name: song.name,
                 artists: song.artists,

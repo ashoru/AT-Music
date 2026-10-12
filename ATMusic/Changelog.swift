@@ -48,6 +48,20 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.8-third-party-playback-speed-optimization",
+            version: "1.9.8",
+            title: "第三方音源切歌起播极速调优、VIP歌曲智能快速旁路与脚本超时熔断优化",
+            features: [
+                "VIP 歌曲智能快速旁路（VIP Fast-Path Bypass）：针对非会员状态下的 VIP 专属曲目，在开启自定义音源的前提下，0 毫秒直接呼叫第三方音源获取完整音轨，彻底根除此前串行发起 4 次官方 vkey 徒劳重试导致的 3~5 秒盲等延迟，切歌起播速度大幅提升",
+                "双向安全回退保障：若第三方音源未收录或解析未命中，自动无缝平滑回退官方接口重试，确保无源时不漏歌；非 VIP 普通曲目及登录会员账号后仍保持官方原生直出第一优先级（200~400ms 秒播）",
+                "官方音质探测剪枝调优：针对 QQ 音乐等接口剪除无会员权限时多余的逐级深层重试链条，消除长延迟等待",
+                "洛雪脚本执行器与网络超时精细化压降：将 LXScriptSourceRunner 脚本调用超时由 12 秒压降至 6 秒，URLSession 单请求超时由 8 秒压降至 4.5 秒，遇到挂起或响应慢的第三方接口时快速熔断切换至快源，消除起播长阻断"
+            ],
+            fixes: [
+                "修复起切第三方音源需等待 5~10 秒才开始播放的明显延迟问题，实现毫秒级快速切歌与起播"
+            ]
+        ),
+        VersionLog(
             id: "1.9.7-restore-qq-and-kugou-playback-pipeline",
             version: "1.9.7",
             title: "紧急修复 QQ 音乐与酷狗音乐音频播放链路、恢复官方音源极速直出模式",

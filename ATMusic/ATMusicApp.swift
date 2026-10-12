@@ -29,6 +29,8 @@ struct ATMusicApp: App {
         UserDefaults.standard.set(false, forKey: PlayerLayoutStore.modeKey)
         // 刷新率交给 iOS / ProMotion 自适应调度，不再强制 120Hz。
         HighRefreshKeeper.registerDefaults()
+        // 预初始化第三方音源存储：无用户导入源时自动注入内置洛雪音源，开箱即用恢复 VIP 第三方兜底
+        _ = UnblockSourceStore.shared
         UserDefaults.standard.register(defaults: [
             "atmusic.uiStyle": ATMusicUIStyle.nativeClean.rawValue,
             "atmusic.reference18LayoutMigrated": true,
