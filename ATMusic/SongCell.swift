@@ -17,6 +17,7 @@ struct SongCell: View {
     var suppressNativeCleanRowGlass = false
     var playbackContext: [Song] = []
     var playbackIndex: Int?
+    var trackNumber: Int? = nil
     var onTap: (() -> Void)?
 
     @State private var showAddToPlaylist = false
@@ -32,6 +33,12 @@ struct SongCell: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
+            if let trackNumber {
+                Text("\(trackNumber)")
+                    .font(ATMusicFont.appFont(14, isCurrent ? .bold : .medium, .monospaced))
+                    .foregroundStyle(isCurrent ? Color.atmusicAmber : Color.atmusicComment)
+                    .frame(width: 26, alignment: .center)
+            }
             if showCover {
                 CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
             }
@@ -143,7 +150,7 @@ struct SongCell: View {
             Rectangle()
                 .fill(Color.atmusicComment.opacity(0.18))
                 .frame(height: 0.5)
-                .padding(.leading, showCover ? 58 : 0)
+                .padding(.leading, (trackNumber != nil ? 38 : 0) + (showCover ? 58 : 0))
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .listRowBackground(Color.clear)

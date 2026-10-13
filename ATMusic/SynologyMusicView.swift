@@ -995,7 +995,7 @@ struct SynologyAppleHomeSection: View {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(frequentAlbums) { song in
                                     NavigationLink {
-                                        SynologyAlbumView(albumName: song.album, artistName: song.artists, coverURL: song.coverURL)
+                                       SynologyAlbumView(albumName: song.album, artistName: song.artists, coverURL: song.coverURL, initialSongs: songs.filter { $0.album == song.album })
                                     } label: {
                                         SynologySquareTile(coverURL: song.coverURL, title: song.album, subtitle: song.artists)
                                     }
@@ -1357,7 +1357,7 @@ struct SynologyAlbumCollectionView: View {
         List {
             ForEach(albums) { album in
                 NavigationLink {
-                    SynologyAlbumView(albumName: album.album, artistName: album.artists, coverURL: album.coverURL)
+                   SynologyAlbumView(albumName: album.album, artistName: album.artists, coverURL: album.coverURL, initialSongs: songs.filter { $0.album == album.album })
                 } label: {
                     SynologyLibraryRow(
                         coverURL: album.coverURL,
@@ -2211,7 +2211,7 @@ struct SynologyArtistView: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 16) {
                 ForEach(albums) { album in
                     NavigationLink {
-                        SynologyAlbumView(albumName: album.album, artistName: artistName, coverURL: album.coverURL)
+                       SynologyAlbumView(albumName: album.album, artistName: artistName, coverURL: album.coverURL, initialSongs: songs.filter { $0.album == album.album })
                     } label: {
                         SynologySquareTile(coverURL: album.coverURL, title: album.album, subtitle: "\(songsForAlbum(album).count) 首")
                     }
@@ -2389,7 +2389,8 @@ struct SynologyAlbumView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     discSectionHeader(discNumber: group.disc, songs: group.songs)
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
-                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0) {
+                                       let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
+                                       SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0, trackNumber: displayNo) {
                                             player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
                                         }
                                     }
@@ -2400,7 +2401,8 @@ struct SynologyAlbumView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 SectionHeader(title: "歌曲")
                                 ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                    SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index) {
+                                   let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                   SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index, trackNumber: displayNo) {
                                         player.play(songs: sortedTracks, startAt: index)
                                     }
                                 }
@@ -2489,37 +2491,77 @@ struct SynologyAlbumView: View {
     }
 
     private func discSectionHeader(discNumber: Int, songs: [Song]) -> some View {
-        HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "opticaldisc")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.atmusicAmber)
-                Text("CD \(discNumber)")
-                    .font(ATMusicFont.appFont(14, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
+        VStack(spacing: 8) {
+            if discNumber > 1 {
+                HStack(spacing: 12) {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.atmusicAmber.opacity(0.0), Color.atmusicAmber.opacity(0.35)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                    
+                    Image(systemName: "opticaldisc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.atmusicAmber.opacity(0.6))
+                    
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.atmusicAmber.opacity(0.35), Color.atmusicAmber.opacity(0.0)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                }
+                .padding(.vertical, 6)
             }
-            Spacer()
-            Text("\(songs.count) 首歌曲")
-                .font(ATMusicFont.appFont(12))
-                .foregroundStyle(Color.atmusicComment)
 
-            Button {
-                if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
-                    ATMusicHaptics.tap()
-                    player.play(songs: sortedTracks, startAt: firstIndex)
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "opticaldisc.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text("CD \(discNumber)")
+                        .font(ATMusicFont.appFont(14, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
                 }
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "play.circle.fill")
-                    Text("播放本盘")
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.atmusicAmber.opacity(0.12))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.atmusicAmber.opacity(0.25), lineWidth: 0.8)
+                )
+
+                Spacer()
+
+                Text("\(songs.count) 首歌曲")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+
+                Button {
+                    if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
+                        ATMusicHaptics.tap()
+                        player.play(songs: sortedTracks, startAt: firstIndex)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.circle.fill")
+                        Text("播放本盘")
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
                 }
-                .font(ATMusicFont.appFont(12, .semibold))
-                .foregroundStyle(Color.atmusicAmber)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
     }
 
     // MARK: - iPad 宽屏两栏全景专辑布局（对标 iPadOS Apple Music 专辑页规范）
@@ -2624,11 +2666,13 @@ struct SynologyAlbumView: View {
 
                                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
                                         SongCell(
                                             song: song,
                                             glassRow: true,
                                             playbackContext: sortedTracks,
-                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0
+                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0,
+                                            trackNumber: displayNo
                                         ) {
                                             player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
                                         }
@@ -2654,11 +2698,13 @@ struct SynologyAlbumView: View {
 
                         LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                             ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                               let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
                                 SongCell(
                                     song: song,
                                     glassRow: true,
                                     playbackContext: sortedTracks,
-                                    playbackIndex: index
+                                    playbackIndex: index,
+                                    trackNumber: displayNo
                                 ) {
                                     player.play(songs: sortedTracks, startAt: index)
                                 }
@@ -2692,7 +2738,7 @@ struct SynologyAlbumView: View {
                 errorMessage = nil
             }
         }
-        // 优先使用 Build 63 专为 NAS 专辑打造的直读接口（自带严格双键保序与全量曲目拉取）
+        // 优先使用专为 NAS 专辑打造的原生直读接口（自带严格双键保序与快速回包）
         let direct = await synology.albumSongs(albumName: albumName, artistName: artistName)
         if !direct.isEmpty {
             await MainActor.run {
@@ -2702,33 +2748,38 @@ struct SynologyAlbumView: View {
             }
             return
         }
-        do {
-            let allSongs = try await synology.librarySongs()
-            var matches = matchingSongs(in: allSongs)
-            if matches.isEmpty {
-                // 某些 DSM 版本的完整歌曲接口字段不全，使用专辑搜索结果兜底，
-                // 并允许同一张专辑的歌手字段存在简繁体或合作艺人差异。
-                let remote = try? await synology.searchAllVariants(keyword: albumName, limit: 200)
-                matches = matchingSongs(in: remote?.songs ?? [])
-                if matches.isEmpty {
-                    let normalizedAlbum = normalize(albumName)
-                    matches = (remote?.songs ?? []).filter { normalize($0.album) == normalizedAlbum }
-                }
-            }
+
+        // 若直读未命中，尝试利用搜索接口服务端匹配兜底
+        let remote = try? await synology.searchAllVariants(keyword: albumName, limit: 200)
+        var matches = matchingSongs(in: remote?.songs ?? [])
+        if matches.isEmpty {
+            let normalizedAlbum = normalize(albumName)
+            matches = (remote?.songs ?? []).filter { normalize($0.album) == normalizedAlbum }
+        }
+        if !matches.isEmpty {
             await MainActor.run {
-                if !matches.isEmpty || seededTracks.isEmpty {
-                    tracks = matches
-                }
+                tracks = matches
                 isLoading = false
-                errorMessage = tracks.isEmpty ? "未找到专辑歌曲" : nil
+                errorMessage = nil
             }
-        } catch {
+            return
+        }
+
+        // 从已恢复的内存库缓存查找
+        let cachedMatches = matchingSongs(in: synology.cachedLibrarySongs)
+        if !cachedMatches.isEmpty {
             await MainActor.run {
-                // 已经有搜索结果时保留首屏内容，不因后台目录刷新失败而把详情页变成错误页。
+                tracks = cachedMatches
                 isLoading = false
-                if tracks.isEmpty {
-                    errorMessage = error.localizedDescription
-                }
+                errorMessage = nil
+            }
+            return
+        }
+
+        await MainActor.run {
+            isLoading = false
+            if tracks.isEmpty {
+                errorMessage = "未找到专辑歌曲"
             }
         }
     }

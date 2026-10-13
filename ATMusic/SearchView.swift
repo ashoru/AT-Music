@@ -2226,7 +2226,8 @@ struct AlbumDetailView: View {
                             ForEach(discGroups, id: \.disc) { group in
                                 Section {
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
-                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0) {
+                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
+                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0, trackNumber: displayNo) {
                                             player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
                                         }
                                         .listRowBackground(Color.clear)
@@ -2238,7 +2239,8 @@ struct AlbumDetailView: View {
                             }
                         } else {
                             ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index) {
+                                let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index, trackNumber: displayNo) {
                                     player.play(songs: sortedTracks, startAt: index)
                                 }
                                 .listRowBackground(Color.clear)
@@ -2358,11 +2360,13 @@ struct AlbumDetailView: View {
 
                                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
                                         SongCell(
                                             song: song,
                                             glassRow: true,
                                             playbackContext: sortedTracks,
-                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0
+                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0,
+                                            trackNumber: displayNo
                                         ) {
                                             player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
                                         }
@@ -2388,11 +2392,13 @@ struct AlbumDetailView: View {
 
                         LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                             ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                               let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
                                 SongCell(
                                     song: song,
                                     glassRow: true,
                                     playbackContext: sortedTracks,
-                                    playbackIndex: index
+                                    playbackIndex: index,
+                                    trackNumber: displayNo
                                 ) {
                                     player.play(songs: sortedTracks, startAt: index)
                                 }
@@ -2559,42 +2565,79 @@ struct AlbumDetailView: View {
         )
     }
 
-    /// 多 CD 盘片分栏标头
+    /// 多 CD 盘片分栏标头与精美分割符
     private func discSectionHeader(discNumber: Int, songs: [Song]) -> some View {
-        HStack {
-            HStack(spacing: 6) {
-                Image(systemName: "opticaldisc")
-                    .font(.system(size: 13, weight: .bold))
+        VStack(spacing: 8) {
+            if discNumber > 1 {
+                HStack(spacing: 12) {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.atmusicAmber.opacity(0.0), Color.atmusicAmber.opacity(0.35)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                    
+                    Image(systemName: "opticaldisc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.atmusicAmber.opacity(0.6))
+                    
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.atmusicAmber.opacity(0.35), Color.atmusicAmber.opacity(0.0)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                }
+                .padding(.vertical, 6)
+            }
+
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "opticaldisc.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text("CD \(discNumber)")
+                        .font(ATMusicFont.appFont(14, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.atmusicAmber.opacity(0.12))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.atmusicAmber.opacity(0.25), lineWidth: 0.8)
+                )
+
+                Spacer()
+
+                Text("\(songs.count) 首歌曲")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+
+                Button {
+                    if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
+                        ATMusicHaptics.tap()
+                        player.play(songs: sortedTracks, startAt: firstIndex)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.circle.fill")
+                        Text("播放本盘")
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
                     .foregroundStyle(Color.atmusicAmber)
-                Text("CD \(discNumber)")
-                    .font(ATMusicFont.appFont(14, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
-            }
-
-            Spacer()
-
-            Text("\(songs.count) 首歌曲")
-                .font(ATMusicFont.appFont(12))
-                .foregroundStyle(Color.atmusicComment)
-
-            Button {
-                if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
-                    ATMusicHaptics.tap()
-                    player.play(songs: sortedTracks, startAt: firstIndex)
                 }
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "play.circle.fill")
-                    Text("播放本盘")
-                }
-                .font(ATMusicFont.appFont(12, .semibold))
-                .foregroundStyle(Color.atmusicAmber)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 4)
-        .background(Color.clear)
+        .padding(.vertical, 4)
     }
 
     // MARK: - 数据加载流程（NAS 专属独立纯净库 vs 平台原生接口）
@@ -2627,7 +2670,7 @@ struct AlbumDetailView: View {
             if !direct.isEmpty {
                 result = direct
             } else {
-                let lib = (try? await SynologyAPI.shared.librarySongs()) ?? []
+                let lib = SynologyAPI.shared.cachedLibrarySongs
                 let trimmedAlbum = album.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 result = lib.filter { song in
                     guard song.source == .synology else { return false }

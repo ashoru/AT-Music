@@ -96,11 +96,17 @@ final class SynologyAPI: ObservableObject {
     private var configurationGeneration = UUID()
     private let session: URLSession
     /// 搜索索引缓存：首次搜索建立，后续输入关键词只在内存中匹配，不再反复分页请求 NAS。
-    private var librarySongsCache: [Song] = []
+    private(set) var librarySongsCache: [Song] = []
     private var librarySongsCacheUpdatedAt = Date.distantPast
     private var librarySongsLoadingTask: Task<[Song], Error>?
     private let librarySongsCacheTTL: TimeInterval = 600
     private var didRestorePersistentLibraryIndex = false
+
+    /// 获取当前已有的本地音乐库歌曲（若尚未读入内存，自动从本地磁盘索引轻量恢复，绝不发起网络阻塞）
+    var cachedLibrarySongs: [Song] {
+        restorePersistentLibraryIndexIfNeeded()
+        return librarySongsCache
+    }
 
     private struct FolderCacheEntry: Codable {
         let serverScope: String
@@ -833,14 +839,131 @@ final class SynologyAPI: ObservableObject {
 
     // MARK: - 私有解析辅助
 
-    /// 获取群晖 NAS 指定专辑内的全部歌曲（仅限 NAS 本地歌曲，双重保序）
-    func albumSongs(albumName: String, artistName: String = "") async -> [Song] {
-        let library = (try? await librarySongs()) ?? librarySongsCache
+    /// 直接通过群晖 Audio Station 原生 WebAPI 毫秒级拉取指定专辑曲目（单次请求回包，杜绝全库遍历）
+    func directAlbumSongs(albumName: String, artistName: String = "") async -> [Song] {
+        guard isLoggedIn, !sid.isEmpty else { return [] }
         let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAlbum.isEmpty else { return [] }
-        
         let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = library.filter { song in
+
+        // 尝试 1：SYNO.AudioStation.Song 官方接口按 album 查询
+        let albumQuery: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
+            URLQueryItem(name: "version", value: "3"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "album", value: trimmedAlbum),
+            URLQueryItem(name: "sort_by", value: "track"),
+            URLQueryItem(name: "sort_direction", value: "ASC"),
+            URLQueryItem(name: "library", value: "all"),
+            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "additional", value: "song_tag,song_audio")
+        ]
+
+        if let json = try? await get("/webapi/AudioStation/song.cgi", query: albumQuery, authenticated: true),
+           let data = json["data"] as? [String: Any],
+           let songsArray = data["songs"] as? [[String: Any]],
+           !songsArray.isEmpty {
+            let songs = songsArray.compactMap { self.parseSong($0) }
+            if !songs.isEmpty {
+                return filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+            }
+        }
+
+        // 尝试 2：部分 DSM 版本或 Audio Station 版本参数为 album_name
+        let albumNameQuery: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
+            URLQueryItem(name: "version", value: "3"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "album_name", value: trimmedAlbum),
+            URLQueryItem(name: "sort_by", value: "track"),
+            URLQueryItem(name: "sort_direction", value: "ASC"),
+            URLQueryItem(name: "library", value: "all"),
+            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "additional", value: "song_tag,song_audio")
+        ]
+
+        if let json = try? await get("/webapi/AudioStation/song.cgi", query: albumNameQuery, authenticated: true),
+           let data = json["data"] as? [String: Any],
+           let songsArray = data["songs"] as? [[String: Any]],
+           !songsArray.isEmpty {
+            let songs = songsArray.compactMap { self.parseSong($0) }
+            if !songs.isEmpty {
+                return filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+            }
+        }
+
+        // 尝试 3：若包含特殊符号或空格，尝试 keyword 筛选
+        let keywordQuery: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
+            URLQueryItem(name: "version", value: "3"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "keyword", value: trimmedAlbum),
+            URLQueryItem(name: "sort_by", value: "track"),
+            URLQueryItem(name: "sort_direction", value: "ASC"),
+            URLQueryItem(name: "library", value: "all"),
+            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "additional", value: "song_tag,song_audio")
+        ]
+
+        if let json = try? await get("/webapi/AudioStation/song.cgi", query: keywordQuery, authenticated: true),
+           let data = json["data"] as? [String: Any],
+           let songsArray = data["songs"] as? [[String: Any]],
+           !songsArray.isEmpty {
+            let songs = songsArray.compactMap { self.parseSong($0) }
+            let matches = filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+            if !matches.isEmpty {
+                return matches
+            }
+        }
+
+        return []
+    }
+
+    /// 获取群晖 NAS 指定专辑内的全部歌曲（仅限 NAS 本地歌曲，双重保序）
+    func albumSongs(albumName: String, artistName: String = "") async -> [Song] {
+        let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAlbum.isEmpty else { return [] }
+        let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1. 优先调用群晖 Audio Station 原生 WebAPI 毫秒级直接获取（避免全库遍历卡顿）
+        let direct = await directAlbumSongs(albumName: trimmedAlbum, artistName: trimmedArtist)
+        if !direct.isEmpty {
+            return direct
+        }
+
+        // 2. 检查内存中已有的索引或本地已保存的磁盘缓存
+        restorePersistentLibraryIndexIfNeeded()
+        let library = librarySongsCache
+        if !library.isEmpty {
+            let matched = filterAndSortAlbumSongs(library, albumName: trimmedAlbum, artistName: trimmedArtist)
+            if !matched.isEmpty {
+                return matched
+            }
+        }
+
+        // 3. 内存未命中时，使用原生搜索接口服务端匹配兜底
+        if let searchRes = try? await searchAll(keyword: trimmedAlbum, limit: 300) {
+            let matched = filterAndSortAlbumSongs(searchRes.songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+            if !matched.isEmpty {
+                return matched
+            }
+        }
+
+        // 4. 若库索引尚未建立，在后台静默发起同步，绝不阻塞当前详情页交互
+        if librarySongsLoadingTask == nil {
+            Task { [weak self] in
+                _ = try? await self?.librarySongs()
+            }
+        }
+
+        return []
+    }
+
+    private func filterAndSortAlbumSongs(_ songs: [Song], albumName: String, artistName: String) -> [Song] {
+        let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let filtered = songs.filter { song in
             guard song.source == .synology else { return false }
             let songAlbum = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
             guard songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
@@ -861,8 +984,14 @@ final class SynologyAPI: ObservableObject {
             }
             return true
         }
-        
-        return filtered.sorted {
+
+        return sortAlbumSongs(filtered.isEmpty ? songs : filtered)
+    }
+
+    private func sortAlbumSongs(_ songs: [Song]) -> [Song] {
+        var seen = Set<String>()
+        let unique = songs.filter { seen.insert($0.identityKey).inserted }
+        return unique.sorted {
             if $0.discNumber != $1.discNumber {
                 return $0.discNumber < $1.discNumber
             }
