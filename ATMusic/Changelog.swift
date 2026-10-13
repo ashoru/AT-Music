@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.14-build-64-dual-player-warm-standby-pipeline",
+            version: "1.9.14",
+            title: "双播放器实例热备池 (Dual-Player Pipeline)、物理级 0 延迟无缝切歌",
+            features: [
+                "双播放器实例热备架构（Player A 主播 + Player B 热备）：突破性消除单 AVPlayer 在切歌时断开连接、建立新连接、解码头与首包缓冲的 300~800ms 静音停顿",
+                "静默预热管线（preroll Warm-Up）：后台不仅完成下一首音源解析，而且调度 Player B 静默完成 TLS 握手、音频头解析与前 8 秒数据块预缓冲，处于随时可发声的完备状态",
+                "70% 播放进度主动激活保障：当前歌曲播放至 70% 时自动唤起热备池预备，保障顺序播放到歌曲末尾时完美瞬间衔接",
+                "毫秒级瞬时提升切换：当用户按下「下一首」或歌曲自然播放结束时，系统直接暂停 Player A 并瞬间无缝将 Player B 提升为主播发声，实现物理级 0 延迟极速切歌体验",
+                "自愈式安全降级机制：切歌或重排队列时自动清理失效热备，若热备流异常自动无感降级为常规极速加载，确保 100% 播放稳定性"
+            ],
+            fixes: [
+                "解决连续顺序切歌时由于 AVPlayer 重新初始化引起的物理静音卡顿痛点",
+                "修复上一首或跳跃切歌时后台偶发保留陈旧备用流的隐患"
+            ]
+        ),
+        VersionLog(
             id: "1.9.14-build-63-album-multi-disc-sorting-and-nas-isolation",
             version: "1.9.14",
             title: "重构专辑页歌曲排序与多 CD 分盘展示、独立隔离 NAS 专辑",

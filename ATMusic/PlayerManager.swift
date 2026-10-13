@@ -72,9 +72,12 @@ final class PlayerManager: NSObject, ObservableObject {
         didSet { clock.update(duration: duration) }
     }
 
+    private var targetVolume: Float = 1.0
+
     var volume: Float {
-        get { player?.volume ?? 1.0 }
+        get { targetVolume }
         set {
+            targetVolume = newValue
             player?.volume = newValue
             objectWillChange.send()
         }
@@ -114,6 +117,18 @@ final class PlayerManager: NSObject, ObservableObject {
     @Published var history: [Song] = []
     @Published var playCounts: [String: Int] = [:]
     @Published private(set) var listeningSeconds = 0
+
+    // MARK: - 双播放器实例热备池（Dual-Player Warm-Standby Pipeline）
+    private struct StandbyPlayback {
+        let player: AVPlayer
+        let item: AVPlayerItem
+        let song: Song
+        let url: URL
+        let isThirdParty: Bool
+        let playbackHeaders: [String: String]
+        let fromPlaybackCache: Bool
+    }
+    private var standbyPlayback: StandbyPlayback?
 
     private var player: AVPlayer?
     private var timeObserver: Any?
@@ -236,6 +251,7 @@ final class PlayerManager: NSObject, ObservableObject {
         let quality = playbackCacheQuality()
         Task { @MainActor in
             MusicCacheManager.shared.requestPrefetch(song: song, quality: quality)
+            self.preResolveNextTrackURL()
         }
     }
 
@@ -431,6 +447,7 @@ final class PlayerManager: NSObject, ObservableObject {
     func previous() {
         guard ensurePlaybackAllowed() else { return }
         guard !queue.isEmpty else { return }
+        cleanStandbyPlayer()
         // 直接切换到上一首（不再做“播放超过 3 秒先重头播放”的判断）
         if playMode == .shuffle {
             orderPosition = (orderPosition - 1 + playOrder.count) % playOrder.count
@@ -576,27 +593,117 @@ final class PlayerManager: NSObject, ObservableObject {
             queue = []
             currentIndex = 0
         }
+        cleanStandbyPlayer()
         buildPlayOrder()
         savePersistedPlaybackState()
         refreshPrefetchTarget()
     }
 
 
-    // MARK: - 队列轻量后台预解析管线（Apple Music 级无感切歌保障）
+    // MARK: - 队列轻量后台预解析与双播放器热备管线（Apple Music 级无感切歌保障）
 
     private var preResolveTask: Task<Void, Never>?
 
+    private func prepareStandbyPlayer(
+        for nextSong: Song,
+        url: URL,
+        isThirdParty: Bool,
+        fromPlaybackCache: Bool = false
+    ) {
+        if let existing = standbyPlayback,
+           existing.song.identityKey == nextSong.identityKey,
+           existing.item.status != .failed {
+            return
+        }
+        cleanStandbyPlayer()
+
+        var playbackHeaders: [String: String] = [:]
+        if isQQAudioHost(url.host) {
+            playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
+            playbackHeaders["Referer"] = "https://y.qq.com/"
+            let cookie = QQMusicAuth.shared.cookieHeader
+            if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
+        } else if url.host?.contains("kugou.com") == true || url.host?.contains("kgimg.com") == true {
+            playbackHeaders["User-Agent"] = "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi"
+            playbackHeaders["Referer"] = "https://www.kugou.com/"
+            let cookie = KugouMusicAuth.shared.cookieHeader
+            if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
+        }
+
+        let item: AVPlayerItem
+        if !playbackHeaders.isEmpty {
+            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": playbackHeaders])
+            item = AVPlayerItem(asset: asset)
+        } else {
+            item = AVPlayerItem(url: url)
+        }
+        item.preferredForwardBufferDuration = 8.0
+        let standby = AVPlayer(playerItem: item)
+        standby.automaticallyWaitsToMinimizeStalling = false
+        standby.volume = 0
+        standby.rate = 0
+        standby.preroll(atRate: Float(rate)) { _ in }
+
+        self.standbyPlayback = StandbyPlayback(
+            player: standby,
+            item: item,
+            song: nextSong,
+            url: url,
+            isThirdParty: isThirdParty,
+            playbackHeaders: playbackHeaders,
+            fromPlaybackCache: fromPlaybackCache
+        )
+        ATMusicLogger.shared.log("🚀 双播放器热备池就绪：Player B 预缓冲完成 -> \(nextSong.name)", level: .info)
+    }
+
+    private func cleanStandbyPlayer() {
+        guard let standby = standbyPlayback else { return }
+        standbyPlayback = nil
+        standby.player.pause()
+        standby.player.replaceCurrentItem(with: nil)
+    }
+
     private func preResolveNextTrackURL() {
-        guard let nextSong = nextSongForPrefetch() else { return }
+        guard let nextSong = nextSongForPrefetch() else {
+            cleanStandbyPlayer()
+            return
+        }
         let quality = playbackCacheQuality()
         let qualityKey = quality.rawValue
+
+        if let existing = standbyPlayback, existing.song.identityKey == nextSong.identityKey, existing.item.status != .failed {
+            return
+        }
+
+        if nextSong.source == .local, let relativePath = nextSong.localRelativePath,
+           let localURL = try? ManagedAudioPath.resolve(relativePath) {
+            prepareStandbyPlayer(for: nextSong, url: localURL, isThirdParty: false)
+            return
+        }
+
         if let entry = AudioURLCache.shared.get(songKey: nextSong.identityKey, quality: qualityKey), !entry.isPreview {
+            prepareStandbyPlayer(for: nextSong, url: entry.url, isThirdParty: false)
             return
         }
 
         preResolveTask?.cancel()
         preResolveTask = Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
+            let cachedURL = await MainActor.run {
+                MusicCacheManager.shared.cachedURL(for: nextSong, quality: quality)
+            }
+            if let cachedURL, !Task.isCancelled {
+                await MainActor.run {
+                    self.prepareStandbyPlayer(
+                        for: nextSong,
+                        url: cachedURL,
+                        isThirdParty: false,
+                        fromPlaybackCache: true
+                    )
+                }
+                return
+            }
+
             // 轻微延迟 1.5 秒，让当前歌曲起播网络吞吐完全优先
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled else { return }
@@ -609,10 +716,7 @@ final class PlayerManager: NSObject, ObservableObject {
             var resolvedURL: URL?
             var isThirdParty = false
 
-            if nextSong.source == .local, let relativePath = nextSong.localRelativePath,
-               let localURL = try? ManagedAudioPath.resolve(relativePath) {
-                resolvedURL = localURL
-            } else if nextSong.source == .synology {
+            if nextSong.source == .synology {
                 if let urlStr = await MainActor.run(body: { SynologyAPI.shared.songURL(song: nextSong) }) {
                     resolvedURL = URL(string: urlStr)
                 }
@@ -653,6 +757,13 @@ final class PlayerManager: NSObject, ObservableObject {
                     isPreview: false
                 )
                 ATMusicLogger.shared.log("🚀 下一首队列预解析完成并写入内存池：\(nextSong.name)", level: .debug)
+                await MainActor.run {
+                    self.prepareStandbyPlayer(
+                        for: nextSong,
+                        url: resolvedURL,
+                        isThirdParty: isThirdParty
+                    )
+                }
             }
         }
     }
@@ -776,6 +887,34 @@ final class PlayerManager: NSObject, ObservableObject {
         playbackStallWorkItem = nil
         qqThirdPartyFallbackSongKey = nil
         let initialProgress = max(0, min(resumeAt ?? 0, max(song.duration, 0)))
+
+        // 🚀 双播放器热备池瞬间提升（Player B -> Player A，物理级 0 延迟秒播）
+        if let standby = self.standbyPlayback,
+           standby.song.identityKey == song.identityKey,
+           standby.item.status != .failed,
+           initialProgress <= 0.05 {
+            self.standbyPlayback = nil
+            duration = song.duration
+            progress = 0
+            pushHistory(song)
+            savePersistedPlaybackState()
+            ATMusicLogger.shared.log("⚡️ 双播放器热备池瞬间提升(Player B 0ms秒播)：\(song.name)", level: .info)
+            self.setupPlayer(
+                url: standby.url,
+                resumeAt: 0,
+                isThirdParty: standby.isThirdParty,
+                customHeaders: standby.playbackHeaders,
+                fromPlaybackCache: standby.fromPlaybackCache,
+                isHotSwapTrial: false,
+                prewarmedPlayer: standby.player,
+                prewarmedItem: standby.item
+            )
+            return
+        }
+
+        // 若未命中热备或指定进度起播，清理失效热备
+        cleanStandbyPlayer()
+
         // 切歌立即暂停旧音频，避免新歌加载期间旧歌继续播放造成“切歌卡住”感
         player?.pause()
         duration = song.duration
@@ -1416,7 +1555,9 @@ final class PlayerManager: NSObject, ObservableObject {
         qqOfficialBR: String? = nil,
         attemptedQQOfficialBRs: [String] = [],
         fromPlaybackCache: Bool = false,
-        isHotSwapTrial: Bool = false
+        isHotSwapTrial: Bool = false,
+        prewarmedPlayer: AVPlayer? = nil,
+        prewarmedItem: AVPlayerItem? = nil
     ) {
         guard ensurePlaybackAllowed(), let loadedSong = currentSong else { return }
         let playbackGeneration = loadGeneration
@@ -1439,41 +1580,55 @@ final class PlayerManager: NSObject, ObservableObject {
         UIApplication.shared.beginReceivingRemoteControlEvents()
         removeCurrentObservers()
         pendingThirdPartyVIPNotice = thirdPartyVIPNotice
-        // QQ CDN 地址需要基础请求头；第三方地址也可能落在
-        // ptqqmusic.gitv.tv / aqqmusic.tc.qq.com 等 QQ CDN 域名。
-        // 这些地址在低系统上如果缺少 Referer/Cookie，常见表现是先进入
-        // playing，随后以 AVFoundation -11849 失败。
+
         let item: AVPlayerItem
+        let player: AVPlayer
         var playbackHeaders: [String: String] = customHeaders
-        if isQQAudioHost(url.host) {
-            playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
-            playbackHeaders["Referer"] = "https://y.qq.com/"
-            let cookie = QQMusicAuth.shared.cookieHeader
-            if !cookie.isEmpty {
-                playbackHeaders["Cookie"] = cookie
-            }
-        } else if url.host?.contains("kugou.com") == true || url.host?.contains("kgimg.com") == true {
-            playbackHeaders["User-Agent"] = "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi"
-            playbackHeaders["Referer"] = "https://www.kugou.com/"
-            let cookie = KugouMusicAuth.shared.cookieHeader
-            if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
-        }
-        if !playbackHeaders.isEmpty {
-            let asset = AVURLAsset(url: url, options: [
-                "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
-            ])
-            item = AVPlayerItem(asset: asset)
+
+        if let prewarmedPlayer, let prewarmedItem {
+            item = prewarmedItem
+            player = prewarmedPlayer
+            player.volume = targetVolume
         } else {
-            item = AVPlayerItem(url: url)
+            if isQQAudioHost(url.host) {
+                playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
+                playbackHeaders["Referer"] = "https://y.qq.com/"
+                let cookie = QQMusicAuth.shared.cookieHeader
+                if !cookie.isEmpty {
+                    playbackHeaders["Cookie"] = cookie
+                }
+            } else if url.host?.contains("kugou.com") == true || url.host?.contains("kgimg.com") == true {
+                playbackHeaders["User-Agent"] = "Android15-1070-11440-46-0-DiscoveryDRADProtocol-wifi"
+                playbackHeaders["Referer"] = "https://www.kugou.com/"
+                let cookie = KugouMusicAuth.shared.cookieHeader
+                if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
+            }
+            if !playbackHeaders.isEmpty {
+                let asset = AVURLAsset(url: url, options: [
+                    "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
+                ])
+                item = AVPlayerItem(asset: asset)
+            } else {
+                item = AVPlayerItem(url: url)
+            }
+            item.preferredForwardBufferDuration = 8.0
+            player = AVPlayer(playerItem: item)
+            player.volume = targetVolume
+            player.automaticallyWaitsToMinimizeStalling = false
         }
+
         let headerKeys = playbackHeaders.keys.sorted().joined(separator: ",")
         ATMusicLogger.shared.log(
-            "AVPlayer 准备播放：\(currentSong?.name ?? "?")｜URL=\(playbackURLSummary(url))｜第三方=\(isThirdParty ? "是" : "否")｜headers=\(playbackHeaders.isEmpty ? "未添加" : "已添加")｜headerKeys=\(headerKeys.isEmpty ? "无" : headerKeys)",
+            "AVPlayer 准备播放：\(currentSong?.name ?? "?")｜URL=\(playbackURLSummary(url))｜第三方=\(isThirdParty ? "是" : "否")｜headers=\(playbackHeaders.isEmpty ? "未添加" : "已添加")｜headerKeys=\(headerKeys.isEmpty ? "无" : headerKeys)｜热备复用=\(prewarmedPlayer != nil ? "是" : "否")",
             level: .debug
         )
-        // 优化：8 秒前向缓冲，允许低缓冲快速起播，边播边下
-        item.preferredForwardBufferDuration = 8.0
-        let player = AVPlayer(playerItem: item)
+
+        let oldPlayer = self.player
+        if let oldPlayer, oldPlayer !== player {
+            oldPlayer.pause()
+            oldPlayer.replaceCurrentItem(with: nil)
+        }
+
         player.automaticallyWaitsToMinimizeStalling = false
         player.rate = Float(rate)
         self.player = player
@@ -1481,13 +1636,13 @@ final class PlayerManager: NSObject, ObservableObject {
         // 写入 AudioURLCache 内存池（试听片段不写入缓存，避免污染后续播放）
         if !isHotSwapTrial {
             AudioURLCache.shared.set(
-                songId: loadedSong.id,
+                songKey: loadedSong.identityKey,
                 quality: self.playbackCacheQuality().rawValue,
                 url: url,
                 isPreview: false
             )
         }
-        // 触发下一首静默预解析
+        // 触发下一首静默预解析与热备
         self.preResolveNextTrackURL()
         configureEqualizer(for: item)
         playbackConfirmed = false
@@ -1655,6 +1810,19 @@ final class PlayerManager: NSObject, ObservableObject {
                     songKey: loadedSong.identityKey,
                     generation: playbackGeneration
                 )
+            }
+
+            // 🚀 当前歌曲播放进度超过 70% 时，保障热备播放器 (Player B) 预热完成
+            if self.queue.count > 1,
+               self.playMode != .repeatOne,
+               let itemDuration = player.currentItem?.duration,
+               itemDuration.isNumeric,
+               itemDuration.seconds.isFinite,
+               itemDuration.seconds > 10,
+               time.seconds.isFinite,
+               time.seconds >= itemDuration.seconds * 0.7,
+               self.standbyPlayback == nil {
+                self.preResolveNextTrackURL()
             }
 
             let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
