@@ -3885,7 +3885,7 @@ struct SettingsView: View {
 
     private var footerNote: some View {
         VStack(spacing: 6) {
-            Text("AT Music · v1.9.11 (Build 59)")
+            Text("AT Music · v1.9.13 (Build 62)")
                 .font(ATMusicFont.appFont(12, .semibold))
                 .foregroundStyle(Color.atmusicLabel.opacity(0.85))
             Text("仅供学习交流，纯 AI 实现此应用")

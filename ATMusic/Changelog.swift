@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.12-build-62-official-first-audio-fidelity-restoration",
+            version: "1.9.13",
+            title: "紧急恢复官方会员原生满血音轨、多级官方音质阶梯降级与杜绝误判第三方劣质源",
+            features: [
+                "官方原生绝对优先原则（Official-First Fidelity）：彻底废除针对 VIP 歌曲盲目短路拦截到第三方的缺陷逻辑。无论是否识别出会员标签，首选 100% 优先请求官方原生高保真音轨，依托账号登录凭证自动直出正版最高品质",
+                "官方多级闭环阶梯降级（Strict Official Fallback）：网易云与 QQ 音乐等接口在所选高音质（如臻品母带/Hi-Res）未收录时，在官方内部逐级探测（Master -> Hi-Res -> 无损 FLAC -> 320k -> 标准），只要官方有可用正版音轨，绝不跌入第三方劣质源",
+                "第三方兜底安全网严格边界化：仅在官方全档位彻底无版权或仅为试听片段时，方才允许第三方音源作为兜底介入救场，严禁反客为主",
+                "AudioURLCache 跨平台键值加固与 TTL 优化：缓存 Key 全面升级为跨平台全局唯一标识（identityKey），杜绝多平台同数字 ID 串歌；默认缓存时效调整至更稳健的 40 分钟，规避防盗链签名过期",
+                "预解析目标音质严格对齐：消除预解析写死 128k 标清导致高音质缓存池被污染的问题，后台预解析同样请求真实目标品质"
+            ],
+            fixes: [
+                "解决登录会员后仍然被强制播放第三方劣质/错配音频的严重痛点",
+                "修复高规格母带档位在普通曲目上因官方空包而直接误切第三方的断层缺陷"
+            ]
+        ),
+        VersionLog(
             id: "1.9.13-vip-trial-to-full-track-repair-and-native-speed-pipeline",
             version: "1.9.13",
             title: "VIP 试听转全曲彻底修复、原生车机毫秒级直连与死源静默清洗",
@@ -65,7 +81,7 @@ enum ChangelogStore {
         ),
         VersionLog(
             id: "1.9.12-sound-source-hotswap-and-qos-pipeline",
-            version: "1.9.12",
+            version: "1.9.13",
             title: "官方试听前奏秒出(150ms) + 完整音轨热置换、真多源并发与极速终极音源 v5.0",
             features: [
                 "方案 1 官方前奏秒出(150ms) + 第三方完整音轨静默热置换(Hot-Swap)：针对非会员点 VIP 歌曲，官方 150ms 秒级直出试听音频瞬间出声，后台并行解析第三方完整音轨，就绪后在当前播放位置毫秒级无感热置换 AVPlayerItem，消灭 1~3 秒白屏转圈等待并畅听整首歌",

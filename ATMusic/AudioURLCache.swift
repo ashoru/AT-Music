@@ -13,7 +13,7 @@ final class AudioURLCache {
 
     private var cache: [String: CacheEntry] = [:]
     private let lock = NSLock()
-    private let defaultTTL: TimeInterval = 7200 // 2 小时
+    private let defaultTTL: TimeInterval = 2400 // 40 分钟（兼顾秒播与防盗链签名有效窗口）
 
     private init() {}
 
@@ -21,6 +21,17 @@ final class AudioURLCache {
         "\(songId)_\(quality)"
     }
 
+    func get(songKey: String, quality: String) -> (url: URL, isPreview: Bool)? {
+        get(songId: songKey, quality: quality)
+    }
+
+    func set(songKey: String, quality: String, url: URL, isPreview: Bool = false, ttl: TimeInterval? = nil) {
+        set(songId: songKey, quality: quality, url: url, isPreview: isPreview, ttl: ttl)
+    }
+
+    func remove(songKey: String, quality: String) {
+        remove(songId: songKey, quality: quality)
+    }
 
     func get(songId: Int, quality: String) -> (url: URL, isPreview: Bool)? {
         get(songId: String(songId), quality: quality)
