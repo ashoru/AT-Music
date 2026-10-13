@@ -227,6 +227,8 @@ final class QQMusicAPI {
             let mediaMid = file?["media_mid"] as? String
                 ?? item["strMediaMid"] as? String
                 ?? item["media_mid"] as? String
+            let discNo = (item["index_cd"] as? Int) ?? (item["cdIdx"] as? Int) ?? 1
+            let trackNo = (item["index_album"] as? Int) ?? (item["track"] as? Int) ?? 0
             songs.append(Song(
                 id: songid,
                 name: item["songname"] as? String ?? "",
@@ -237,6 +239,8 @@ final class QQMusicAPI {
                 source: .qq,
                 qqMid: mid,
                 qqMediaMid: mediaMid,
+                discNumber: max(1, discNo),
+                trackNumber: max(0, trackNo),
                 fee: fee
             ))
         }
@@ -2009,6 +2013,8 @@ final class QQMusicAPI {
             ?? item["media_mid"] as? String
         let songName = item["songname"] as? String
             ?? (item["name"] as? String ?? (item["title"] as? String ?? ""))
+        let discNo = Self.integerValue(item["index_cd"] ?? item["cdIdx"])
+        let trackNo = Self.integerValue(item["index_album"] ?? item["track"])
         return Song(
             id: sid,
             name: songName,
@@ -2019,6 +2025,8 @@ final class QQMusicAPI {
             source: .qq,
             qqMid: mid.isEmpty ? nil : mid,
             qqMediaMid: mediaMid,
+            discNumber: max(1, discNo),
+            trackNumber: max(0, trackNo),
             fee: fee
         )
     }

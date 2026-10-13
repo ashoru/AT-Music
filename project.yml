@@ -19,7 +19,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.atmusic.player
-        MARKETING_VERSION: "1.9.13"
+        MARKETING_VERSION: "1.9.14"
         CURRENT_PROJECT_VERSION: "62"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_OBJC_BRIDGING_HEADER: ATMusic/ATMusic-Bridging-Header.h

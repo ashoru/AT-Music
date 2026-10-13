@@ -256,6 +256,10 @@ struct Song: Identifiable, Hashable, Codable {
     let genre: String?
     let year: String?
     let comment: String?
+    /// CD 盘号（多 CD 专辑支持，默认为 1）
+    let discNumber: Int
+    /// 专辑音轨序号（从 1 开始，无音轨则为 0）
+    let trackNumber: Int
     /// 付费/VIP 标记（网易云：0 免费、1 VIP、4 付费单曲；QQ：0 免费、非 0 付费）
     let fee: Int
 
@@ -295,7 +299,7 @@ struct Song: Identifiable, Hashable, Codable {
         }
     }
 
-    init(id: Int, name: String, artists: String, album: String, coverURL: URL?, duration: TimeInterval, source: SongSource = .netease, qqMid: String? = nil, qqMediaMid: String? = nil, kugouHash: String? = nil, kugouAlbumAudioId: String? = nil, kugouAlbumId: String? = nil, kugouQualityHashes: [String: String]? = nil, synologyId: String? = nil, synologyServerScope: String? = nil, synologyPath: String? = nil, localRelativePath: String? = nil, albumArtist: String? = nil, genre: String? = nil, year: String? = nil, comment: String? = nil, fee: Int = 0) {
+    init(id: Int, name: String, artists: String, album: String, coverURL: URL?, duration: TimeInterval, source: SongSource = .netease, qqMid: String? = nil, qqMediaMid: String? = nil, kugouHash: String? = nil, kugouAlbumAudioId: String? = nil, kugouAlbumId: String? = nil, kugouQualityHashes: [String: String]? = nil, synologyId: String? = nil, synologyServerScope: String? = nil, synologyPath: String? = nil, localRelativePath: String? = nil, albumArtist: String? = nil, genre: String? = nil, year: String? = nil, comment: String? = nil, discNumber: Int = 1, trackNumber: Int = 0, fee: Int = 0) {
         self.id = id
         self.name = name
         self.artists = artists
@@ -317,6 +321,8 @@ struct Song: Identifiable, Hashable, Codable {
         self.genre = genre
         self.year = year
         self.comment = comment
+        self.discNumber = discNumber
+        self.trackNumber = trackNumber
         self.fee = fee
     }
 
@@ -355,10 +361,16 @@ struct Song: Identifiable, Hashable, Codable {
         genre = nil
         year = nil
         comment = nil
+        if let cdStr = json["cd"] as? String {
+            discNumber = Int(cdStr) ?? 1
+        } else {
+            discNumber = json["cd"] as? Int ?? 1
+        }
+        trackNumber = json["no"] as? Int ?? (json["track"] as? Int ?? 0)
         fee = json["fee"] as? Int ?? 0
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, artists, album, coverURL, duration, source, qqMid, qqMediaMid, kugouHash, kugouAlbumAudioId, kugouAlbumId, kugouQualityHashes, synologyId, synologyServerScope, synologyPath, localRelativePath, albumArtist, genre, year, comment, fee }
+    private enum CodingKeys: String, CodingKey { case id, name, artists, album, coverURL, duration, source, qqMid, qqMediaMid, kugouHash, kugouAlbumAudioId, kugouAlbumId, kugouQualityHashes, synologyId, synologyServerScope, synologyPath, localRelativePath, albumArtist, genre, year, comment, discNumber, trackNumber, fee }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -383,6 +395,8 @@ struct Song: Identifiable, Hashable, Codable {
         genre = try c.decodeIfPresent(String.self, forKey: .genre)
         year = try c.decodeIfPresent(String.self, forKey: .year)
         comment = try c.decodeIfPresent(String.self, forKey: .comment)
+        discNumber = try c.decodeIfPresent(Int.self, forKey: .discNumber) ?? 1
+        trackNumber = try c.decodeIfPresent(Int.self, forKey: .trackNumber) ?? 0
         fee = try c.decodeIfPresent(Int.self, forKey: .fee) ?? 0
     }
 
@@ -409,6 +423,8 @@ struct Song: Identifiable, Hashable, Codable {
         try c.encodeIfPresent(genre, forKey: .genre)
         try c.encodeIfPresent(year, forKey: .year)
         try c.encodeIfPresent(comment, forKey: .comment)
+        try c.encode(discNumber, forKey: .discNumber)
+        try c.encode(trackNumber, forKey: .trackNumber)
         try c.encode(fee, forKey: .fee)
     }
 }

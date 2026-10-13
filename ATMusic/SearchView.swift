@@ -2126,6 +2126,25 @@ struct AlbumDetailView: View {
     @State private var errorMessage: String?
     @State private var showArtistHome = false
 
+    /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序
+    private var sortedTracks: [Song] {
+        tracks.sorted {
+            if $0.discNumber != $1.discNumber {
+                return $0.discNumber < $1.discNumber
+            }
+            if $0.trackNumber != $1.trackNumber {
+                return $0.trackNumber < $1.trackNumber
+            }
+            return $0.id < $1.id
+        }
+    }
+
+    /// 多 CD 分组模型（Apple Music 规范）
+    private var discGroups: [(disc: Int, songs: [Song])] {
+        let grouped = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
+        return grouped.keys.sorted().map { ($0, grouped[$0]!) }
+    }
+
     var body: some View {
         ATMusicNavigationStack {
             ZStack {
@@ -2136,52 +2155,35 @@ struct AlbumDetailView: View {
                     ErrorStateView(message: errorMessage) { Task { await load() } }
                 } else {
                     List {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 14) {
-                                CoverImage(url: album.coverURL, size: 92, cornerRadius: 16)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(album.name)
-                                        .font(ATMusicFont.appFont(19, .bold))
-                                        .foregroundStyle(Color.atmusicLabel)
-                                        .lineLimit(2)
-                                    Button {
-                                        guard !album.artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                                        ATMusicHaptics.tap()
-                                        showArtistHome = true
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
-                                            if !album.artistName.isEmpty {
-                                                Image(systemName: "chevron.right")
-                                                    .font(.system(size: 9, weight: .bold))
-                                            }
-                                        }
-                                        .font(ATMusicFont.appFont(13))
-                                        .foregroundStyle(album.artistName.isEmpty ? Color.atmusicComment : Color.atmusicAmber)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Text(atmusicSongCountText(tracks.count))
-                                        .font(ATMusicFont.appFont(12))
-                                        .foregroundStyle(Color.atmusicComment)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            if !tracks.isEmpty {
-                                GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
-                                    player.play(songs: tracks, startAt: 0)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 10)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-
-                        ForEach(Array(tracks.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, glassRow: true, playbackContext: tracks, playbackIndex: index) {
-                                player.play(songs: tracks, startAt: index)
-                            }
+                        // 头部信息与音源专属规格看板
+                        albumHeaderSection
+                            .padding(.vertical, 10)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
+
+                        // 歌曲列表区域：多 CD 分盘分栏或单 CD 紧凑平铺
+                        if discGroups.count > 1 {
+                            ForEach(discGroups, id: \.disc) { group in
+                                Section {
+                                    ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0) {
+                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                                        }
+                                        .listRowBackground(Color.clear)
+                                        .listRowSeparator(.hidden)
+                                    }
+                                } header: {
+                                    discSectionHeader(discNumber: group.disc, songs: group.songs)
+                                }
+                            }
+                        } else {
+                            ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index) {
+                                    player.play(songs: sortedTracks, startAt: index)
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                            }
                         }
                     }
                     .listStyle(.plain)
@@ -2198,6 +2200,193 @@ struct AlbumDetailView: View {
                 .environmentObject(theme)
         }
     }
+
+    // MARK: - 头部专辑看板与徽标
+
+    private var albumHeaderSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                CoverImage(url: album.coverURL, size: 100, cornerRadius: 18)
+                VStack(alignment: .leading, spacing: 6) {
+                    // 音源专属属性胶囊（平台 vs NAS 无损库清晰区分）
+                    sourceBadge
+
+                    Text(album.name)
+                        .font(ATMusicFont.appFont(20, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    Button {
+                        guard !album.artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        ATMusicHaptics.tap()
+                        showArtistHome = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
+                            if !album.artistName.isEmpty {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .bold))
+                            }
+                        }
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(album.artistName.isEmpty ? Color.atmusicComment : Color.atmusicAmber)
+                    }
+                    .buttonStyle(.plain)
+
+                    HStack(spacing: 8) {
+                        Text(atmusicSongCountText(sortedTracks.count))
+                        if discGroups.count > 1 {
+                            Text("· \(discGroups.count) CD 大碟")
+                                .font(ATMusicFont.appFont(12, .semibold))
+                                .foregroundStyle(Color.atmusicAmber)
+                        }
+                    }
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // NAS 专属高解析无损库看板
+            if album.source == .synology {
+                nasMasterSpecBar
+            }
+
+            if !sortedTracks.isEmpty {
+                HStack(spacing: 12) {
+                    GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                        player.play(songs: sortedTracks, startAt: 0)
+                    }
+                    if discGroups.count > 1 {
+                        GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                            player.play(songs: sortedTracks, startAt: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 音源标识胶囊（群晖 NAS 专属琥珀流光徽标 vs 官方云音源）
+    @ViewBuilder
+    private var sourceBadge: some View {
+        if album.source == .synology {
+            HStack(spacing: 4) {
+                Image(systemName: "externaldrive.fill.badge.checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                Text("群晖 NAS · 私有无损库")
+                    .font(ATMusicFont.appFont(11, .bold))
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Color.atmusicAmber.opacity(0.18))
+            .foregroundStyle(Color.atmusicAmber)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.atmusicAmber.opacity(0.35), lineWidth: 0.8)
+            )
+        } else if album.source == .netease {
+            HStack(spacing: 4) {
+                Image(systemName: "cloud.fill")
+                    .font(.system(size: 10))
+                Text("网易云音乐 · 原生接口")
+                    .font(ATMusicFont.appFont(11, .medium))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3.5)
+            .background(Color.red.opacity(0.12))
+            .foregroundStyle(Color.red.opacity(0.9))
+            .clipShape(Capsule())
+        } else if album.source == .qq {
+            HStack(spacing: 4) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 10))
+                Text("QQ 音乐 · 官方音源")
+                    .font(ATMusicFont.appFont(11, .medium))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3.5)
+            .background(Color.green.opacity(0.12))
+            .foregroundStyle(Color.green.opacity(0.9))
+            .clipShape(Capsule())
+        } else {
+            HStack(spacing: 4) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 10))
+                Text(album.source.rawValue.uppercased())
+                    .font(ATMusicFont.appFont(11, .medium))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3.5)
+            .background(Color.atmusicLabel.opacity(0.08))
+            .foregroundStyle(Color.atmusicSecondary)
+            .clipShape(Capsule())
+        }
+    }
+
+    /// 群晖 NAS 高保真参数看板
+    private var nasMasterSpecBar: some View {
+        HStack(spacing: 12) {
+            Label("本地局域网直连", systemName: "bolt.horizontal.fill")
+            Spacer()
+            Label("无损原盘音质", systemName: "waveform")
+            Spacer()
+            Label("支持多音轨/分盘", systemName: "opticaldisc.fill")
+        }
+        .font(ATMusicFont.appFont(11, .medium))
+        .foregroundStyle(Color.atmusicComment)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.atmusicCardBg.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.atmusicGlassBorder.opacity(0.5), lineWidth: 0.5)
+                )
+        )
+    }
+
+    /// 多 CD 盘片分栏标头
+    private func discSectionHeader(discNumber: Int, songs: [Song]) -> some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "opticaldisc")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.atmusicAmber)
+                Text("CD \(discNumber)")
+                    .font(ATMusicFont.appFont(14, .bold))
+                    .foregroundStyle(Color.atmusicLabel)
+            }
+
+            Spacer()
+
+            Text("\(songs.count) 首歌曲")
+                .font(ATMusicFont.appFont(12))
+                .foregroundStyle(Color.atmusicComment)
+
+            Button {
+                if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
+                    ATMusicHaptics.tap()
+                    player.play(songs: sortedTracks, startAt: firstIndex)
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "play.circle.fill")
+                    Text("播放本盘")
+                }
+                .font(ATMusicFont.appFont(12, .semibold))
+                .foregroundStyle(Color.atmusicAmber)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(Color.clear)
+    }
+
+    // MARK: - 数据加载流程（NAS 专属独立纯净库 vs 平台原生接口）
 
     private func load() async {
         let cache = DetailSongsCache.shared
@@ -2218,56 +2407,80 @@ struct AlbumDetailView: View {
             }
             errorMessage = nil
         }
+
         let result: [Song]
-            switch album.source {
-            case .netease:
-                let id = Int(album.id.replacingOccurrences(of: "netease-", with: ""))
-                let direct: [Song]
-                if let id {
-                    direct = (try? await NetEaseAPI.shared.albumSongs(albumID: id)) ?? []
-                } else {
-                    direct = []
+        switch album.source {
+        case .synology:
+            // 纯净隔离：仅读取 NAS 内专辑歌曲，100% 杜绝流媒体混杂
+            let direct = await SynologyAPI.shared.albumSongs(albumName: album.name, artistName: album.artistName)
+            if !direct.isEmpty {
+                result = direct
+            } else {
+                let lib = (try? await SynologyAPI.shared.librarySongs()) ?? []
+                let trimmedAlbum = album.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                result = lib.filter { song in
+                    guard song.source == .synology else { return false }
+                    let sAlbum = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return sAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
+                           sAlbum.localizedStandardContains(trimmedAlbum) ||
+                           trimmedAlbum.localizedStandardContains(sAlbum)
+                }.sorted {
+                    if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
+                    if $0.trackNumber != $1.trackNumber { return $0.trackNumber < $1.trackNumber }
+                    return $0.id < $1.id
                 }
-                if !direct.isEmpty {
-                    result = direct
-                } else {
-                    result = await searchFallbackSongs(
-                        queries: [albumSearchQuery, album.name],
-                        search: { query in
-                            (try? await NetEaseAPI.shared.search(keyword: query, limit: 100)) ?? []
-                        }
-                    )
-                }
-            case .qq:
+            }
+        case .netease:
+            let id = Int(album.id.replacingOccurrences(of: "netease-", with: ""))
+            let direct: [Song]
+            if let id {
+                direct = (try? await NetEaseAPI.shared.albumSongs(albumID: id)) ?? []
+            } else {
+                direct = []
+            }
+            if !direct.isEmpty {
+                result = direct
+            } else {
                 result = await searchFallbackSongs(
                     queries: [albumSearchQuery, album.name],
                     search: { query in
-                        (try? await QQMusicAPI.shared.searchSongs(keyword: query, limit: 100)) ?? []
+                        (try? await NetEaseAPI.shared.search(keyword: query, limit: 100)) ?? []
                     }
                 )
-            case .kugou:
-                result = await searchFallbackSongs(
-                    queries: [albumSearchQuery, album.name],
-                    search: { query in
-                        (try? await KugouMusicAPI.shared.searchSongs(keyword: query, limit: 100)) ?? []
-                    }
-                )
-            case .local:
-                result = LocalLibraryStore.shared.importedSongs.filter {
-                    $0.album.localizedCaseInsensitiveContains(album.name)
-                        && $0.artists.localizedCaseInsensitiveContains(album.artistName)
+            }
+        case .qq:
+            result = await searchFallbackSongs(
+                queries: [albumSearchQuery, album.name],
+                search: { query in
+                    (try? await QQMusicAPI.shared.searchSongs(keyword: query, limit: 100)) ?? []
                 }
-            case .synology:
-                result = []
+            )
+        case .kugou:
+            result = await searchFallbackSongs(
+                queries: [albumSearchQuery, album.name],
+                search: { query in
+                    (try? await KugouMusicAPI.shared.searchSongs(keyword: query, limit: 100)) ?? []
+                }
+            )
+        case .local:
+            result = LocalLibraryStore.shared.importedSongs.filter {
+                $0.album.localizedCaseInsensitiveContains(album.name)
+                    && $0.artists.localizedCaseInsensitiveContains(album.artistName)
+            }.sorted {
+                if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
+                if $0.trackNumber != $1.trackNumber { return $0.trackNumber < $1.trackNumber }
+                return $0.id < $1.id
             }
-            if !result.isEmpty {
-                cache.save(result, for: cacheKey)
-            }
-            await MainActor.run {
-                tracks = result
-                isLoading = false
-                if result.isEmpty { errorMessage = "未找到专辑歌曲" }
-            }
+        }
+
+        if !result.isEmpty {
+            cache.save(result, for: cacheKey)
+        }
+        await MainActor.run {
+            tracks = result
+            isLoading = false
+            if result.isEmpty { errorMessage = "未找到专辑歌曲" }
+        }
     }
 
     private var albumSearchQuery: String {
@@ -2302,8 +2515,6 @@ struct AlbumDetailView: View {
                 var seen = Set<String>()
                 return matches.filter { seen.insert($0.identityKey).inserted }
             }
-            // QQ / 酷狗等搜索记录中的歌手名偶尔会附带别名、制作人或为空。
-            // 已确认专辑名命中时宁可退化为“同专辑名”结果，也不能把详情页显示成空白。
             albumOnlyCandidates.append(contentsOf: albumOnlyMatches)
         }
         var seen = Set<String>()
@@ -2319,8 +2530,6 @@ struct AlbumDetailView: View {
 
     private func albumSongMatches(_ song: Song) -> Bool {
         guard albumNamesMatch(song.album, album.name) else { return false }
-        // 部分 QQ / 酷狗搜索专辑接口不会返回歌手字段；这时仍可凭专辑名进入，
-        // 否则详情页会被过严的过滤条件错误显示为空。
         if normalizedArtist(album.artistName).isEmpty { return true }
         return artistsMatch(expected: album.artistName, actual: song.artists)
     }
@@ -2330,7 +2539,7 @@ struct AlbumDetailView: View {
             .lowercased()
             .replacingOccurrences(of: "（", with: "(")
             .replacingOccurrences(of: "）", with: ")")
-            .replacingOccurrences(of: #"[（(].*?[）)]"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "#[（(].*?[）)]#", with: "", options: .regularExpression)
             .filter { !$0.isWhitespace && !$0.isPunctuation }
     }
 
@@ -2346,10 +2555,6 @@ struct AlbumDetailView: View {
         let expectedTokens = artistTokens(expected)
         let actualTokens = artistTokens(actual)
         guard !expectedTokens.isEmpty, !actualTokens.isEmpty else { return false }
-
-        // A song may add a featured artist, so one exact primary-artist token is
-        // sufficient. Prefix matching is limited to longer names to avoid
-        // treating an unrelated short name as the same artist.
         return expectedTokens.contains { expectedToken in
             actualTokens.contains { actualToken in
                 if expectedToken == actualToken { return true }
@@ -2374,6 +2579,7 @@ struct AlbumDetailView: View {
         return a == b || a.contains(b) || b.contains(a)
     }
 }
+
 
 // MARK: - 搜索输入框（UIKit 封装：根治中文输入法提交问题）
 // SwiftUI TextField 在中文拼音组字中触发 onSubmit 时，binding 可能尚未拿到提交后的文本，

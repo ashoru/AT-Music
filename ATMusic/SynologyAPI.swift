@@ -833,6 +833,46 @@ final class SynologyAPI: ObservableObject {
 
     // MARK: - 私有解析辅助
 
+    /// 获取群晖 NAS 指定专辑内的全部歌曲（仅限 NAS 本地歌曲，双重保序）
+    func albumSongs(albumName: String, artistName: String = "") async -> [Song] {
+        let library = (try? await librarySongs()) ?? librarySongsCache
+        let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAlbum.isEmpty else { return [] }
+        
+        let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = library.filter { song in
+            guard song.source == .synology else { return false }
+            let songAlbum = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
+                  songAlbum.localizedStandardContains(trimmedAlbum) ||
+                  trimmedAlbum.localizedStandardContains(songAlbum) else {
+                return false
+            }
+            if !trimmedArtist.isEmpty {
+                let songArtist = song.artists.trimmingCharacters(in: .whitespacesAndNewlines)
+                let albumArtist = (song.albumArtist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if songArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
+                   trimmedArtist.localizedCaseInsensitiveContains(songArtist) ||
+                   albumArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
+                   trimmedArtist.localizedCaseInsensitiveContains(albumArtist) {
+                    return true
+                }
+                return songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame
+            }
+            return true
+        }
+        
+        return filtered.sorted {
+            if /bin/sh.discNumber != .discNumber {
+                return /bin/sh.discNumber < .discNumber
+            }
+            if /bin/sh.trackNumber != .trackNumber {
+                return /bin/sh.trackNumber < .trackNumber
+            }
+            return /bin/sh.id < .id
+        }
+    }
+
     private func parseSong(_ dict: [String: Any]) -> Song? {
         guard let synoId = dict["id"] as? String ?? (dict["id"] as? Int).map(String.init) else {
             return nil
@@ -866,6 +906,9 @@ final class SynologyAPI: ObservableObject {
         let numericId = Self.stableID(synoId)
         let cover = coverURL(songId: synoId)
 
+        let parsedDisc = Self.intValue(tag?["disc"]) ?? Self.intValue(dict["disc"]) ?? 1
+        let parsedTrack = Self.intValue(tag?["track"]) ?? Self.intValue(dict["track"]) ?? 0
+
         return Song(
             id: numericId,
             name: name,
@@ -880,7 +923,9 @@ final class SynologyAPI: ObservableObject {
             albumArtist: Self.stringValue(tag?["album_artist"]),
             genre: Self.stringValue(tag?["genre"]),
             year: Self.stringValue(tag?["year"]),
-            comment: Self.stringValue(tag?["comment"])
+            comment: Self.stringValue(tag?["comment"]),
+            discNumber: max(1, parsedDisc),
+            trackNumber: max(0, parsedTrack)
         )
     }
 
