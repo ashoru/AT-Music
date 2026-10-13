@@ -320,6 +320,7 @@ struct SearchView: View {
                 contentArea
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .task {
@@ -889,7 +890,9 @@ struct SearchView: View {
                     .padding(.vertical, 18)
                 } else {
                     LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                        columns: DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
+                            ? [GridItem(.adaptive(minimum: 180, maximum: 260), spacing: 12)]
+                            : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                         spacing: 12
                     ) {
                         ForEach(referenceHotWords, id: \.self) { word in
@@ -1157,6 +1160,8 @@ struct SearchView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 180)
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                    .frame(maxWidth: .infinity)
                 }
                 .atmusicScrollIndicatorsHidden()
                 .atmusicScrollDismissesKeyboard()
@@ -1228,10 +1233,11 @@ struct SearchView: View {
     }
 
     private var aggregateArtistSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let artistCount = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 6 : 3
+        return VStack(alignment: .leading, spacing: 8) {
             aggregateSectionHeader("歌手", count: overviewArtists.count, icon: "person.2.fill", type: .artist)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
-                ForEach(Array(overviewArtists.prefix(3)), id: \.identityKey) { artist in
+            LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 120, maxWidth: 180, spacing: 16), spacing: 18) {
+                ForEach(Array(overviewArtists.prefix(artistCount)), id: \.identityKey) { artist in
                     Button {
                         ATMusicHaptics.tap()
                         openArtist(artist)
@@ -1255,10 +1261,11 @@ struct SearchView: View {
     }
 
     private var aggregateAlbumSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let albumCount = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 6 : 3
+        return VStack(alignment: .leading, spacing: 8) {
             aggregateSectionHeader("专辑", count: overviewAlbums.count, icon: "square.stack.fill", type: .album)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
-                ForEach(Array(overviewAlbums.prefix(3)), id: \.identityKey) { album in
+            LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
+                ForEach(Array(overviewAlbums.prefix(albumCount)), id: \.identityKey) { album in
                     Button {
                         ATMusicHaptics.tap()
                         openAlbum(album)
@@ -1272,10 +1279,11 @@ struct SearchView: View {
     }
 
     private var aggregatePlaylistSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let playlistCount = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 6 : 3
+        return VStack(alignment: .leading, spacing: 8) {
             aggregateSectionHeader("歌单", count: overviewPlaylists.count, icon: "music.note.list", type: .playlist)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
-                ForEach(Array(overviewPlaylists.prefix(3)), id: \.identityKey) { playlist in
+            LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
+                ForEach(Array(overviewPlaylists.prefix(playlistCount)), id: \.identityKey) { playlist in
                     Button {
                         ATMusicHaptics.tap()
                         selectedPlaylist = playlist
@@ -1305,16 +1313,35 @@ struct SearchView: View {
                 }
                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
             }
-            ForEach(Array(overviewSongs.prefix(6).enumerated()), id: \.element.identityKey) { index, song in
-                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
-                    ATMusicHaptics.tap()
-                    player.play(songs: overviewSongs, startAt: index)
+            let songCount = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 8 : 6
+            if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                    ForEach(Array(overviewSongs.prefix(songCount).enumerated()), id: \.element.identityKey) { index, song in
+                        SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                            ATMusicHaptics.tap()
+                            player.play(songs: overviewSongs, startAt: index)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background {
+                            if !isNativeClean {
+                                ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                        }
+                    }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background {
-                    if !isNativeClean {
-                        ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                ForEach(Array(overviewSongs.prefix(songCount).enumerated()), id: \.element.identityKey) { index, song in
+                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                        ATMusicHaptics.tap()
+                        player.play(songs: overviewSongs, startAt: index)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background {
+                        if !isNativeClean {
+                            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
                     }
                 }
             }
@@ -1361,15 +1388,27 @@ struct SearchView: View {
                             }
                             .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                         }
-                        ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
-                                player.play(songs: songResults, startAt: index)
+                        if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                            LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                                ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
+                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                        player.play(songs: songResults, startAt: index)
+                                    }
+                                }
+                            }
+                        } else {
+                            ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
+                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                    player.play(songs: songResults, startAt: index)
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
                     .padding(.bottom, 180)
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                    .frame(maxWidth: .infinity)
                 }
                 .atmusicScrollIndicatorsHidden()
                 .atmusicScrollDismissesKeyboard()
@@ -1514,21 +1553,39 @@ struct SearchView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
-                        ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
-                                ATMusicHaptics.tap()
-                                player.play(songs: songResults, startAt: index)
+                        if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                            LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                                ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
+                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                        ATMusicHaptics.tap()
+                                        player.play(songs: songResults, startAt: index)
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background {
+                                        ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    }
+                                }
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background {
-                                ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        } else {
+                            ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
+                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                    ATMusicHaptics.tap()
+                                    player.play(songs: songResults, startAt: index)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background {
+                                    ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
                     .padding(.bottom, 180)
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                    .frame(maxWidth: .infinity)
                 }
                 .atmusicScrollIndicatorsHidden()
                 .atmusicScrollDismissesKeyboard()

@@ -565,22 +565,24 @@ struct DiscoverView: View {
     }
 
     private func aggregateRankCard(name: String, subtitle: String, coverURL: URL?, action: @escaping () -> Void) -> some View {
-        Button {
+        let isRegular = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
+        let cardSize: CGFloat = isRegular ? 176 : (isNativeClean ? 156 : 136)
+        return Button {
             ATMusicHaptics.tap()
             action()
         } label: {
             VStack(alignment: .leading, spacing: 7) {
-                CoverImage(url: coverURL, size: isNativeClean ? 156 : 136, cornerRadius: 16)
+                CoverImage(url: coverURL, size: cardSize, cornerRadius: 16)
                 Text(name)
                     .font(ATMusicFont.appFont(isNativeClean ? 14 : 12, .medium))
                     .foregroundStyle(Color.atmusicLabel)
                     .lineLimit(2)
-                    .frame(width: isNativeClean ? 156 : 136, alignment: .leading)
+                    .frame(width: cardSize, alignment: .leading)
                 Text(subtitle)
                     .font(ATMusicFont.appFont(11, .medium))
                     .foregroundStyle(Color.atmusicComment)
                     .lineLimit(1)
-                    .frame(width: isNativeClean ? 156 : 136, alignment: .leading)
+                    .frame(width: cardSize, alignment: .leading)
             }
             .padding(8)
             .background {
@@ -739,8 +741,10 @@ struct DiscoverView: View {
         isWide: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        let resolvedCardSize = cardSize ?? (isNativeClean ? 160 : 168)
-        let cardWidth = isWide ? resolvedCardSize * 2 : resolvedCardSize
+        let isRegular = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
+        let defaultSize: CGFloat = isRegular ? 180 : (isNativeClean ? 160 : 168)
+        let resolvedCardSize = cardSize ?? defaultSize
+        let cardWidth = isWide ? (isRegular ? 380 : resolvedCardSize * 2) : resolvedCardSize
         let cardHeight = resolvedCardSize
         return Button(action: action) {
             ZStack(alignment: .bottomLeading) {
@@ -979,7 +983,8 @@ struct DiscoverView: View {
     }
 
     private func recentSongCard(_ song: Song, index: Int) -> some View {
-        let size: CGFloat = isNativeClean ? 156 : 136
+        let isRegular = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
+        let size: CGFloat = isRegular ? 176 : (isNativeClean ? 156 : 136)
         return Button {
             ATMusicHaptics.tap()
             player.play(songs: recentPlayedSongs, startAt: index)
@@ -1471,6 +1476,7 @@ struct QQTopListDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let topID: Int
     let name: String
@@ -1495,6 +1501,8 @@ struct QQTopListDetailView: View {
                     ErrorStateView(message: errorMessage) {
                         Task { await load() }
                     }
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadQQTopListLayout
                 } else {
                     List {
                         Section {
@@ -1530,6 +1538,92 @@ struct QQTopListDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
+    }
+
+
+    private var iPadQQTopListLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                if let cover = tracks.first?.coverURL {
+                    CoverImage(url: cover, size: 240, cornerRadius: 24)
+                        .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(LinearGradient(colors: [Color.green.opacity(0.8), Color.mint.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 240, height: 240)
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white)
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(atmusicChartName(name))
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    Text("QQ 音乐 · 官方排行榜")
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(filteredTracks.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !filteredTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: filteredTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: filteredTracks.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(filteredTracks.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: filteredTracks,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: filteredTracks, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
     }
 
     private var filteredTracks: [Song] {
@@ -1584,6 +1678,7 @@ struct QQPlaylistSongsSheet: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let playlist: Playlist
     @State private var tracks: [Song] = []
@@ -1602,6 +1697,8 @@ struct QQPlaylistSongsSheet: View {
                     ErrorStateView(message: errorMessage) {
                         Task { await load() }
                     }
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadQQPlaylistLayout
                 } else {
                     List {
                         Section {
@@ -1639,6 +1736,82 @@ struct QQPlaylistSongsSheet: View {
         .task { await load() }
     }
 
+
+    private var iPadQQPlaylistLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                CoverImage(url: playlist.coverURL, size: 240, cornerRadius: 24)
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(playlist.name)
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    if !playlist.creatorName.isEmpty {
+                        Text(playlist.creatorName)
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+
+                    Text(atmusicSongCountText(filteredTracks.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !filteredTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: filteredTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: filteredTracks.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(filteredTracks.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: filteredTracks,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: filteredTracks, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
+    }
+
     private var filteredTracks: [Song] {
         let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !kw.isEmpty else { return tracks }
@@ -1669,6 +1842,7 @@ struct DailySongsSheet: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let songs: [Song]
     @State private var searchText = ""
@@ -1680,6 +1854,8 @@ struct DailySongsSheet: View {
                 Group {
                 if songs.isEmpty {
                     EmptyStateView(icon: "sparkles", text: "今日推荐加载中，下拉刷新试试")
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadDailySongsLayout
                 } else {
                     List {
                     Section {
@@ -1717,6 +1893,99 @@ struct DailySongsSheet: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索每日推荐", "Search daily recommendations"))
     }
 
+
+    private var iPadDailySongsLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(red: 0.94, green: 0.22, blue: 0.35), Color(red: 0.88, green: 0.14, blue: 0.45)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 240, height: 240)
+                        .shadow(color: Color.red.opacity(0.28), radius: 18, x: 0, y: 10)
+
+                    VStack(spacing: 8) {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 50, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Text("\(Calendar.current.component(.day, from: Date()))")
+                            .font(ATMusicFont.appFont(40, .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("今日推荐")
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+
+                    Text("每天 6:00 更新 · 专属定制")
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(filteredSongs.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !filteredSongs.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: filteredSongs, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: filteredSongs.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(filteredSongs.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: filteredSongs,
+                                playbackIndex: index
+                            ) {
+                                ATMusicHaptics.tap()
+                                player.play(songs: filteredSongs, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
+    }
+
     private var filteredSongs: [Song] {
         let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !kw.isEmpty else { return songs }
@@ -1733,6 +2002,7 @@ struct TopListDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let topList: TopList
     @State private var tracks: [Song] = []
@@ -1755,6 +2025,8 @@ struct TopListDetailView: View {
                     ErrorStateView(message: errorMessage) {
                         Task { await load() }
                     }
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadTopListLayout
                 } else {
                     List {
                         header
@@ -1791,6 +2063,80 @@ struct TopListDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
+    }
+
+
+    private var iPadTopListLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                CoverImage(url: topList.coverURL, size: 240, cornerRadius: 24)
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(atmusicChartName(topList.name))
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    Text(atmusicChartSubtitle(topList.updateFrequency))
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(filteredTracks.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !filteredTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: filteredTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: filteredTracks.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(filteredTracks.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: filteredTracks,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: filteredTracks, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
     }
 
     private var header: some View {
@@ -1871,6 +2217,7 @@ struct KugouTopListDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let topList: KugouTopInfo
     @State private var tracks: [Song] = []
@@ -1895,6 +2242,8 @@ struct KugouTopListDetailView: View {
                     }
                 } else if tracks.isEmpty {
                     EmptyStateView(icon: "music.note.list", text: atmusicLocalized("该排行榜暂无歌曲", "This chart has no songs yet"))
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadKugouTopListLayout
                 } else {
                     List {
                         header
@@ -1931,6 +2280,83 @@ struct KugouTopListDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
+    }
+
+
+    private var iPadKugouTopListLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                CoverImage(url: topList.coverURL, size: 240, cornerRadius: 24)
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(atmusicChartName(topList.name))
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    if !topList.updateFrequency.isEmpty {
+                        Text(atmusicChartSubtitle(topList.updateFrequency))
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+                            .lineLimit(2)
+                    }
+
+                    Text(atmusicSongCountText(filteredTracks.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !filteredTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: filteredTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: filteredTracks.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(filteredTracks.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: filteredTracks,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: filteredTracks, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
     }
 
     private var header: some View {

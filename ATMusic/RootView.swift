@@ -429,6 +429,7 @@ struct FeaturedView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @AppStorage("atmusic.featuredSource") private var featuredSourceRaw = FeaturedSource.netease.rawValue
 
@@ -467,7 +468,7 @@ struct FeaturedView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     featuredSearchField
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
                         .padding(.bottom, 14)
                     categoryChips
                         .padding(.bottom, 12)
@@ -497,6 +498,8 @@ struct FeaturedView: View {
                     .atmusicScrollPosition($scrollID)
                     .refreshable { await load(reset: true) }
                 }
+                .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                .frame(maxWidth: .infinity)
             }
             .onAppear {
                 categories = FeaturedSource.defaultCategories(for: featuredSource)
@@ -571,7 +574,7 @@ struct FeaturedView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
         .padding(.top, 10)
         .padding(.bottom, 14)
     }
@@ -590,6 +593,7 @@ struct FeaturedView: View {
         .background {
             ATMusicGlass(shape: Capsule())
         }
+        .frame(maxWidth: DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 460 : .infinity, alignment: .leading)
     }
 
     private var categoryChips: some View {
@@ -617,14 +621,19 @@ struct FeaturedView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
         }
     }
 
     private var playlistGrid: some View {
         LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
-            spacing: 18
+            columns: DeviceLayoutHelper.adaptiveCardColumns(
+                for: horizontalSizeClass,
+                minWidth: 160,
+                maxWidth: 240,
+                spacing: 16
+            ),
+            spacing: 20
         ) {
             ForEach(playlists, id: \.identityKey) { playlist in
                 NavigationLink {
@@ -648,7 +657,7 @@ struct FeaturedView: View {
                 }
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
         .padding(.bottom, 190)
     }
 

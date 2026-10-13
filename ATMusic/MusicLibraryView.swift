@@ -474,8 +474,17 @@ struct MusicLibraryHomeView: View {
                 .font(ATMusicFont.appFont(16, .bold))
                 .foregroundStyle(Color.atmusicLabel)
 
-            // 若 NAS 已连接展示 2x2 四宫格；若未连接则自动隐藏 NAS，3 个入口平分横排，不占版面
-            if synology.isLoggedIn {
+            if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: synology.isLoggedIn ? 4 : 3), spacing: 12) {
+                    recentCard
+                    localCard
+                    favPlaylistsCard
+                    if synology.isLoggedIn {
+                        nasCard
+                    }
+                }
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            } else if synology.isLoggedIn {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     recentCard
                     localCard
@@ -871,12 +880,34 @@ private enum MusicLibraryPlaylistFilter: String, CaseIterable, Identifiable {
 struct MusicLibraryHistoryView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         ZStack {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             if player.history.isEmpty {
                 EmptyStateView(icon: "clock.arrow.circlepath", text: "暂无播放历史")
+            } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                ScrollView {
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(player.history.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(song: song, glassRow: true, playbackContext: player.history, playbackIndex: index) {
+                                player.play(songs: player.history, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.top, 16)
+                    .padding(.bottom, 120)
+                }
+                .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                .frame(maxWidth: .infinity)
             } else {
                 List {
                     ForEach(Array(player.history.enumerated()), id: \.element.identityKey) { index, song in
@@ -913,6 +944,7 @@ struct MusicLibraryAllPlaylistsView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var playlistStore = MusicLibraryPlaylistStore.shared
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
@@ -1019,40 +1051,90 @@ struct MusicLibraryAllPlaylistsView: View {
                     .padding(.vertical, 10)
                 }
 
-                List {
-                    if items.isEmpty {
-                        EmptyStateView(icon: "music.note.list", text: "这个分类还没有歌单")
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    } else {
-                        ForEach(items) { item in
-                            switch item.kind {
-                            case .remote(let playlist):
-                                NavigationLink {
-                                    PlaylistView(playlist: playlist)
-                                        .onAppear { activityStore.mark(item.id) }
-                                } label: {
-                                    MusicLibraryPlaylistRow(item: item)
+                if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    ScrollView {
+                        if items.isEmpty {
+                            EmptyStateView(icon: "music.note.list", text: "这个分类还没有歌单")
+                                .padding(.top, 60)
+                        } else {
+                            LazyVGrid(
+                                columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 18),
+                                spacing: 22
+                            ) {
+                                ForEach(items) { item in
+                                    switch item.kind {
+                                    case .remote(let playlist):
+                                        NavigationLink {
+                                            PlaylistView(playlist: playlist)
+                                                .onAppear { activityStore.mark(item.id) }
+                                        } label: {
+                                            MediaSquareCard(playlist: playlist)
+                                        }
+                                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                                    case .local(let id):
+                                        NavigationLink {
+                                            LocalPlaylistBrowserView(playlistID: id)
+                                                .onAppear { activityStore.mark(item.id) }
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                CoverImage(url: item.coverURL, size: 160, cornerRadius: 16)
+                                                Text(item.title)
+                                                    .font(ATMusicFont.appFont(14, .semibold))
+                                                    .foregroundStyle(Color.atmusicLabel)
+                                                    .lineLimit(1)
+                                                Text(item.subtitle)
+                                                    .font(ATMusicFont.appFont(12))
+                                                    .foregroundStyle(Color.atmusicComment)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                                    }
                                 }
-                                .listRowInsets(EdgeInsets())
+                            }
+                            .padding(.horizontal, 28)
+                            .padding(.top, 16)
+                            .padding(.bottom, 120)
+                        }
+                    }
+                    .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List {
+                        if items.isEmpty {
+                            EmptyStateView(icon: "music.note.list", text: "这个分类还没有歌单")
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                            case .local(let id):
-                                NavigationLink {
-                                    LocalPlaylistBrowserView(playlistID: id)
-                                        .onAppear { activityStore.mark(item.id) }
-                                } label: {
-                                    MusicLibraryPlaylistRow(item: item)
+                        } else {
+                            ForEach(items) { item in
+                                switch item.kind {
+                                case .remote(let playlist):
+                                    NavigationLink {
+                                        PlaylistView(playlist: playlist)
+                                            .onAppear { activityStore.mark(item.id) }
+                                    } label: {
+                                        MusicLibraryPlaylistRow(item: item)
+                                    }
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
+                                case .local(let id):
+                                    NavigationLink {
+                                        LocalPlaylistBrowserView(playlistID: id)
+                                            .onAppear { activityStore.mark(item.id) }
+                                    } label: {
+                                        MusicLibraryPlaylistRow(item: item)
+                                    }
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
                                 }
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
                             }
                         }
                     }
+                    .atmusicScrollContentBackgroundHidden()
+                    .listStyle(.plain)
                 }
-                .atmusicScrollContentBackgroundHidden()
-                .listStyle(.plain)
             }
         }
         .navigationTitle("全部歌单")
@@ -1527,6 +1609,7 @@ struct LocalPlaylistCollectionView: View {
 
 struct LocalPlaylistBrowserView: View {
     @EnvironmentObject private var player: PlayerManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var store = LocalLibraryStore.shared
 
     let playlistID: UUID
@@ -1548,37 +1631,128 @@ struct LocalPlaylistBrowserView: View {
     }
 
     var body: some View {
-        List {
-            if !songs.isEmpty {
-                Section {
-                    HStack(spacing: 10) {
-                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
-                            player.play(songs: songs, startAt: 0)
-                        }
-                        GlassButton(title: "随机播放", systemName: "shuffle") {
-                            player.play(songs: songs.shuffled(), startAt: 0)
+        Group {
+            if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                iPadLocalPlaylistLayout
+            } else {
+                List {
+                    if !songs.isEmpty {
+                        Section {
+                            HStack(spacing: 10) {
+                                GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                    player.play(songs: songs, startAt: 0)
+                                }
+                                GlassButton(title: "随机播放", systemName: "shuffle") {
+                                    player.play(songs: songs.shuffled(), startAt: 0)
+                                }
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
-            }
 
-            Section {
-                ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
-                        player.play(songs: songs, startAt: index)
+                    Section {
+                        ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                                player.play(songs: songs, startAt: index)
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
                 }
+                .atmusicScrollContentBackgroundHidden()
+                .listStyle(.plain)
             }
         }
-        .atmusicScrollContentBackgroundHidden()
-        .listStyle(.plain)
         .navigationTitle(playlist?.name ?? "本地歌单")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索歌单歌曲")
+    }
+
+    private var iPadLocalPlaylistLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                if let cover = songs.first?.coverURL {
+                    CoverImage(url: cover, size: 240, cornerRadius: 24)
+                        .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(LinearGradient(colors: [Color.orange.opacity(0.85), Color.pink.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 240, height: 240)
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white)
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(playlist?.name ?? "本地歌单")
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(2)
+
+                    Text("本地自建歌单")
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(songs.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !songs.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: songs, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: songs.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(songs.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: songs,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: songs, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
     }
 }
 
@@ -1605,6 +1779,7 @@ struct SynologyFileLibraryView: View {
 struct UnifiedFavoritesDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var favorites = FavoritesStore.shared
     @State private var query = ""
@@ -1650,79 +1825,191 @@ struct UnifiedFavoritesDetailView: View {
     var body: some View {
         ZStack {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
-            List {
-                if !displayedSongs.isEmpty {
-                    Section {
-                        HStack(spacing: 10) {
-                            GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
-                                player.play(songs: displayedSongs, startAt: 0)
-                            }
-                            GlassButton(title: "随机播放", systemName: "shuffle") {
-                                player.play(songs: displayedSongs.shuffled(), startAt: 0)
+            Group {
+                if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadFavoritesLayout
+                } else {
+                    List {
+                        if !displayedSongs.isEmpty {
+                            Section {
+                                HStack(spacing: 10) {
+                                    GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                        player.play(songs: displayedSongs, startAt: 0)
+                                    }
+                                    GlassButton(title: "随机播放", systemName: "shuffle") {
+                                        player.play(songs: displayedSongs.shuffled(), startAt: 0)
+                                    }
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                             }
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                }
 
-                Section {
-                    ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        HStack(spacing: 12) {
-                            CoverImage(url: song.coverURL, size: 48, cornerRadius: 8)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(song.name)
-                                    .font(ATMusicFont.appFont(15, .semibold))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                    .lineLimit(1)
-                                HStack(spacing: 6) {
-                                    SourceBadgeView(source: song.source, compact: true)
-                                    Text("\(song.artists) · \(song.album)")
-                                        .font(ATMusicFont.appFont(12))
-                                        .foregroundStyle(Color.atmusicComment)
-                                        .lineLimit(1)
+                        Section {
+                            ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                                HStack(spacing: 12) {
+                                    CoverImage(url: song.coverURL, size: 48, cornerRadius: 8)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(song.name)
+                                            .font(ATMusicFont.appFont(15, .semibold))
+                                            .foregroundStyle(Color.atmusicLabel)
+                                            .lineLimit(1)
+                                        HStack(spacing: 6) {
+                                            SourceBadgeView(source: song.source, compact: true)
+                                            Text("\(song.artists) · \(song.album)")
+                                                .font(ATMusicFont.appFont(12))
+                                                .foregroundStyle(Color.atmusicComment)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    Spacer()
+                                    Button {
+                                        Task {
+                                            await favorites.toggleFavorite(song)
+                                        }
+                                    } label: {
+                                        Image(systemName: "heart.fill")
+                                            .foregroundStyle(.red)
+                                            .font(.system(size: 16))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    player.play(songs: displayedSongs, startAt: index)
+                                }
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await favorites.toggleFavorite(song)
+                                        }
+                                    } label: {
+                                        Label("取消收藏", systemImage: "heart.slash")
+                                    }
                                 }
                             }
-                            Spacer()
-                            Button {
-                                Task {
-                                    await favorites.toggleFavorite(song)
-                                }
-                            } label: {
-                                Image(systemName: "heart.fill")
-                                    .foregroundStyle(.red)
-                                    .font(.system(size: 16))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            player.play(songs: displayedSongs, startAt: index)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                Task {
-                                    await favorites.toggleFavorite(song)
-                                }
-                            } label: {
-                                Label("取消收藏", systemImage: "heart.slash")
+                        } header: {
+                            HStack {
+                                Text("\(displayedSongs.count) 首歌曲")
+                                    .font(ATMusicFont.appFont(12, .medium))
+                                    .foregroundStyle(Color.atmusicComment)
+                                Spacer()
                             }
                         }
                     }
-                } header: {
-                    HStack {
-                        Text("\(displayedSongs.count) 首歌曲")
-                            .font(ATMusicFont.appFont(12, .medium))
-                            .foregroundStyle(Color.atmusicComment)
-                        Spacer()
-                    }
+                    .listStyle(.insetGrouped)
+                    .searchable(text: $query, prompt: "搜索收藏歌曲")
+                    .atmusicScrollContentBackgroundHidden()
                 }
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $query, prompt: "搜索收藏歌曲")
-            .atmusicScrollContentBackgroundHidden()
         }
         .navigationTitle("我喜欢的音乐")
         .navigationBarTitleDisplayMode(.large)
+    }
+
+    private var iPadFavoritesLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            VStack(alignment: .leading, spacing: 18) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(red: 0.94, green: 0.22, blue: 0.35), Color(red: 0.88, green: 0.14, blue: 0.45)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 240, height: 240)
+                        .shadow(color: Color.red.opacity(0.28), radius: 18, x: 0, y: 10)
+
+                    let covers = Array(allSongs.compactMap(\.coverURL).prefix(4))
+                    if covers.count >= 4 {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
+                            ForEach(0..<4, id: \.self) { idx in
+                                CoverImage(url: covers[idx], size: 108, cornerRadius: 10)
+                            }
+                        }
+                        .frame(width: 224, height: 224)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Color.black.opacity(0.25))
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 64, weight: .bold))
+                                .foregroundStyle(.white)
+                                .shadow(radius: 6)
+                        }
+                    } else {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 80, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 6)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("我喜欢的音乐")
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+
+                    Text("全平台与本地收藏聚合")
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicComment)
+
+                    Text(atmusicSongCountText(displayedSongs.count))
+                        .font(ATMusicFont.appFont(13))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+
+                if !displayedSongs.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: displayedSongs, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            player.play(songs: displayedSongs.shuffled(), startAt: 0)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("歌曲列表 (\(displayedSongs.count))")
+                            .font(ATMusicFont.appFont(16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                            SongCell(
+                                song: song,
+                                glassRow: true,
+                                playbackContext: displayedSongs,
+                                playbackIndex: index
+                            ) {
+                                player.play(songs: displayedSongs, startAt: index)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.primary.opacity(0.03))
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
+        }
     }
 }
