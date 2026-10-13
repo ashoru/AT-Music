@@ -2328,11 +2328,11 @@ struct AlbumDetailView: View {
     /// 群晖 NAS 高保真参数看板
     private var nasMasterSpecBar: some View {
         HStack(spacing: 12) {
-            Label("本地局域网直连", systemName: "bolt.horizontal.fill")
+            Label("本地局域网直连", systemImage: "bolt.horizontal.fill")
             Spacer()
-            Label("无损原盘音质", systemName: "waveform")
+            Label("无损原盘音质", systemImage: "waveform")
             Spacer()
-            Label("支持多音轨/分盘", systemName: "opticaldisc.fill")
+            Label("支持多音轨/分盘", systemImage: "opticaldisc.fill")
         }
         .font(ATMusicFont.appFont(11, .medium))
         .foregroundStyle(Color.atmusicComment)
@@ -2340,10 +2340,10 @@ struct AlbumDetailView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.atmusicCardBg.opacity(0.6))
+                .fill(Color.atmusicCard.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.atmusicGlassBorder.opacity(0.5), lineWidth: 0.5)
+                        .stroke(Color.atmusicLabel.opacity(0.12), lineWidth: 0.5)
                 )
         )
     }

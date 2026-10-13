@@ -863,13 +863,13 @@ final class SynologyAPI: ObservableObject {
         }
         
         return filtered.sorted {
-            if /bin/sh.discNumber != .discNumber {
-                return /bin/sh.discNumber < .discNumber
+            if $0.discNumber != $1.discNumber {
+                return $0.discNumber < $1.discNumber
             }
-            if /bin/sh.trackNumber != .trackNumber {
-                return /bin/sh.trackNumber < .trackNumber
+            if $0.trackNumber != $1.trackNumber {
+                return $0.trackNumber < $1.trackNumber
             }
-            return /bin/sh.id < .id
+            return $0.id < $1.id
         }
     }
 

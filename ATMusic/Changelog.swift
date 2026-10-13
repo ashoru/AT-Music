@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.14-build-63-album-multi-disc-sorting-and-nas-isolation",
+            version: "1.9.14",
+            title: "重构专辑页歌曲排序与多 CD 分盘展示、独立隔离 NAS 专辑",
+            features: [
+                "核心模型层扩展（多 CD 专辑与音轨序号）：Song 结构体原生支持 discNumber（盘号）与 trackNumber（音轨号），全量兼容 Codable 序列化与本地/远程字典解析",
+                "多平台音轨信息对齐：群晖 NAS、QQ 音乐、网易云音乐接口全面提取 CD 盘号与专辑内音轨序号，彻底杜绝大碟音轨乱序",
+                "AlbumDetailView 曲目双键严格保序：专辑曲目列表优先按 discNumber 升序、同盘按 trackNumber 升序排列，完美重现官方发售音轨顺序",
+                "多 CD 大碟分盘看板（CD 1 / CD 2）：多盘专辑自动按盘号分段展示，并提供专属「播放本盘」快捷控制项",
+                "群晖 NAS 私有库专属隔离与音质看板：专属琥珀金流动徽标与 NAS 原盘音质提示，与在线流媒体严格纯净隔离"
+            ],
+            fixes: [
+                "修复多 CD 专辑曲目跨盘序号相同导致的排序交织问题",
+                "修复群晖 NAS 歌曲解析音轨标签时丢失 disc 盘号的缺陷"
+            ]
+        ),
+        VersionLog(
             id: "1.9.12-build-62-official-first-audio-fidelity-restoration",
             version: "1.9.13",
             title: "紧急恢复官方会员原生满血音轨、多级官方音质阶梯降级与杜绝误判第三方劣质源",

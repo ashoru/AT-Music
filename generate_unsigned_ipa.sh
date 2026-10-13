@@ -25,7 +25,12 @@ VERSION="$(grep -m1 'MARKETING_VERSION = ' "$PBXPROJ" | sed -E 's/.*= ([^;]+);/\
 OLD_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION = ' "$PBXPROJ" | sed -E 's/.*= ([0-9]+);/\1/')"
 [[ -n "$VERSION" ]] || VERSION="1.8.8"
 [[ "$OLD_BUILD" =~ ^[0-9]+$ ]] || OLD_BUILD="41"
-NEW_BUILD=$((OLD_BUILD + 1))
+TARGET_BUILD="${TARGET_BUILD:-}"
+if [[ -n "$TARGET_BUILD" ]]; then
+  NEW_BUILD="$TARGET_BUILD"
+else
+  NEW_BUILD=$((OLD_BUILD + 1))
+fi
 
 say "准备构建 AT Music $VERSION (Build $OLD_BUILD -> $NEW_BUILD)"
 
@@ -81,9 +86,11 @@ rm -rf "$PAYLOAD_DIR"
 cp -f "$IPA_PATH" "$LATEST_IPA"
 
 # 更新工程 build 号
-perl -0pi -e "s/CURRENT_PROJECT_VERSION = ${OLD_BUILD};/CURRENT_PROJECT_VERSION = ${NEW_BUILD};/g" "$PBXPROJ"
-if [[ -f "$PROJECT_YML" ]]; then
-  perl -0pi -e "s/CURRENT_PROJECT_VERSION: \"${OLD_BUILD}\"/CURRENT_PROJECT_VERSION: \"${NEW_BUILD}\"/g" "$PROJECT_YML"
+if [[ "$OLD_BUILD" != "$NEW_BUILD" ]]; then
+  perl -0pi -e "s/CURRENT_PROJECT_VERSION = ${OLD_BUILD};/CURRENT_PROJECT_VERSION = ${NEW_BUILD};/g" "$PBXPROJ"
+  if [[ -f "$PROJECT_YML" ]]; then
+    perl -0pi -e "s/CURRENT_PROJECT_VERSION: \"${OLD_BUILD}\"/CURRENT_PROJECT_VERSION: \"${NEW_BUILD}\"/g" "$PROJECT_YML"
+  fi
 fi
 
 # 同步到 iCloud（若脚本存在）
