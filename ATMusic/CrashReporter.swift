@@ -73,7 +73,14 @@ final class CrashReporter {
         """
         try? content.data(using: .utf8)?.write(to: file, options: .atomic)
 
-        // 同时写入 App 内日志，便于直接查看
-        ATMusicLogger.shared.log("检测到崩溃/异常：\(text.components(separatedBy: "\n").first ?? text)", level: .error)
+        // 同时写入 App 内日志，便于直接查看与反馈排查
+        let lines = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let firstLine = lines.first ?? text
+        let reasonLine = lines.first(where: { $0.hasPrefix("reason:") })
+        let summary = [firstLine, reasonLine].compactMap { $0 }.joined(separator: " | ")
+        ATMusicLogger.shared.log("检测到崩溃/异常：\(summary)", level: .error)
+        for line in lines.dropFirst().prefix(15) {
+            ATMusicLogger.shared.log(line, level: .error)
+        }
     }
 }

@@ -603,6 +603,7 @@ final class PlayerManager: NSObject, ObservableObject {
     // MARK: - 队列轻量后台预解析与双播放器热备管线（Apple Music 级无感切歌保障）
 
     private var preResolveTask: Task<Void, Never>?
+    private var preResolvingSongKey: String?
 
     private func prepareStandbyPlayer(
         for nextSong: Song,
@@ -642,7 +643,6 @@ final class PlayerManager: NSObject, ObservableObject {
         standby.automaticallyWaitsToMinimizeStalling = false
         standby.volume = 0
         standby.rate = 0
-        standby.preroll(atRate: Float(rate)) { _ in }
 
         self.standbyPlayback = StandbyPlayback(
             player: standby,
@@ -657,6 +657,9 @@ final class PlayerManager: NSObject, ObservableObject {
     }
 
     private func cleanStandbyPlayer() {
+        preResolveTask?.cancel()
+        preResolveTask = nil
+        preResolvingSongKey = nil
         guard let standby = standbyPlayback else { return }
         standbyPlayback = nil
         standby.player.pause()
@@ -686,9 +689,21 @@ final class PlayerManager: NSObject, ObservableObject {
             return
         }
 
+        if preResolvingSongKey == nextSong.identityKey && preResolveTask != nil {
+            return
+        }
+
         preResolveTask?.cancel()
+        preResolvingSongKey = nextSong.identityKey
         preResolveTask = Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
+            defer {
+                Task { @MainActor in
+                    if self.preResolvingSongKey == nextSong.identityKey {
+                        self.preResolvingSongKey = nil
+                    }
+                }
+            }
             let cachedURL = await MainActor.run {
                 MusicCacheManager.shared.cachedURL(for: nextSong, quality: quality)
             }
@@ -1821,7 +1836,8 @@ final class PlayerManager: NSObject, ObservableObject {
                itemDuration.seconds > 10,
                time.seconds.isFinite,
                time.seconds >= itemDuration.seconds * 0.7,
-               self.standbyPlayback == nil {
+               self.standbyPlayback == nil,
+               self.preResolvingSongKey == nil {
                 self.preResolveNextTrackURL()
             }
 

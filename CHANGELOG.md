@@ -1,5 +1,12 @@
 # AT Music 更新日志
 
+## 1.9.14 build 67
+
+### 紧急修复热备播放器 preroll 引起的闪退 Bug 与解析任务防抖加固
+- **彻底根治 NSInvalidArgumentException 闪退顽疾**：移除对未就绪 AVPlayerItem 强行调用 preroll(atRate:) 导致的系统级崩溃，采用原生安全静默缓冲管道。
+- **预热解析任务防抖加固**：新增 preResolvingSongKey 状态屏障，解决播放进度达 70% 后定时器反复取消并重建下一首解析任务的抖动缺陷。
+- **崩溃日志捕获深度增强**：CrashReporter 将未捕获异常的完整 reason 描述与前 15 级调用栈符号直通写入 App 诊断日志，杜绝信息丢失。
+
 ## 1.9.14 build 66
 
 ### iPadOS 全页面排版重构，对标 Apple Music 宽屏两栏与自适应网格体验

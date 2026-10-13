@@ -48,6 +48,20 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.14-build-67-fix-standby-player-crash",
+            version: "1.9.14",
+            title: "紧急修复热备播放器 preroll 引起的闪退 Bug 与解析任务防抖加固",
+            features: [
+                "彻底根治 NSInvalidArgumentException 闪退顽疾：移除对未就绪 AVPlayerItem 强行调用 preroll(atRate:) 导致的系统级崩溃，采用原生安全静默缓冲管道",
+                "预热解析任务防抖加固：新增 preResolvingSongKey 状态屏障，解决播放进度达 70% 后定时器反复取消并重建下一首解析任务的抖动缺陷",
+                "崩溃日志捕获深度增强：CrashReporter 将未捕获异常的完整 reason 描述与前 15 级调用栈符号直通写入 App 诊断日志，杜绝信息丢失"
+            ],
+            fixes: [
+                "解决后台预缓存下一首歌曲完成瞬间偶发 SIGABRT 异常闪退的致命 Bug",
+                "消除连续切歌或播放过程中高频出现的「QQ musicu 异常 error=已取消」误报"
+            ]
+        ),
+        VersionLog(
             id: "1.9.14-build-66-ipad-apple-music-panoramic-redesign",
             version: "1.9.14",
             title: "iPadOS 全页面排版重构，对标 Apple Music 宽屏两栏与自适应网格体验",
