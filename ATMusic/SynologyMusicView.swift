@@ -2324,6 +2324,8 @@ struct SynologyArtistView: View {
 /// NAS 专辑详情，结构与 Apple Music 的专辑页一致：头部封面、播放操作、歌曲列表。
 struct SynologyAlbumView: View {
     @EnvironmentObject private var player: PlayerManager
+    @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var synology = SynologyAPI.shared
 
     let albumName: String
@@ -2335,36 +2337,76 @@ struct SynologyAlbumView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
 
+    /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序
+    private var sortedTracks: [Song] {
+        tracks.sorted {
+            if $0.discNumber != $1.discNumber { return $0.discNumber < $1.discNumber }
+            if $0.trackNumber != $1.trackNumber { return $0.trackNumber < $1.trackNumber }
+            return $0.id < $1.id
+        }
+    }
+
+    /// 多 CD 分组模型（Apple Music 规范）
+    private var discGroups: [(disc: Int, songs: [Song])] {
+        let grouped = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
+        return grouped.keys.sorted().map { ($0, grouped[$0]!) }
+    }
+
     var body: some View {
         ZStack {
+            GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             if isLoading {
                 LoadingStateView()
             } else if let errorMessage, tracks.isEmpty {
                 ErrorStateView(message: errorMessage) { Task { await load() } }
+            } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                iPadAlbumLayout
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         albumHeader
-                        if !tracks.isEmpty {
+                        if !sortedTracks.isEmpty {
                             HStack(spacing: 10) {
                                 GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
-                                    player.play(songs: tracks, startAt: 0)
+                                    player.play(songs: sortedTracks, startAt: 0)
                                 }
                                 GlassButton(title: "随机播放", systemName: "shuffle") {
-                                    player.play(songs: tracks, startAt: Int.random(in: 0..<tracks.count))
+                                    guard !sortedTracks.isEmpty else { return }
+                                    player.play(songs: sortedTracks.shuffled(), startAt: 0)
+                                }
+                                if discGroups.count > 1 {
+                                    GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                                        player.play(songs: sortedTracks, startAt: 0)
+                                    }
                                 }
                             }
                             .padding(.horizontal, 16)
                         }
-                        VStack(alignment: .leading, spacing: 8) {
-                            SectionHeader(title: "歌曲")
-                            ForEach(Array(tracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: false, playbackContext: tracks, playbackIndex: index) {
-                                    player.play(songs: tracks, startAt: index)
+
+                        // 多 CD 分栏或普通歌曲列表
+                        if discGroups.count > 1 {
+                            ForEach(discGroups, id: \.disc) { group in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    discSectionHeader(discNumber: group.disc, songs: group.songs)
+                                    ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0) {
+                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                SectionHeader(title: "歌曲")
+                                ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                                    SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index) {
+                                        player.play(songs: sortedTracks, startAt: index)
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 16)
                     }
                     .padding(.top, 16)
                     .padding(.bottom, 36)
@@ -2378,25 +2420,261 @@ struct SynologyAlbumView: View {
     }
 
     private var albumHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .bottom, spacing: 16) {
-                CoverImage(url: tracks.first?.coverURL ?? coverURL, size: 170, cornerRadius: 12)
+                CoverImage(url: sortedTracks.first?.coverURL ?? coverURL, size: 160, cornerRadius: 18)
                 VStack(alignment: .leading, spacing: 7) {
+                    // 群晖 NAS 专属琥珀流光徽标
+                    HStack(spacing: 4) {
+                        Image(systemName: "externaldrive.fill.badge.checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("群晖 NAS · 私有无损库")
+                            .font(ATMusicFont.appFont(11, .bold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.atmusicAmber.opacity(0.18))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.atmusicAmber.opacity(0.35), lineWidth: 0.8)
+                    )
+
                     Text(albumName)
-                        .font(ATMusicFont.appFont(24, .bold))
+                        .font(ATMusicFont.appFont(22, .bold))
                         .foregroundStyle(Color.atmusicLabel)
                         .lineLimit(3)
                     Text(artistName.isEmpty ? "未知歌手" : artistName)
-                        .font(ATMusicFont.appFont(15, .medium))
-                        .foregroundStyle(Color.atmusicComment)
+                        .font(ATMusicFont.appFont(14, .medium))
+                        .foregroundStyle(artistName.isEmpty ? Color.atmusicComment : Color.atmusicAmber)
                         .lineLimit(2)
-                    Text("\(tracks.count) 首歌曲")
-                        .font(ATMusicFont.appFont(13))
-                        .foregroundStyle(Color.atmusicComment)
+                    HStack(spacing: 8) {
+                        Text(atmusicSongCountText(sortedTracks.count))
+                        if discGroups.count > 1 {
+                            Text("· \(discGroups.count) CD 大碟")
+                                .font(ATMusicFont.appFont(12, .semibold))
+                                .foregroundStyle(Color.atmusicAmber)
+                        }
+                    }
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
                 }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
+
+            // NAS 专属高解析无损库看板
+            HStack(spacing: 12) {
+                Label("本地局域网直连", systemImage: "bolt.horizontal.fill")
+                Spacer()
+                Label("无损原盘音质", systemImage: "waveform")
+                Spacer()
+                Label("支持多音轨/分盘", systemImage: "opticaldisc.fill")
+            }
+            .font(ATMusicFont.appFont(11, .medium))
+            .foregroundStyle(Color.atmusicComment)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.atmusicCard.opacity(0.6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.atmusicLabel.opacity(0.12), lineWidth: 0.5)
+                    )
+            )
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func discSectionHeader(discNumber: Int, songs: [Song]) -> some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "opticaldisc")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.atmusicAmber)
+                Text("CD \(discNumber)")
+                    .font(ATMusicFont.appFont(14, .bold))
+                    .foregroundStyle(Color.atmusicLabel)
+            }
+            Spacer()
+            Text("\(songs.count) 首歌曲")
+                .font(ATMusicFont.appFont(12))
+                .foregroundStyle(Color.atmusicComment)
+
+            Button {
+                if let firstIndex = sortedTracks.firstIndex(where: { $0.identityKey == songs.first?.identityKey }) {
+                    ATMusicHaptics.tap()
+                    player.play(songs: sortedTracks, startAt: firstIndex)
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "play.circle.fill")
+                    Text("播放本盘")
+                }
+                .font(ATMusicFont.appFont(12, .semibold))
+                .foregroundStyle(Color.atmusicAmber)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - iPad 宽屏两栏全景专辑布局（对标 iPadOS Apple Music 专辑页规范）
+
+    private var iPadAlbumLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            // 左栏：240pt 大封面 + NAS 专属属性看板 + 快捷播控
+            VStack(alignment: .leading, spacing: 18) {
+                CoverImage(url: sortedTracks.first?.coverURL ?? coverURL, size: 240, cornerRadius: 24)
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    // 群晖 NAS 专属琥珀流光徽标
+                    HStack(spacing: 4) {
+                        Image(systemName: "externaldrive.fill.badge.checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("群晖 NAS · 私有无损库")
+                            .font(ATMusicFont.appFont(11, .bold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.atmusicAmber.opacity(0.18))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.atmusicAmber.opacity(0.35), lineWidth: 0.8)
+                    )
+
+                    Text(albumName)
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(3)
+
+                    Text(artistName.isEmpty ? "未知歌手" : artistName)
+                        .font(ATMusicFont.appFont(14, .medium))
+                        .foregroundStyle(artistName.isEmpty ? Color.atmusicComment : Color.atmusicAmber)
+
+                    HStack(spacing: 8) {
+                        Text(atmusicSongCountText(sortedTracks.count))
+                        if discGroups.count > 1 {
+                            Text("· \(discGroups.count) CD 大碟")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicAmber)
+                        }
+                    }
+                    .font(ATMusicFont.appFont(13))
+                    .foregroundStyle(Color.atmusicComment)
+                }
+
+                // NAS 专属高解析无损库看板
+                HStack(spacing: 12) {
+                    Label("本地局域网直连", systemImage: "bolt.horizontal.fill")
+                    Spacer()
+                    Label("无损原盘音质", systemImage: "waveform")
+                    Spacer()
+                    Label("支持多音轨/分盘", systemImage: "opticaldisc.fill")
+                }
+                .font(ATMusicFont.appFont(11, .medium))
+                .foregroundStyle(Color.atmusicComment)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.atmusicCard.opacity(0.6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.atmusicLabel.opacity(0.12), lineWidth: 0.5)
+                        )
+                )
+
+                if !sortedTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: sortedTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            guard !sortedTracks.isEmpty else { return }
+                            player.play(songs: sortedTracks.shuffled(), startAt: 0)
+                        }
+                        if discGroups.count > 1 {
+                            GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                                player.play(songs: sortedTracks, startAt: 0)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            // 右栏：多 CD 分盘或双列自适应歌曲网格
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if discGroups.count > 1 {
+                        ForEach(discGroups, id: \.disc) { group in
+                            VStack(alignment: .leading, spacing: 10) {
+                                discSectionHeader(discNumber: group.disc, songs: group.songs)
+
+                                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                                    ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        SongCell(
+                                            song: song,
+                                            glassRow: true,
+                                            playbackContext: sortedTracks,
+                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0
+                                        ) {
+                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color.primary.opacity(0.03))
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 12)
+                        }
+                    } else {
+                        HStack {
+                            Text("歌曲列表 (\(sortedTracks.count))")
+                                .font(ATMusicFont.appFont(16, .bold))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+
+                        LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                            ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                                SongCell(
+                                    song: song,
+                                    glassRow: true,
+                                    playbackContext: sortedTracks,
+                                    playbackIndex: index
+                                ) {
+                                    player.play(songs: sortedTracks, startAt: index)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.primary.opacity(0.03))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
         }
     }
 
@@ -2413,6 +2691,16 @@ struct SynologyAlbumView: View {
                 isLoading = false
                 errorMessage = nil
             }
+        }
+        // 优先使用 Build 63 专为 NAS 专辑打造的直读接口（自带严格双键保序与全量曲目拉取）
+        let direct = await synology.albumSongs(albumName: albumName, artistName: artistName)
+        if !direct.isEmpty {
+            await MainActor.run {
+                tracks = direct
+                isLoading = false
+                errorMessage = nil
+            }
+            return
         }
         do {
             let allSongs = try await synology.librarySongs()

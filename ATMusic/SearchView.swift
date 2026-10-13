@@ -2121,6 +2121,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var tracks: [Song] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -2153,6 +2154,8 @@ struct AlbumDetailView: View {
                     LoadingStateView()
                 } else if let errorMessage {
                     ErrorStateView(message: errorMessage) { Task { await load() } }
+                } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                    iPadAlbumLayout
                 } else {
                     List {
                         // 头部信息与音源专属规格看板
@@ -2192,12 +2195,163 @@ struct AlbumDetailView: View {
             }
             .navigationTitle(album.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .task { await load() }
         .sheet(isPresented: $showArtistHome) {
             ArtistHomeSheet(artistName: album.artistName, artistSource: album.source)
                 .environmentObject(player)
                 .environmentObject(theme)
+        }
+    }
+
+    // MARK: - iPad 宽屏两栏全景专辑布局（对标 iPadOS Apple Music 专辑页规范）
+
+    private var iPadAlbumLayout: some View {
+        HStack(alignment: .top, spacing: 32) {
+            // 左栏：240pt 大封面 + 专辑属性与 NAS 规格看板 + 快捷播控
+            VStack(alignment: .leading, spacing: 18) {
+                CoverImage(url: album.coverURL, size: 240, cornerRadius: 24)
+                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    // 音源专属属性胶囊（平台 vs NAS 无损库清晰区分）
+                    sourceBadge
+
+                    Text(album.name)
+                        .font(ATMusicFont.appFont(22, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .lineLimit(3)
+
+                    Button {
+                        guard !album.artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        ATMusicHaptics.tap()
+                        showArtistHome = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
+                            if !album.artistName.isEmpty {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                        }
+                        .font(ATMusicFont.appFont(14, .medium))
+                        .foregroundStyle(album.artistName.isEmpty ? Color.atmusicComment : Color.atmusicAmber)
+                    }
+                    .buttonStyle(.plain)
+
+                    HStack(spacing: 8) {
+                        Text(atmusicSongCountText(sortedTracks.count))
+                        if discGroups.count > 1 {
+                            Text("· \(discGroups.count) CD 大碟")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicAmber)
+                        }
+                    }
+                    .font(ATMusicFont.appFont(13))
+                    .foregroundStyle(Color.atmusicComment)
+                }
+
+                // NAS 专属高解析无损库看板
+                if album.source == .synology {
+                    nasMasterSpecBar
+                }
+
+                if !sortedTracks.isEmpty {
+                    HStack(spacing: 12) {
+                        GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                            player.play(songs: sortedTracks, startAt: 0)
+                        }
+                        GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                            guard !sortedTracks.isEmpty else { return }
+                            player.play(songs: sortedTracks.shuffled(), startAt: 0)
+                        }
+                        if discGroups.count > 1 {
+                            GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                                player.play(songs: sortedTracks, startAt: 0)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: 260)
+            .padding(.leading, 32)
+            .padding(.top, 24)
+
+            // 右栏：多 CD 分盘或双列自适应歌曲网格
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if discGroups.count > 1 {
+                        ForEach(discGroups, id: \.disc) { group in
+                            VStack(alignment: .leading, spacing: 10) {
+                                discSectionHeader(discNumber: group.disc, songs: group.songs)
+
+                                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                                    ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                        SongCell(
+                                            song: song,
+                                            glassRow: true,
+                                            playbackContext: sortedTracks,
+                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0
+                                        ) {
+                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color.primary.opacity(0.03))
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, 12)
+                        }
+                    } else {
+                        HStack {
+                            Text("歌曲列表 (\(sortedTracks.count))")
+                                .font(ATMusicFont.appFont(16, .bold))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                        }
+                        .padding(.top, 4)
+
+                        LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                            ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                                SongCell(
+                                    song: song,
+                                    glassRow: true,
+                                    playbackContext: sortedTracks,
+                                    playbackIndex: index
+                                ) {
+                                    player.play(songs: sortedTracks, startAt: index)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.primary.opacity(0.03))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 32)
+                .padding(.bottom, 120)
+            }
         }
     }
 
