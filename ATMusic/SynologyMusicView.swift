@@ -903,6 +903,7 @@ struct SynologyAppleHomeSection: View {
     @State private var recommendationsUpdatedAt = Date.distantPast
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var selectedAlbum: Album?
 
     private var nasHistory: [Song] {
         player.history.filter { $0.source == .synology }
@@ -956,6 +957,17 @@ struct SynologyAppleHomeSection: View {
         .task {
             if synology.isLoggedIn { await load() }
         }
+        .sheet(item: $selectedAlbum) { album in
+            ATMusicNavigationStack {
+                SynologyAlbumView(
+                    albumName: album.name,
+                    artistName: album.artistName,
+                    coverURL: album.coverURL,
+                    initialSongs: songs.filter { $0.album == album.name }
+                )
+            }
+            .environmentObject(player)
+        }
     }
 
     @ViewBuilder
@@ -994,8 +1006,14 @@ struct SynologyAppleHomeSection: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(frequentAlbums) { song in
-                                    NavigationLink {
-                                       SynologyAlbumView(albumName: song.album, artistName: song.artists, coverURL: song.coverURL, initialSongs: songs.filter { $0.album == song.album })
+                                    Button {
+                                        selectedAlbum = Album(
+                                            id: "synology-album-\(SynologyAPI.stableID(song.album + song.artists))",
+                                            name: song.album,
+                                            artistName: song.artists,
+                                            coverURL: song.coverURL,
+                                            source: .synology
+                                        )
                                     } label: {
                                         SynologySquareTile(coverURL: song.coverURL, title: song.album, subtitle: song.artists)
                                     }
@@ -1343,6 +1361,7 @@ struct SynologyPlaylistCollectionView: View {
 /// 常听专辑全部页面：封面、专辑名、歌手和歌曲数保持统一行式排版。
 struct SynologyAlbumCollectionView: View {
     let songs: [Song]
+    @EnvironmentObject private var player: PlayerManager
     @State private var query = ""
 
     private var albums: [Song] {
@@ -1353,11 +1372,13 @@ struct SynologyAlbumCollectionView: View {
         return unique.filter { $0.album.localizedCaseInsensitiveContains(keyword) || $0.artists.localizedCaseInsensitiveContains(keyword) }
     }
 
+    @State private var selectedAlbum: Song?
+
     var body: some View {
         List {
             ForEach(albums) { album in
-                NavigationLink {
-                   SynologyAlbumView(albumName: album.album, artistName: album.artists, coverURL: album.coverURL, initialSongs: songs.filter { $0.album == album.album })
+                Button {
+                    selectedAlbum = album
                 } label: {
                     SynologyLibraryRow(
                         coverURL: album.coverURL,
@@ -1368,7 +1389,19 @@ struct SynologyAlbumCollectionView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+                .buttonStyle(.plain)
             }
+        }
+        .sheet(item: $selectedAlbum) { item in
+            ATMusicNavigationStack {
+                SynologyAlbumView(
+                    albumName: item.album,
+                    artistName: item.artists,
+                    coverURL: item.coverURL,
+                    initialSongs: songs.filter { $0.album == item.album }
+                )
+            }
+            .environmentObject(player)
         }
         .overlay {
             if albums.isEmpty {
@@ -2129,6 +2162,7 @@ struct SynologyArtistView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var selectedSection: ArtistDetailSection = .songs
+    @State private var selectedAlbum: Song?
 
     private enum ArtistDetailSection: String, CaseIterable, Identifiable {
         case songs = "歌曲"
@@ -2187,6 +2221,17 @@ struct SynologyArtistView: View {
         .navigationTitle(artistName)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(item: $selectedAlbum) { item in
+            ATMusicNavigationStack {
+                SynologyAlbumView(
+                    albumName: item.album,
+                    artistName: artistName,
+                    coverURL: item.coverURL,
+                    initialSongs: songs.filter { $0.album == item.album }
+                )
+            }
+            .environmentObject(player)
+        }
     }
 
     private var artistHeader: some View {
@@ -2210,8 +2255,8 @@ struct SynologyArtistView: View {
             SectionHeader(title: "专辑")
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 16) {
                 ForEach(albums) { album in
-                    NavigationLink {
-                       SynologyAlbumView(albumName: album.album, artistName: artistName, coverURL: album.coverURL, initialSongs: songs.filter { $0.album == album.album })
+                    Button {
+                        selectedAlbum = album
                     } label: {
                         SynologySquareTile(coverURL: album.coverURL, title: album.album, subtitle: "\(songsForAlbum(album).count) 首")
                     }
@@ -2324,7 +2369,7 @@ struct SynologyArtistView: View {
 /// NAS 专辑详情，结构与 Apple Music 的专辑页一致：头部封面、播放操作、歌曲列表。
 struct SynologyAlbumView: View {
     @EnvironmentObject private var player: PlayerManager
-    @EnvironmentObject private var theme: ThemeStore
+    @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var synology = SynologyAPI.shared
@@ -2347,10 +2392,36 @@ struct SynologyAlbumView: View {
         }
     }
 
-    /// 多 CD 分组模型（Apple Music 规范）
+    /// 多 CD 分组模型（Apple Music 规范，支持显式 discNumber 与隐式音轨重置识别）
     private var discGroups: [(disc: Int, songs: [Song])] {
-        let grouped = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
-        return grouped.keys.sorted().map { ($0, grouped[$0]!) }
+        let explicit = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
+        if explicit.keys.count > 1 {
+            return explicit.keys.sorted().map { ($0, explicit[$0]!) }
+        }
+        // 隐式检测：若 discNumber 全为 1，但曲目号重置为 1（典型多 CD 唱片未打盘号标签）
+        var groups: [(disc: Int, songs: [Song])] = []
+        var currentDisc = 1
+        var currentSongs: [Song] = []
+        var prevTrack = 0
+        for song in sortedTracks {
+            let trk = song.trackNumber
+            if trk == 1 && prevTrack >= 1 && !currentSongs.isEmpty {
+                groups.append((disc: currentDisc, songs: currentSongs))
+                currentDisc += 1
+                currentSongs = [song]
+                prevTrack = 1
+            } else {
+                currentSongs.append(song)
+                if trk > 0 { prevTrack = trk }
+            }
+        }
+        if !currentSongs.isEmpty {
+            groups.append((disc: currentDisc, songs: currentSongs))
+        }
+        if groups.count > 1 {
+            return groups
+        }
+        return explicit.keys.sorted().map { ($0, explicit[$0]!) }
     }
 
     var body: some View {
@@ -2502,53 +2573,65 @@ struct SynologyAlbumView: View {
         }
     }
 
-    private func discSectionHeader(discNumber: Int, songs: [Song]) -> some View {
+    private func discSectionHeader(discNumber: Int, songs: [Song], accentColor: Color = Color.atmusicAmber) -> some View {
         VStack(spacing: 8) {
             if discNumber > 1 {
                 HStack(spacing: 12) {
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.atmusicAmber.opacity(0.0), Color.atmusicAmber.opacity(0.35)],
+                                colors: [accentColor.opacity(0.0), accentColor.opacity(0.4)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .frame(height: 1)
                     
-                    Image(systemName: "opticaldisc")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.atmusicAmber.opacity(0.6))
+                    HStack(spacing: 6) {
+                        Image(systemName: "opticaldisc")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("分盘分割")
+                            .font(ATMusicFont.appFont(10, .semibold))
+                    }
+                    .foregroundStyle(accentColor.opacity(0.85))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(accentColor.opacity(0.1))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().strokeBorder(accentColor.opacity(0.25), lineWidth: 0.8)
+                    )
                     
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.atmusicAmber.opacity(0.35), Color.atmusicAmber.opacity(0.0)],
+                                colors: [accentColor.opacity(0.4), accentColor.opacity(0.0)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .frame(height: 1)
                 }
-                .padding(.vertical, 6)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
             }
 
             HStack {
                 HStack(spacing: 6) {
                     Image(systemName: "opticaldisc.fill")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.atmusicAmber)
+                        .foregroundStyle(accentColor)
                     Text("CD \(discNumber)")
                         .font(ATMusicFont.appFont(14, .bold))
                         .foregroundStyle(Color.atmusicLabel)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color.atmusicAmber.opacity(0.12))
+                .background(accentColor.opacity(0.12))
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.atmusicAmber.opacity(0.25), lineWidth: 0.8)
+                        .strokeBorder(accentColor.opacity(0.25), lineWidth: 0.8)
                 )
 
                 Spacer()
@@ -2568,7 +2651,7 @@ struct SynologyAlbumView: View {
                         Text("播放本盘")
                     }
                     .font(ATMusicFont.appFont(12, .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
+                    .foregroundStyle(accentColor)
                 }
                 .buttonStyle(.plain)
             }

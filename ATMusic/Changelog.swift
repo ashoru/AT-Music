@@ -48,6 +48,24 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.16-build-70-nas-direct-album-multi-cd-dividers",
+            version: "1.9.16",
+            title: "群晖 NAS 专辑直连秒开、多 CD 分盘专属分割线与盘内音轨序号重构",
+            features: [
+                "群晖 NAS 原生 WebAPI 专辑数据多级直调：直接调用群晖 Audio Station 原生 SYNO.AudioStation.Song 接口（GET 模式优先、支持 album/album_name/keyword 多级智能回退与简繁体双向自动转换），彻底解决 NAS 专辑无法打开的顽疾",
+                "多 CD 实体光盘分割线与专属标头：多 CD 唱片大碟各盘之间新增「分盘分割」高保真渐变流光分割线与 CD 1 / CD 2 实体光盘标头胶囊，分盘界限清晰美观",
+                "多 CD 盘内独立音轨序号（对标 Apple Music）：所有多 CD 专辑各盘内曲目序号严格按照该 CD 盘内编号自 1 开始独立编排，彻底告别跨盘累加或混乱",
+                "专辑详情弹窗安全环境与崩溃根除：修复所有播放器面板、搜索页及歌手页打开群晖专辑时因缺失 ThemeStore 导致的系统异常，全面改用 ATMusicNavigationStack 原生包装",
+                "常听专辑与歌手页交互重构：发现页常听专辑、常听歌手与专辑列表点击直达全功能专辑详情，彻底消除 iOS 16+ 导航堆栈失效缺陷",
+                "iPadOS 全景大碟深度同步适配：iPad 端专辑页左栏 260pt 大封面+右栏双列自适应多 CD 曲目流同步享受 CD 1 / CD 2 实体光盘分割线与盘内编号，顶部提供便捷关闭按钮"
+            ],
+            fixes: [
+                "彻底修复群晖 NAS 专辑页面无法打开、白屏或点击无反应的系统缺陷",
+                "修复多 CD 专辑中跨盘音轨号累加或缺失的缺陷，统一为盘内 1..N 独立排序",
+                "修复从正在播放界面及搜索页点击群晖专辑时偶发闪退的缺陷"
+            ]
+        ),
+        VersionLog(
             id: "1.9.15-build-69-stability-ui-lightweight-album-refactor",
             version: "1.9.15",
             title: "全局稳定性加固、UI 层次轻量化与音源/专辑深度重构",

@@ -363,10 +363,18 @@ struct Song: Identifiable, Hashable, Codable {
         comment = nil
         if let cdStr = json["cd"] as? String {
             discNumber = Int(cdStr) ?? 1
+        } else if let cdVal = json["cd"] as? Int {
+            discNumber = cdVal
+        } else if let discVal = json["disc"] as? Int {
+            discNumber = discVal
+        } else if let discStr = json["disc"] as? String {
+            discNumber = Int(discStr) ?? 1
+        } else if let discNoVal = json["discNo"] as? Int ?? json["disc_no"] as? Int {
+            discNumber = discNoVal
         } else {
-            discNumber = json["cd"] as? Int ?? 1
+            discNumber = 1
         }
-        trackNumber = json["no"] as? Int ?? (json["track"] as? Int ?? 0)
+        trackNumber = json["no"] as? Int ?? (json["track"] as? Int ?? (json["trackNo"] as? Int ?? (json["trackNumber"] as? Int ?? (json["track_number"] as? Int ?? 0))))
         fee = json["fee"] as? Int ?? 0
     }
 

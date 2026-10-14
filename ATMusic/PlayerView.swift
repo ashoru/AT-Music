@@ -713,14 +713,15 @@ struct PlayerView: View {
         }
         .sheet(item: $selectedAlbum) { album in
             if album.source == .synology {
-                NavigationView {
+                ATMusicNavigationStack {
                     SynologyAlbumView(
                         albumName: album.name,
                         artistName: album.artistName,
                         coverURL: album.coverURL
                     )
-                    .environmentObject(player)
                 }
+                .environmentObject(player)
+                .environmentObject(theme)
             } else {
                 AlbumDetailView(album: album)
                     .environmentObject(player)

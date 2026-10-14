@@ -455,6 +455,7 @@ struct SearchView: View {
                 )
             }
             .environmentObject(player)
+            .environmentObject(theme)
         }
         .sheet(item: $selectedPlaylist) { playlist in
             ATMusicNavigationStack {
@@ -2176,13 +2177,23 @@ struct SearchView: View {
 struct AlbumDetailView: View {
     let album: Album
     @EnvironmentObject private var player: PlayerManager
-    @EnvironmentObject private var theme: ThemeStore
+    @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var tracks: [Song] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showArtistHome = false
+
+    private var albumAccentColor: Color {
+        switch album.source {
+        case .synology: return Color.atmusicAmber
+        case .netease: return Color.red.opacity(0.9)
+        case .qq: return Color.green.opacity(0.9)
+        case .kugou: return Color.blue.opacity(0.9)
+        default: return theme.accent.highlight
+        }
+    }
 
     /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序
     private var sortedTracks: [Song] {
@@ -2197,10 +2208,36 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// 多 CD 分组模型（Apple Music 规范）
+    /// 多 CD 分组模型（Apple Music 规范，支持显式 discNumber 与隐式序号重置）
     private var discGroups: [(disc: Int, songs: [Song])] {
-        let grouped = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
-        return grouped.keys.sorted().map { ($0, grouped[$0]!) }
+        let explicit = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
+        if explicit.keys.count > 1 {
+            return explicit.keys.sorted().map { ($0, explicit[$0]!) }
+        }
+        // 隐式检测：若 discNumber 全为 1，但曲目号重置为 1（典型多 CD 唱片未打盘号标签）
+        var groups: [(disc: Int, songs: [Song])] = []
+        var currentDisc = 1
+        var currentSongs: [Song] = []
+        var prevTrack = 0
+        for song in sortedTracks {
+            let trk = song.trackNumber
+            if trk == 1 && prevTrack >= 1 && !currentSongs.isEmpty {
+                groups.append((disc: currentDisc, songs: currentSongs))
+                currentDisc += 1
+                currentSongs = [song]
+                prevTrack = 1
+            } else {
+                currentSongs.append(song)
+                if trk > 0 { prevTrack = trk }
+            }
+        }
+        if !currentSongs.isEmpty {
+            groups.append((disc: currentDisc, songs: currentSongs))
+        }
+        if groups.count > 1 {
+            return groups
+        }
+        return explicit.keys.sorted().map { ($0, explicit[$0]!) }
     }
 
     var body: some View {
@@ -2214,42 +2251,41 @@ struct AlbumDetailView: View {
                 } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                     iPadAlbumLayout
                 } else {
-                    List {
-                        // 头部信息与音源专属规格看板
-                        albumHeaderSection
-                            .padding(.vertical, 10)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            albumHeaderSection
+                                .padding(.horizontal, 16)
+                                .padding(.top, 10)
 
-                        // 歌曲列表区域：多 CD 分盘分栏或单 CD 紧凑平铺
-                        if discGroups.count > 1 {
-                            ForEach(discGroups, id: \.disc) { group in
-                                Section {
-                                    ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
-                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
-                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0, trackNumber: displayNo) {
-                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                            // 歌曲列表区域：多 CD 分盘分栏或单 CD 紧凑平铺
+                            if discGroups.count > 1 {
+                                ForEach(discGroups, id: \.disc) { group in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        discSectionHeader(discNumber: group.disc, songs: group.songs)
+                                        ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                            let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
+                                            SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0, trackNumber: displayNo) {
+                                                player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
+                                            }
                                         }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
                                     }
-                                } header: {
-                                    discSectionHeader(discNumber: group.disc, songs: group.songs)
+                                    .padding(.horizontal, 16)
                                 }
-                            }
-                        } else {
-                            ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
-                                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index, trackNumber: displayNo) {
-                                    player.play(songs: sortedTracks, startAt: index)
+                            } else {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                        SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index, trackNumber: displayNo) {
+                                            player.play(songs: sortedTracks, startAt: index)
+                                        }
+                                    }
                                 }
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
+                                .padding(.horizontal, 16)
                             }
                         }
+                        .padding(.bottom, 40)
                     }
-                    .listStyle(.plain)
-                    .atmusicScrollContentBackgroundHidden()
+                    .atmusicScrollIndicatorsHidden()
                 }
             }
             .navigationTitle(album.name)
@@ -2573,46 +2609,58 @@ struct AlbumDetailView: View {
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.atmusicAmber.opacity(0.0), Color.atmusicAmber.opacity(0.35)],
+                                colors: [albumAccentColor.opacity(0.0), albumAccentColor.opacity(0.4)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .frame(height: 1)
                     
-                    Image(systemName: "opticaldisc")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.atmusicAmber.opacity(0.6))
+                    HStack(spacing: 6) {
+                        Image(systemName: "opticaldisc")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("分盘分割")
+                            .font(ATMusicFont.appFont(10, .semibold))
+                    }
+                    .foregroundStyle(albumAccentColor.opacity(0.85))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(albumAccentColor.opacity(0.1))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().strokeBorder(albumAccentColor.opacity(0.25), lineWidth: 0.8)
+                    )
                     
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.atmusicAmber.opacity(0.35), Color.atmusicAmber.opacity(0.0)],
+                                colors: [albumAccentColor.opacity(0.4), albumAccentColor.opacity(0.0)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .frame(height: 1)
                 }
-                .padding(.vertical, 6)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
             }
 
             HStack {
                 HStack(spacing: 6) {
                     Image(systemName: "opticaldisc.fill")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.atmusicAmber)
+                        .foregroundStyle(albumAccentColor)
                     Text("CD \(discNumber)")
                         .font(ATMusicFont.appFont(14, .bold))
                         .foregroundStyle(Color.atmusicLabel)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color.atmusicAmber.opacity(0.12))
+                .background(albumAccentColor.opacity(0.12))
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.atmusicAmber.opacity(0.25), lineWidth: 0.8)
+                        .strokeBorder(albumAccentColor.opacity(0.25), lineWidth: 0.8)
                 )
 
                 Spacer()
@@ -2632,7 +2680,7 @@ struct AlbumDetailView: View {
                         Text("播放本盘")
                     }
                     .font(ATMusicFont.appFont(12, .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
+                    .foregroundStyle(albumAccentColor)
                 }
                 .buttonStyle(.plain)
             }

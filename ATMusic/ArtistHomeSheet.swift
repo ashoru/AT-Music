@@ -268,6 +268,8 @@ struct ArtistHomeSheet: View {
                         NavigationLink {
                             if album.source == .synology {
                                 SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL)
+                                    .environmentObject(player)
+                                    .environmentObject(theme)
                             } else {
                                 AlbumDetailView(album: album)
                                     .environmentObject(player)
@@ -673,6 +675,8 @@ struct AllSourcesArtistHomeSheet: View {
                         NavigationLink {
                             if album.source == .synology {
                                 SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL)
+                                    .environmentObject(player)
+                                    .environmentObject(theme)
                             } else {
                                 AlbumDetailView(album: album)
                                     .environmentObject(player)
