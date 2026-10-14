@@ -112,11 +112,28 @@ final class MusicCacheManager: ObservableObject {
             refreshPublishedUsage()
             return nil
         }
+        if song.duration >= 45 && entry.fileSize < 250_000 {
+            try? fm.removeItem(at: url)
+            entries.removeValue(forKey: key)
+            persistIndex()
+            refreshPublishedUsage()
+            ATMusicLogger.shared.log("🚫 发现并清除损坏/防盗链缓存文件：\(song.name) 大小=\(entry.fileSize) 时长=\(song.duration)s", level: .warn)
+            return nil
+        }
         entry.lastAccessAt = Date()
         entries[key] = entry
         persistIndex()
         refreshPublishedUsage()
         return url
+    }
+
+    func remove(song: Song) {
+        for quality in ThirdPartyAudioQuality.allCases {
+            let key = cacheKey(song: song, quality: quality)
+            removeEntry(forKey: key)
+        }
+        persistIndex()
+        refreshPublishedUsage()
     }
 
     func cancelPrefetch() {
@@ -243,6 +260,11 @@ final class MusicCacheManager: ObservableObject {
               let size = (attrs[.size] as? NSNumber)?.int64Value,
               size > 0,
               size <= limitBytes else {
+            return false
+        }
+
+        if song.duration >= 45 && size < 250_000 {
+            ATMusicLogger.shared.log("🚫 拒绝写入异常截断/防盗链音频缓存：\(song.name) 大小=\(size) 歌曲时长=\(song.duration)s", level: .warn)
             return false
         }
 

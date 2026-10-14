@@ -995,13 +995,21 @@ final class LXScriptSourceRunner {
         if urlString.contains("2026-06-17-195722_104595") ||
            urlString.contains("music.163.com/404") ||
            urlString.contains("error.php") ||
-           urlString.contains("error_url") {
+           urlString.contains("error_url") ||
+           urlString.contains("M5000004Gmy54cGDqK") ||
+           urlString.contains("bitrate$1") ||
+           urlString.contains("bitrate=1") ||
+           urlString.contains("30106/trackmedia") ||
+           urlString.contains("antifake") {
             return nil
         }
         return (urlString, extractedHeaders)
     }
 
     private func playableURL(_ url: URL, excludedHosts: Set<String>) -> URL? {
+        if UnblockService.isCorruptOrAntiLeechURL(url) {
+            return nil
+        }
         guard let host = url.host?.lowercased(), !host.isEmpty else { return url }
         if excludedHosts.contains(host) { return nil }
         if url.path.contains("404") || url.absoluteString.contains("error.php") {

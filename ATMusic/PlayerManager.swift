@@ -613,6 +613,10 @@ final class PlayerManager: NSObject, ObservableObject {
         isThirdParty: Bool,
         fromPlaybackCache: Bool = false
     ) {
+        guard !UnblockService.isCorruptOrAntiLeechURL(url) else {
+            ATMusicLogger.shared.log("🚫 热备池拒绝预载防盗链/损坏音频：\(url.absoluteString)", level: .debug)
+            return
+        }
         if let existing = standbyPlayback,
            existing.song.identityKey == nextSong.identityKey,
            existing.item.status != .failed {
@@ -760,7 +764,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             }
 
-            if let resolvedURL, !Task.isCancelled {
+            if let resolvedURL, !Task.isCancelled, !UnblockService.isCorruptOrAntiLeechURL(resolvedURL) {
                 AudioURLCache.shared.set(
                     songKey: nextSong.identityKey,
                     quality: qualityKey,
@@ -1556,6 +1560,7 @@ final class PlayerManager: NSObject, ObservableObject {
     func hotSwapAudioTrack(with resolved: UnblockService.Resolved, for song: Song, generation: Int) {
         guard generation == self.loadGeneration,
               self.currentSong?.identityKey == song.identityKey,
+              !UnblockService.isCorruptOrAntiLeechURL(resolved.url),
               let player = self.player else { return }
         let currentSeconds = player.currentTime().seconds
         let resumeAt = (currentSeconds.isFinite && currentSeconds > 0) ? currentSeconds : 0
@@ -1587,6 +1592,18 @@ final class PlayerManager: NSObject, ObservableObject {
         prewarmedItem: AVPlayerItem? = nil
     ) {
         guard ensurePlaybackAllowed(), let loadedSong = currentSong else { return }
+        guard !UnblockService.isCorruptOrAntiLeechURL(url) else {
+            ATMusicLogger.shared.log("🚫 setupPlayer 拒绝载入已被标记的防盗链/损坏音频 URL：\(self.playbackURLSummary(url))", level: .warn)
+            AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
+            if fromPlaybackCache {
+                MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
+                self.loadCurrent()
+                return
+            }
+            if isThirdParty && self.retryThirdPartyIfNeeded(excludingHost: url.host) { return }
+            self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "解析结果为防盗链或损坏音频")
+            return
+        }
         let playbackGeneration = loadGeneration
         if isThirdParty {
             let quality = thirdPartyQuality ?? ThirdPartyAudioQuality.current
@@ -1750,6 +1767,23 @@ final class PlayerManager: NSObject, ObservableObject {
                           player.timeControlStatus == .playing,
                           item.status == .readyToPlay,
                           !self.playbackConfirmed else { return }
+                    if (isThirdParty || fromPlaybackCache),
+                       let itemDuration = item.duration.seconds as Double?,
+                       itemDuration.isFinite,
+                       itemDuration <= 20,
+                       loadedSong.duration >= 45 {
+                        ATMusicLogger.shared.log("🚫 拦截到防盗链/严重截断音频（时长仅 \(String(format: "%.1f", itemDuration))s，歌曲原长 \(loadedSong.duration)s），立即终止并熔断重试！", level: .warn)
+                        AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
+                        MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
+                        player.pause()
+                        if fromPlaybackCache {
+                            self.loadCurrent()
+                            return
+                        }
+                        if isThirdParty && self.retryThirdPartyIfNeeded(excludingHost: url.host) { return }
+                        self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "音源返回防盗链或截断音频")
+                        return
+                    }
                     self.playbackConfirmed = true
                     if let song = self.currentSong {
                         ATMusicLogger.shared.log(
@@ -1811,8 +1845,23 @@ final class PlayerManager: NSObject, ObservableObject {
             }
             if let itemDuration = player.currentItem?.duration, itemDuration.isNumeric {
                 let seconds = itemDuration.seconds
-                if seconds.isFinite, abs(seconds - self.duration) > 0.25 {
-                    self.duration = seconds
+                if seconds.isFinite {
+                    if (isThirdParty || fromPlaybackCache), seconds <= 20, loadedSong.duration >= 45 {
+                        ATMusicLogger.shared.log("🚫 播放中拦截到防盗链/截断音频（时长仅 \(String(format: "%.1f", seconds))s，原歌曲为 \(loadedSong.duration)s），立即终止并熔断重试！", level: .warn)
+                        AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
+                        MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
+                        player.pause()
+                        if fromPlaybackCache {
+                            self.loadCurrent()
+                            return
+                        }
+                        if isThirdParty && self.retryThirdPartyIfNeeded(excludingHost: url.host) { return }
+                        self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "音源返回防盗链或截断音频")
+                        return
+                    }
+                    if abs(seconds - self.duration) > 0.25 {
+                        self.duration = seconds
+                    }
                 }
             }
             if isThirdParty,

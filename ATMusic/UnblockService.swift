@@ -48,6 +48,20 @@ enum UnblockService {
         }
     }
 
+    /// 严格识别防盗链音频、严重截断测试音、错误重定向或已失效的黑名单 URL
+    static func isCorruptOrAntiLeechURL(_ url: URL) -> Bool {
+        let raw = url.absoluteString.lowercased()
+        // 1. 酷我官方防盗链 11 秒提示音频（M5000004Gmy54cGDqK.mp3）及特征
+        if raw.contains("m5000004gmy54cgdqk") { return true }
+        if raw.contains("bitrate$1") || raw.contains("bitrate=1") { return true }
+        if raw.contains("30106/trackmedia") || raw.contains("/30106/") { return true }
+        // 2. 通用防盗链 / 未授权音频标识
+        if raw.contains("antifake") || raw.contains("anti-leech") || raw.contains("anti_leech") { return true }
+        if raw.contains("error.php") || raw.contains("error_url") || raw.contains("music.163.com/404") { return true }
+        if raw.contains("2026-06-17-195722_104595") { return true }
+        return false
+    }
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 4.5
@@ -169,7 +183,7 @@ enum UnblockService {
                 }
             }
             for await result in group {
-                if let result {
+                if let result, !isCorruptOrAntiLeechURL(result.url) {
                     group.cancelAll()
                     return result
                 }
@@ -359,7 +373,7 @@ enum UnblockService {
                     artists: artists,
                     quality: quality,
                     excludedHosts: excludedHosts
-                ) {
+                ), !isCorruptOrAntiLeechURL(resolved.url) {
                     ATMusicLogger.shared.log("脚本音源命中：\(source.name) 音质=\(quality)", level: .info)
                     return resolved
                 }
@@ -422,8 +436,10 @@ enum UnblockService {
         guard let value = valueAtAnyPath(obj, source.urlPath),
               let resolvedURL = value as? String, !resolvedURL.isEmpty,
               let rawPlayURL = URL(string: resolvedURL),
-              let playURL = playablePlaybackURL(from: rawPlayURL, source: source, keyLabel: keyLabel, excludedHosts: excludedHosts) else {
-            ATMusicLogger.shared.log("第三方音源响应中没有播放地址：\(source.name)\(keyLabel)", level: .debug)
+              !isCorruptOrAntiLeechURL(rawPlayURL),
+              let playURL = playablePlaybackURL(from: rawPlayURL, source: source, keyLabel: keyLabel, excludedHosts: excludedHosts),
+              !isCorruptOrAntiLeechURL(playURL) else {
+            ATMusicLogger.shared.log("第三方音源响应中没有有效播放地址：\(source.name)\(keyLabel)", level: .debug)
             return nil
         }
         if rawPlayURL != playURL {
@@ -452,8 +468,13 @@ enum UnblockService {
     /// 不在这里做 Range 探测：部分 QQ CDN 会拒绝探测请求，但 AVPlayer
     /// 带完整请求头后仍可正常播放。实际失败由 AVPlayer 反馈，再换下一个节点。
     private static func playablePlaybackURL(from rawURL: URL, source: ThirdPartySource, keyLabel: String, excludedHosts: Set<String>) -> URL? {
+        guard !isCorruptOrAntiLeechURL(rawURL) else {
+            ATMusicLogger.shared.log("第三方音源跳过防盗链地址：\(source.name)\(keyLabel) \(safeURLSummary(rawURL))", level: .debug)
+            return nil
+        }
         let candidates = qqPlaybackURLCandidates(for: rawURL)
         for candidate in candidates {
+            guard !isCorruptOrAntiLeechURL(candidate) else { continue }
             guard let host = candidate.host?.lowercased() else { continue }
             if excludedHosts.contains(host) {
                 ATMusicLogger.shared.log(
@@ -719,33 +740,40 @@ enum UnblockService {
             let rawRid = (item["DC_TARGETID"] as? String) ?? (item["MUSICRID"] as? String)?.replacingOccurrences(of: "MUSIC_", with: "") ?? ""
             guard !rawRid.isEmpty else { continue }
 
-            // 渠道 1: 车机专线 convert_url2 (极速响应 ~30ms)
+            // 渠道 1: 车机专线 convert_url2 (严格防盗链排查)
             if let url1 = URL(string: "http://anymatch.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk&type=convert_url2") {
                 var req1 = URLRequest(url: url1)
                 req1.timeoutInterval = 2.0
                 req1.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
                 if let (data1, _) = try? await session.data(for: req1),
-                   let text1 = String(data: data1, encoding: .utf8),
-                   let match = text1.range(of: "url=") {
-                    let rest = text1[match.upperBound...]
-                    let line = rest.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if (line.hasPrefix("http://") || line.hasPrefix("https://")) && !line.contains("404") && !line.contains("error.php"),
-                       let finalURL = URL(string: line) {
-                        ATMusicLogger.shared.log("⚡️ 原生车机专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
-                        return Resolved(
-                            url: finalURL,
-                            source: "车机极速专线",
-                            quality: preferredQuality,
-                            headers: [
-                                "User-Agent": "okhttp/3.10.0",
-                                "Referer": "http://kuwo.cn/"
-                            ]
-                        )
+                   let text1 = String(data: data1, encoding: .utf8) {
+                    let isAntiLeech = text1.contains("bitrate=1")
+                        || text1.contains("type=1")
+                        || text1.contains("M5000004Gmy54cGDqK")
+                        || text1.contains("bitrate$1")
+                        || text1.contains("30106")
+                    if !isAntiLeech, let match = text1.range(of: "url=") {
+                        let rest = text1[match.upperBound...]
+                        let line = rest.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if (line.hasPrefix("http://") || line.hasPrefix("https://")) && !line.contains("404") && !line.contains("error.php"),
+                           let finalURL = URL(string: line),
+                           !isCorruptOrAntiLeechURL(finalURL) {
+                            ATMusicLogger.shared.log("⚡️ 原生车机专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
+                            return Resolved(
+                                url: finalURL,
+                                source: "车机极速专线",
+                                quality: preferredQuality,
+                                headers: [
+                                    "User-Agent": "okhttp/3.10.0",
+                                    "Referer": "http://kuwo.cn/"
+                                ]
+                            )
+                        }
                     }
                 }
             }
 
-            // 渠道 2: 车机签名通道 convert_url_with_sign (~120ms)
+            // 渠道 2: 车机签名通道 convert_url_with_sign (严格时长与类型排查)
             guard let playURL = URL(string: "https://mobi.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=jiakong&type=convert_url_with_sign&surl=1") else {
                 continue
             }
@@ -756,12 +784,26 @@ enum UnblockService {
 
             guard let (playData, _) = try? await session.data(for: playReq),
                   let playJson = try? JSONSerialization.jsonObject(with: playData) as? [String: Any],
-                  let dataDict = playJson["data"] as? [String: Any],
-                  let finalUrlStr = (dataDict["surl"] as? String) ?? (dataDict["url"] as? String),
+                  let dataDict = playJson["data"] as? [String: Any] else {
+                continue
+            }
+
+            let bitrate = (dataDict["bitrate"] as? NSNumber)?.intValue ?? (dataDict["bitrate"] as? Int) ?? 0
+            let type = (dataDict["type"] as? NSNumber)?.intValue ?? (dataDict["type"] as? Int) ?? 0
+            let duration = (dataDict["duration"] as? NSNumber)?.intValue ?? (dataDict["duration"] as? Int) ?? 0
+            let p2p = (dataDict["p2p_audiosourceid"] as? String) ?? ""
+
+            if bitrate <= 1 || type == 1 || (duration > 0 && duration <= 25) || p2p.contains("M5000004Gmy54cGDqK") || p2p.contains("30106") {
+                ATMusicLogger.shared.log("⚠️ 酷我车机签名专线拦截防盗链：\(cleanName) rid=\(rawRid) dur=\(duration) br=\(bitrate)", level: .debug)
+                continue
+            }
+
+            guard let finalUrlStr = (dataDict["surl"] as? String) ?? (dataDict["url"] as? String),
                   let finalURL = URL(string: finalUrlStr),
                   (finalUrlStr.hasPrefix("http://") || finalUrlStr.hasPrefix("https://")),
                   !finalUrlStr.contains("404"),
-                  !finalUrlStr.contains("error.php") else {
+                  !finalUrlStr.contains("error.php"),
+                  !isCorruptOrAntiLeechURL(finalURL) else {
                 continue
             }
 

@@ -103,7 +103,7 @@ final class DownloadManager {
                     try? FileManager.default.removeItem(at: downloaded)
                     continue
                 }
-                guard isUsableAudioFile(at: downloaded, response: response) else {
+                guard isUsableAudioFile(at: downloaded, response: response, song: song) else {
                     lastError = NetEaseError.unknown("返回内容不是有效音频")
                     ATMusicLogger.shared.log(
                         "\(logContext)音频校验失败，继续尝试降级：\(song.name) 平台=\(song.source.rawValue) 音质=\(current.rawValue) MIME=\(response.mimeType ?? "未知")",
@@ -161,57 +161,73 @@ final class DownloadManager {
     }
 
     private func resolveURL(song: Song, quality: DownloadQuality) async -> ResolvedDownloadURL? {
-        // NAS 必须只使用当前已验证作用域的 Audio Station 地址，不能走第三方同名歌曲兜底。
+        // 1. NAS 必须只使用当前已验证作用域的 Audio Station 地址
         if song.source == .synology {
             guard let urlString = SynologyAPI.shared.songURL(song: song),
-                  let url = URL(string: urlString) else { return nil }
+                  let url = URL(string: urlString),
+                  !UnblockService.isCorruptOrAntiLeechURL(url) else { return nil }
             return ResolvedDownloadURL(url: url, actualQuality: .flac, sourceName: "群晖 NAS")
         }
-        // 下载优先复用已配置的第三方音源，避免播放能用第三方而下载仍走官方地址。
-        let thirdPartyID = song.source == .netease ? song.id : 0
-        let thirdPartyKugouID = song.kugouHash ?? song.kugouAlbumAudioId
-        if let resolved = await UnblockService.resolve(
-            name: song.name,
-            artists: song.artists,
-            neteaseID: thirdPartyID,
-            songSource: song.source,
-            qqMid: song.qqMid,
-            qqMediaMid: song.qqMediaMid,
-            kugouID: thirdPartyKugouID,
-            quality: quality
-        ) {
-            ATMusicLogger.shared.log(
-                "下载使用第三方音源：\(song.name) 来源=\(resolved.source) 请求音质=\(quality.rawValue) 实际音质=\(resolved.quality.rawValue)",
-                level: .info
-            )
-            return ResolvedDownloadURL(
-                url: resolved.url,
-                actualQuality: resolved.quality,
-                sourceName: resolved.source
-            )
-        }
 
+        // 2. 核心原则：官方原生绝对第一优先级！带 VIP 鉴权Cookie，确保满血音质与正版音轨，绝不盲目跳第三方
         if song.source == .qq, let mid = song.qqMid {
-            guard let result = try? await QQMusicAPI.shared.songURLResult(
+            if let result = try? await QQMusicAPI.shared.songURLResult(
                 songmid: mid,
                 mediaMid: song.qqMediaMid,
                 quality: quality.atmusicQuality
             ),
-            let url = URL(string: result.url) else { return nil }
-            return ResolvedDownloadURL(
-                url: url,
-                actualQuality: Self.downloadQuality(forQQBR: result.br),
-                sourceName: nil
-            )
+            let url = URL(string: result.url),
+            !UnblockService.isCorruptOrAntiLeechURL(url) {
+                return ResolvedDownloadURL(
+                    url: url,
+                    actualQuality: Self.downloadQuality(forQQBR: result.br),
+                    sourceName: nil
+                )
+            }
         } else if song.source == .kugou {
-            guard let urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality.atmusicQuality),
-                  let url = URL(string: urlString) else { return nil }
-            return ResolvedDownloadURL(url: url, actualQuality: quality, sourceName: nil)
-        } else {
-            let urls = try? await NetEaseAPI.shared.songURLs(ids: [song.id], level: quality.neteaseLevel)
-            guard let urlString = urls?[song.id], let url = URL(string: urlString) else { return nil }
-            return ResolvedDownloadURL(url: url, actualQuality: quality, sourceName: nil)
+            if let urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality.atmusicQuality),
+               let url = URL(string: urlString),
+               !UnblockService.isCorruptOrAntiLeechURL(url) {
+                return ResolvedDownloadURL(url: url, actualQuality: quality, sourceName: nil)
+            }
+        } else if song.source == .netease {
+            if let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.neteaseLevel),
+               let info = infos[song.id],
+               info.freeTrial != true,
+               let urlString = info.url,
+               let url = URL(string: urlString),
+               !UnblockService.isCorruptOrAntiLeechURL(url) {
+                return ResolvedDownloadURL(url: url, actualQuality: quality, sourceName: nil)
+            }
         }
+
+        // 3. 官方全档位无版权/非VIP无完整音轨时，仅在启用自定义音源时进行第三方兜底
+        if UnblockSourceStore.shared.isEffectivelyEnabled {
+            let thirdPartyID = song.source == .netease ? song.id : 0
+            let thirdPartyKugouID = song.kugouHash ?? song.kugouAlbumAudioId
+            if let resolved = await UnblockService.resolve(
+                name: song.name,
+                artists: song.artists,
+                neteaseID: thirdPartyID,
+                songSource: song.source,
+                qqMid: song.qqMid,
+                qqMediaMid: song.qqMediaMid,
+                kugouID: thirdPartyKugouID,
+                quality: quality
+            ), !UnblockService.isCorruptOrAntiLeechURL(resolved.url) {
+                ATMusicLogger.shared.log(
+                    "下载使用第三方音源：\(song.name) 来源=\(resolved.source) 请求音质=\(quality.rawValue) 实际音质=\(resolved.quality.rawValue)",
+                    level: .info
+                )
+                return ResolvedDownloadURL(
+                    url: resolved.url,
+                    actualQuality: resolved.quality,
+                    sourceName: resolved.source
+                )
+            }
+        }
+
+        return nil
     }
 
     private func downloadRequest(for url: URL, song: Song) -> URLRequest {
@@ -278,7 +294,7 @@ final class DownloadManager {
     }
 
     /// 防止接口返回 HTTP 200 的 JSON/HTML 错误页被保存为歌曲，并阻断音质降级。
-    private func isUsableAudioFile(at url: URL, response: URLResponse) -> Bool {
+    private func isUsableAudioFile(at url: URL, response: URLResponse, song: Song? = nil) -> Bool {
         if let mimeType = response.mimeType?.lowercased(),
            mimeType.contains("text/") || mimeType.contains("json") || mimeType.contains("html") {
             return false
@@ -287,6 +303,11 @@ final class DownloadManager {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? NSNumber,
               fileSize.int64Value > 1024 else {
+            return false
+        }
+
+        if let song = song, song.duration >= 45, fileSize.int64Value < 250_000 {
+            ATMusicLogger.shared.log("🚫 下载音频过小可能为防盗链或损坏音频：\(song.name) 大小=\(fileSize.int64Value) 歌曲时长=\(song.duration)s", level: .warn)
             return false
         }
 

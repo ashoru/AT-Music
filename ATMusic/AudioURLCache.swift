@@ -53,7 +53,7 @@ final class AudioURLCache {
         let key = cacheKey(songId: songId, quality: quality)
         guard let entry = cache[key] else { return nil }
 
-        if Date() > entry.expireDate {
+        if Date() > entry.expireDate || UnblockService.isCorruptOrAntiLeechURL(entry.url) {
             cache.removeValue(forKey: key)
             return nil
         }
@@ -62,6 +62,7 @@ final class AudioURLCache {
 
     /// 写入音频 URL 缓存
     func set(songId: String, quality: String, url: URL, isPreview: Bool = false, ttl: TimeInterval? = nil) {
+        guard !UnblockService.isCorruptOrAntiLeechURL(url) else { return }
         lock.lock()
         defer { lock.unlock() }
 
@@ -75,6 +76,14 @@ final class AudioURLCache {
         lock.lock()
         defer { lock.unlock() }
         cache.removeValue(forKey: cacheKey(songId: songId, quality: quality))
+    }
+
+    /// 清除指定歌曲的所有音质缓存
+    func remove(songKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let prefix = "\(songKey)_"
+        cache = cache.filter { !$0.key.hasPrefix(prefix) }
     }
 
     /// 清除所有缓存
