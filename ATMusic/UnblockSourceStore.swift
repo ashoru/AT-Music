@@ -84,6 +84,23 @@ final class UnblockSourceStore: ObservableObject {
         "星澜聚合音源 (StellarWave)",
         "星澜聚合音源(别人优化版)"
     ]
+    private static let masterEnabledKey = "atmusic.thirdPartySources.enabled"
+
+    @Published var isThirdPartyEnabled: Bool {
+        didSet {
+            defaults.set(isThirdPartyEnabled, forKey: Self.masterEnabledKey)
+            NotificationCenter.default.post(name: .atmusicThirdPartySourceSettingDidChange, object: nil)
+        }
+    }
+
+    var isEffectivelyEnabled: Bool {
+        isThirdPartyEnabled && sources.contains(where: \.enabled)
+    }
+
+    func setThirdPartyEnabled(_ enabled: Bool) {
+        isThirdPartyEnabled = enabled
+    }
+
     @Published var sources: [ThirdPartySource] {
         didSet { save() }
     }
@@ -98,6 +115,8 @@ final class UnblockSourceStore: ObservableObject {
     private let legacyLXKey = "atmusic.unblock.lxScripts"
 
     private init() {
+        let initialEnabled = defaults.object(forKey: Self.masterEnabledKey) as? Bool ?? true
+        self.isThirdPartyEnabled = initialEnabled
         let savedSources: [ThirdPartySource]
         if let data = defaults.data(forKey: presetsKey),
            let list = try? JSONDecoder().decode([ThirdPartySource].self, from: data) {

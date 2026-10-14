@@ -69,6 +69,9 @@ enum UnblockService {
         strict: Bool = false,
         excludedHosts: Set<String> = []
     ) async -> Resolved? {
+        guard UnblockSourceStore.shared.isEffectivelyEnabled else {
+            return nil
+        }
         let hasSongIdentity = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !artists.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard hasSongIdentity else { return nil }

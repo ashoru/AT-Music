@@ -246,7 +246,7 @@ struct MediaSquareCard: View {
                 CoverImage(url: coverURL, size: fixedSize, cornerRadius: coverCornerRadius)
                     .frame(width: fixedSize, height: fixedSize)
             } else {
-                CoverImage(url: coverURL, size: 170, cornerRadius: coverCornerRadius)
+                CoverImage(url: coverURL, size: 0, cornerRadius: coverCornerRadius, isFlexible: true)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
             }

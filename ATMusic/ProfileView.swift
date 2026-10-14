@@ -199,9 +199,6 @@ struct ProfileView: View {
                             EmptyView()
                         }
                     }
-                    featuresGrid
-                    communityCard
-                    updateLinkCard
                     // 更新日志已在设置页提供，我的页不再展示。
                     profileVersionFooter
                 }
@@ -2153,7 +2150,7 @@ struct SettingsView: View {
             ZStack {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: isNativeClean ? 18 : 14) {
+                    VStack(alignment: .leading, spacing: isNativeClean ? 18 : 14) {
                         // 顶部快捷搜索栏
                         settingsSearchBar
 
@@ -2554,45 +2551,23 @@ struct SettingsView: View {
     }
 
     private var platformSection: some View {
-        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
-            Button {
-                ATMusicHaptics.select()
-                withAnimation {
-                    platformExpanded.toggle()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 14))
+                    .foregroundStyle(settingsIconColor)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(atmusicLocalized("平台显示与搜索", "Platform Display & Search"))
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text(atmusicLocalized("取消勾选后所有页面下均不再有该平台的内容和相关选项", "Deselecting a platform completely removes its content from all pages."))
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
                 }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "checklist")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("平台显示")
-                            .font(ATMusicFont.appFont(15))
-                            .foregroundStyle(Color.atmusicLabel)
-                    }
-                    Spacer()
-                    Image(systemName: platformExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: isNativeClean ? 51 : 47)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-                }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-
-            if platformExpanded {
-                PlatformPreferencePicker()
-                    .padding(14)
-                    .background {
-                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    }
-                    .transition(.opacity)
-            }
+            PlatformPreferencePicker()
+                .padding(.top, 4)
         }
     }
 
@@ -3243,107 +3218,89 @@ struct SettingsView: View {
     }
 
     private var thirdPartySourceSection: some View {
-        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
-            Button {
-                ATMusicHaptics.select()
-                withAnimation {
-                    thirdPartySourceExpanded.toggle()
-                }
-            } label: {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle(isOn: $sourceStore.isThirdPartyEnabled) {
                 HStack(spacing: 12) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
+                    Image(systemName: sourceStore.isThirdPartyEnabled ? "shippingbox.fill" : "shippingbox")
+                        .font(.system(size: 15))
+                        .foregroundStyle(sourceStore.isThirdPartyEnabled ? Color.atmusicAmber : Color.atmusicComment)
                         .frame(width: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(atmusicLocalized("第三方音源管理", "Third-party Sources"))
-                            .font(ATMusicFont.appFont(15))
+                        Text(atmusicLocalized("启用第三方音源", "Enable Third-party Sources"))
+                            .font(ATMusicFont.appFont(15, .semibold))
                             .foregroundStyle(Color.atmusicLabel)
-                        if !isNativeClean {
-                            Text(atmusicLocalized("已配置 \(customSourceCount) 个自定义脚本音源", "\(customSourceCount) custom source scripts configured"))
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
+                        Text(atmusicLocalized(
+                            sourceStore.isThirdPartyEnabled ? "官方无完整版权或未登录 VIP 时自动由第三方音源兜底" : "已彻底关闭：仅使用官方直链播放，绝不调用任何第三方接口",
+                            sourceStore.isThirdPartyEnabled ? "Fallback to third-party sources when official has no full track." : "Completely disabled. Only official direct streams are used."
+                        ))
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
+
+            if sourceStore.isThirdPartyEnabled {
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.badge.gearshape.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(atmusicLocalized("自定义脚本音源", "Custom Script Sources"))
+                            .font(ATMusicFont.appFont(14, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text(atmusicLocalized("支持洛雪标准音源脚本 (v1/v2/v6) · 已配 \(customSourceCount) 个", "Supports LX music source scripts · \(customSourceCount) configured"))
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
                     }
                     Spacer()
-                    Image(systemName: thirdPartySourceExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: isNativeClean ? 51 : 47)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-
-            if thirdPartySourceExpanded {
-                VStack(spacing: 14) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.badge.gearshape.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.atmusicAmber)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(atmusicLocalized("自定义脚本音源", "Custom Script Sources"))
-                                .font(ATMusicFont.appFont(13, .semibold))
-                                .foregroundStyle(Color.atmusicLabel)
-                            Text(atmusicLocalized("支持洛雪标准音源脚本 (v1/v2/v6)", "Supports LX music source scripts"))
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                        Spacer()
-                        Text(atmusicLocalized("\(customSourceCount) 个", "\(customSourceCount) sources"))
-                            .font(ATMusicFont.appFont(12, .semibold))
-                            .foregroundStyle(Color.atmusicAmber)
-                    }
-
                     Button {
                         showSourceManager = true
                         ATMusicHaptics.tap()
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.and.pencil")
-                            Text(atmusicLocalized("管理 / 导入音源脚本", "Manage / Import Sources"))
-                        }
-                        .font(ATMusicFont.appFont(13, .semibold))
-                        .foregroundStyle(Color.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.black, in: Capsule())
+                        Text(atmusicLocalized("管理音源", "Manage"))
+                            .font(ATMusicFont.appFont(12, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.atmusicAmber.opacity(0.14), in: Capsule())
                     }
-                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                    .buttonStyle(.plain)
+                }
 
-                    Divider().overlay(Color.atmusicComment.opacity(0.15))
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
 
-                    VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.atmusicAmber)
+                            .frame(width: 28)
+                        Text(thirdPartyAudioQualityTitle)
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        Text(thirdPartyAudioQualitySelection.wrappedValue.displayName)
+                            .font(ATMusicFont.appFont(12))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.atmusicAmber)
-                                .frame(width: 28)
-                            Text(thirdPartyAudioQualityTitle)
-                                .font(ATMusicFont.appFont(13, .semibold))
-                                .foregroundStyle(Color.atmusicLabel)
-                            Spacer()
-                            Text(thirdPartyAudioQualitySelection.wrappedValue.displayName)
-                                .font(ATMusicFont.appFont(12))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(thirdPartyAudioQualityOptions) { quality in
-                                    let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
-                                    Button {
-                                        thirdPartyAudioQualitySelection.wrappedValue = quality
-                                        ATMusicHaptics.select()
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Text(quality.displayName)
-                                            if selected {
-                                                Image(systemName: "checkmark")
-                                                    .font(.system(size: 9, weight: .bold))
+                            ForEach(thirdPartyAudioQualityOptions) { quality in
+                                let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
+                                Button {
+                                    thirdPartyAudioQualitySelection.wrappedValue = quality
+                                    ATMusicHaptics.select()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Text(quality.displayName)
+                                        if selected {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 9, weight: .bold))
                                         }
                                     }
                                     .font(ATMusicFont.appFont(12, selected ? .semibold : .medium))
@@ -3359,12 +3316,12 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 1)
                     }
-                    Text(thirdPartyAudioQualityHint)
-                        .font(ATMusicFont.appFont(11))
-                        .foregroundStyle(Color.atmusicComment)
                 }
+                Text(thirdPartyAudioQualityHint)
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
 
-                Divider().overlay(Color.atmusicComment.opacity(0.15))
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
 
                 Toggle(isOn: $showThirdPartyVIPNotice) {
                     HStack(spacing: 12) {
@@ -3374,7 +3331,7 @@ struct SettingsView: View {
                             .frame(width: 28)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(atmusicLocalized("第三方播放会员歌提醒", "VIP song notice for third-party playback"))
-                                .font(ATMusicFont.appFont(15))
+                                .font(ATMusicFont.appFont(14))
                                 .foregroundStyle(Color.atmusicLabel)
                             Text(atmusicLocalized("通过第三方音源成功解析会员歌曲时在界面顶部显示轻量提示", "Show a light toast when VIP songs are resolved via third-party."))
                                 .font(ATMusicFont.appFont(11))
@@ -3385,16 +3342,9 @@ struct SettingsView: View {
                 .toggleStyle(.switch)
                 .tint(Color.atmusicAmber)
             }
-            .padding(16)
-            .background {
-                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-            .atmusicCardShadow(radius: 9, y: 3)
-            .transition(.opacity)
-            .task(id: thirdPartyAudioQualityOptionsSignature) {
-                normalizeThirdPartyAudioQualitySelection()
-            }
-            }
+        }
+        .task(id: thirdPartyAudioQualityOptionsSignature) {
+            normalizeThirdPartyAudioQualitySelection()
         }
     }
 

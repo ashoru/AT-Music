@@ -431,7 +431,21 @@ struct FeaturedView: View {
     @EnvironmentObject private var player: PlayerManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @AppStorage("atmusic.featuredSource") private var featuredSourceRaw = FeaturedSource.netease.rawValue
+
+    private var availableFeaturedSources: [FeaturedSource] {
+        var list: [FeaturedSource] = [.aggregate]
+        for provider in platformPrefs.enabledSearchProviders {
+            switch provider {
+            case .netease: list.append(.netease)
+            case .qq: list.append(.qq)
+            case .kugou: list.append(.kugou)
+            case .synology: break
+            }
+        }
+        return list
+    }
 
     @State private var categories = FeaturedSource.defaultCategories(for: .netease)
     @State private var selectedCategory = "全部"
@@ -451,7 +465,8 @@ struct FeaturedView: View {
     private let aggregateLimit = 14
 
     private var featuredSource: FeaturedSource {
-        FeaturedSource(rawValue: featuredSourceRaw) ?? .netease
+        let saved = FeaturedSource(rawValue: featuredSourceRaw) ?? .aggregate
+        return availableFeaturedSources.contains(saved) ? saved : (availableFeaturedSources.first ?? .aggregate)
     }
 
     private var isAggregate: Bool { featuredSource == .aggregate }
@@ -504,6 +519,20 @@ struct FeaturedView: View {
             .onAppear {
                 categories = FeaturedSource.defaultCategories(for: featuredSource)
             }
+            .onChange(of: platformPrefs.selectedRaw) { _, _ in
+                let validSources = Set(availableFeaturedSources.compactMap(\.songSource))
+                if !isAggregate {
+                    if !availableFeaturedSources.contains(featuredSource) {
+                        featuredSourceRaw = availableFeaturedSources.first?.rawValue ?? FeaturedSource.aggregate.rawValue
+                    }
+                } else {
+                    playlists.removeAll { pl in
+                        guard let src = pl.source as SongSource? else { return false }
+                        return !validSources.contains(src)
+                    }
+                }
+                Task { await load(reset: true) }
+            }
             .onChange(of: featuredSource) { _, newValue in
                 selectedCategory = "全部"
                 query = ""
@@ -539,7 +568,7 @@ struct FeaturedView: View {
     private var header: some View {
         HStack(alignment: .center) {
             Menu {
-                ForEach(FeaturedSource.allCases) { source in
+                ForEach(availableFeaturedSources) { source in
                     Button {
                         guard source != featuredSource else { return }
                         ATMusicHaptics.select()
@@ -814,6 +843,7 @@ struct FeaturedView: View {
         typealias PlatformResult = (SongSource, [Playlist])
         await withTaskGroup(of: PlatformResult.self) { group in
             // 1. 网易云任务
+            if platformPrefs.isEnabled(SearchProvider.netease) {
             group.addTask {
                 let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
                     if !keyword.isEmpty {
@@ -831,7 +861,9 @@ struct FeaturedView: View {
                 return (.netease, list)
             }
 
+            }
             // 2. QQ音乐任务
+            if platformPrefs.isEnabled(SearchProvider.qq) {
             group.addTask {
                 let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
                     if !keyword.isEmpty {
@@ -849,7 +881,9 @@ struct FeaturedView: View {
                 return (.qq, list)
             }
 
+            }
             // 3. 酷狗音乐任务
+            if platformPrefs.isEnabled(SearchProvider.kugou) {
             group.addTask {
                 let list = await fetchWithTimeout(seconds: 3.5, fallback: [Playlist]()) {
                     if !keyword.isEmpty {
@@ -867,6 +901,7 @@ struct FeaturedView: View {
                 return (.kugou, list)
             }
 
+            }
             var neteaseList: [Playlist] = []
             var qqList: [Playlist] = []
             var kugouList: [Playlist] = []

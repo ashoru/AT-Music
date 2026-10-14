@@ -1585,9 +1585,9 @@ struct SynologyLibrarySection: View {
                 SectionHeader(title: "音乐文件夹")
                 ForEach(folderItems) { item in
                     if item.kind == .folder {
-                        // 隐藏无音乐文件夹（缓存/空目录）：无概要先显示，概要回来后收起。
+                        // 隐藏十级子文件夹内无支持音频文件的文件夹：无概要先显示，概要回来后收起。
                         if let ov = folderOverviewCache[item.id] {
-                            if ov.hasSong || ov.hasFolder {
+                            if ov.hasSupportedAudio {
                                 rootFolderLink(item)
                             }
                         } else {
@@ -1741,11 +1741,11 @@ struct SynologyFolderView: View {
             }
             return false
         }
-        // 隐藏无音乐的文件夹（如缓存/空目录）：有歌曲或子文件夹才保留；概要未回先显示，回来后再收起。
+        // 隐藏十级子文件夹内无支持音频文件的文件夹：概要未回先显示，回来后再收起。
         let musicOnly = filtered.filter { item in
             if item.kind == .song { return true }
             guard let ov = folderOverviews[item.id] else { return true }
-            return ov.hasSong || ov.hasFolder
+            return ov.hasSupportedAudio
         }
         return musicOnly.sorted { lhs, rhs in
             if lhs.kind != rhs.kind {
@@ -2325,6 +2325,7 @@ struct SynologyArtistView: View {
 struct SynologyAlbumView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var synology = SynologyAPI.shared
 
@@ -2418,6 +2419,17 @@ struct SynologyAlbumView: View {
         }
         .navigationTitle(albumName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                }
+            }
+        }
         .task { await load() }
     }
 
@@ -2788,7 +2800,10 @@ struct SynologyAlbumView: View {
         let normalizedAlbum = normalize(albumName)
         let normalizedArtist = normalize(artistName)
         guard !normalizedAlbum.isEmpty else { return [] }
-        let albumMatches = songs.filter { normalize($0.album) == normalizedAlbum }
+        let albumMatches = songs.filter {
+            let n = normalize($0.album)
+            return n == normalizedAlbum || n.contains(normalizedAlbum) || normalizedAlbum.contains(n)
+        }
         guard !albumMatches.isEmpty else { return [] }
         guard !normalizedArtist.isEmpty else { return albumMatches }
         let artistMatches = albumMatches.filter {

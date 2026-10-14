@@ -165,14 +165,14 @@ struct MiniPlayerView: View {
         miniLyrics = []
         guard let song = player.currentSong else { return }
         let identity = song.identityKey
-        if !player.currentLyrics.isEmpty {
+        if player.currentLyricsSongIdentity == identity && !player.currentLyrics.isEmpty {
             miniLyrics = player.currentLyrics
             return
         }
         let parsed = await SongLyricsLoader.loadLyrics(for: song)
         guard player.currentSong?.identityKey == identity else { return }
         miniLyrics = parsed
-        player.updateCurrentLyrics(parsed)
+        player.updateCurrentLyrics(parsed, for: identity)
     }
 }
 

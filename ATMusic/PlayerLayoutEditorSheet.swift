@@ -150,14 +150,14 @@ struct PlayerLayoutEditorSheet: View {
             realLyrics = []
             return
         }
-        if !player.currentLyrics.isEmpty {
+        if player.currentLyricsSongIdentity == song.identityKey && !player.currentLyrics.isEmpty {
             realLyrics = player.currentLyrics
             return
         }
         let loaded = await SongLyricsLoader.loadLyrics(for: song)
         if !loaded.isEmpty {
             realLyrics = loaded
-            player.updateCurrentLyrics(loaded)
+            player.updateCurrentLyrics(loaded, for: song.identityKey)
         }
     }
 
@@ -431,7 +431,7 @@ struct PlayerLayoutEditorSheet: View {
         if !realLyrics.isEmpty {
             return realLyrics
         }
-        if !player.currentLyrics.isEmpty {
+        if player.currentLyricsSongIdentity == previewSong.identityKey && !player.currentLyrics.isEmpty {
             return player.currentLyrics
         }
         let baseTime = clock.progress

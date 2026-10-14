@@ -61,6 +61,8 @@ final class PlatformPreferenceStore: ObservableObject {
         }
         normalize()
         save()
+        objectWillChange.send()
+        NotificationCenter.default.post(name: .atmusicPlatformPreferencesDidChange, object: nil)
     }
 
     func ensureVisible(_ provider: SearchProvider) -> SearchProvider {
@@ -75,6 +77,8 @@ final class PlatformPreferenceStore: ObservableObject {
         selectedRaw = Set(SearchProvider.allCases.map(\.rawValue))
         resetOrder()
         save()
+        objectWillChange.send()
+        NotificationCenter.default.post(name: .atmusicPlatformPreferencesDidChange, object: nil)
     }
 
     func resetOrder() {
@@ -162,44 +166,42 @@ struct PlatformPreferencePicker: View {
     @ObservedObject private var store = PlatformPreferenceStore.shared
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
             ForEach(store.orderedSearchProviders) { provider in
+                let isEnabled = store.isEnabled(provider)
                 Button {
                     ATMusicHaptics.select()
-                    store.set(provider, enabled: !store.isEnabled(provider))
+                    store.set(provider, enabled: !isEnabled)
                 } label: {
                     HStack(spacing: 12) {
                         if let imageName = provider.brandImageName {
                             Image(imageName)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: 28, height: 28)
+                                .frame(width: 26, height: 26)
                         } else {
                             Image(systemName: provider.icon)
-                                .font(.system(size: 18, weight: .semibold))
-                                .frame(width: 28, height: 28)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 26, height: 26)
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(LocalizedStringKey(provider.rawValue))
                                 .font(ATMusicFont.appFont(14, .semibold))
                                 .foregroundStyle(Color.atmusicLabel)
-                                Text(LocalizedStringKey(store.isEnabled(provider) ? "已显示" : "已隐藏"))
+                            Text(LocalizedStringKey(isEnabled ? "已显示" : "已隐藏"))
                                 .font(ATMusicFont.appFont(11))
                                 .foregroundStyle(Color.atmusicComment)
                         }
                         Spacer()
-                        Image(systemName: store.isEnabled(provider) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 20, weight: .semibold))
-                            .atmusicSelectionForeground(selected: store.isEnabled(provider), accent: .atmusicAmber)
+                        Image(systemName: isEnabled ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(isEnabled ? Color.atmusicAmber : Color.atmusicComment.opacity(0.35))
                     }
-                    .padding(12)
-                    .background {
-                        ATMusicSelectableSurface(
-                            selected: store.isEnabled(provider),
-                            shape: RoundedRectangle(cornerRadius: 16, style: .continuous),
-                            accent: .atmusicAmber
-                        )
-                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color.clear)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }

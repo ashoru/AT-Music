@@ -5,4 +5,6 @@ extension Notification.Name {
     static let atmusicQQLoginDidUpdate = Notification.Name("atmusic.qq.login.didUpdate")
     static let atmusicKugouLoginDidUpdate = Notification.Name("atmusic.kugou.login.didUpdate")
     static let atmusicPlayerLayoutDidChange = Notification.Name("atmusic.player.layout.didChange")
+    static let atmusicPlatformPreferencesDidChange = Notification.Name("atmusic.platformPreferences.didChange")
+    static let atmusicThirdPartySourceSettingDidChange = Notification.Name("atmusic.thirdPartySource.setting.didChange")
 }

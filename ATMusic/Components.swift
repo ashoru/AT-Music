@@ -767,6 +767,7 @@ struct CoverImage: View {
     /// 独立宽高覆盖（默认 nil 用 size 正方形；宽版 2:1 卡片传 width/height）
     var width: CGFloat? = nil
     var height: CGFloat? = nil
+    var isFlexible: Bool = false
     @StateObject private var loader = ATMusicCoverImageLoader()
 
     private var displayedImage: UIImage? {
@@ -778,28 +779,59 @@ struct CoverImage: View {
     // 布局尺寸完全由外层固定容器决定；AsyncImage 只放在 overlay 中渲染，
     // 图片加载完成与否都不会改变任何布局尺寸（根治"封面加载后错乱"）。
     var body: some View {
-        let w = width ?? size
-        let h = height ?? size
-        return RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.atmusicGlassFill)
-            .frame(width: w, height: h)
-            .overlay {
-                if let displayedImage {
-                    Image(uiImage: displayedImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: w, height: h)
-                        .clipped()
-                } else {
-                    placeholderIcon
+        if isFlexible {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    GeometryReader { geo in
+                        let side = min(geo.size.width, geo.size.height)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(Color.atmusicGlassFill)
+                            .overlay {
+                                if let displayedImage {
+                                    Image(uiImage: displayedImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: side, height: side)
+                                        .clipped()
+                                } else {
+                                    placeholderIcon
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                            .frame(width: side, height: side)
+                    }
                 }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .task(id: url) {
-                if ATMusicRemoteCoverCache.image(for: url) == nil {
-                    await loader.load(url)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .task(id: url) {
+                    if ATMusicRemoteCoverCache.image(for: url) == nil {
+                        await loader.load(url)
+                    }
                 }
-            }
+        } else {
+            let w = width ?? size
+            let h = height ?? size
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.atmusicGlassFill)
+                .frame(width: w, height: h)
+                .overlay {
+                    if let displayedImage {
+                        Image(uiImage: displayedImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: w, height: h)
+                            .clipped()
+                    } else {
+                        placeholderIcon
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .task(id: url) {
+                    if ATMusicRemoteCoverCache.image(for: url) == nil {
+                        await loader.load(url)
+                    }
+                }
+        }
     }
 
     private var placeholderIcon: some View {

@@ -24,6 +24,7 @@ struct ArtistHomeSheet: View {
         _artist = State(initialValue: nil)
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var artist: Artist?
     @State private var hotSongs: [Song] = []
     @State private var albums: [Album] = []
@@ -262,7 +263,7 @@ struct ArtistHomeSheet: View {
                     .foregroundStyle(Color.atmusicComment)
                     .padding(.horizontal, 16)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 12) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 14), spacing: 16) {
                     ForEach(albums) { album in
                         NavigationLink {
                             if album.source == .synology {
@@ -278,7 +279,7 @@ struct ArtistHomeSheet: View {
                         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -468,6 +469,8 @@ struct AllSourcesArtistHomeSheet: View {
 
     let artistName: String
     let initialSongs: [Song]
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @State private var songs: [Song] = []
     @State private var albums: [Album] = []
     @State private var loading = true
@@ -488,7 +491,7 @@ struct AllSourcesArtistHomeSheet: View {
     }
 
     private var sourceFilterOptions: [SongSource] {
-        [.netease, .qq, .kugou, .synology]
+        platformPrefs.enabledSearchProviders.map(\.songSource)
     }
 
     private func sourceTitle(_ source: SongSource) -> String {
@@ -665,7 +668,7 @@ struct AllSourcesArtistHomeSheet: View {
                     .foregroundStyle(Color.atmusicComment)
                     .padding(.horizontal, 16)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 14) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 14), spacing: 16) {
                     ForEach(visibleAlbums) { album in
                         NavigationLink {
                             if album.source == .synology {
@@ -709,8 +712,10 @@ struct AllSourcesArtistHomeSheet: View {
             songs = initialSongs
             loading = initialSongs.isEmpty
         }
+        let enabledRaws = Set(platformPrefs.enabledSearchProviders.map { $0.songSource.rawValue })
+        let activeLoaders = Self.sourceLoaders.filter { enabledRaws.contains($0.name) }
         await withTaskGroup(of: ([Song], [Album]).self) { group in
-            for loader in Self.sourceLoaders {
+            for loader in activeLoaders {
                 group.addTask { await loader.load(artistName) }
             }
             for await result in group {
@@ -725,7 +730,7 @@ struct AllSourcesArtistHomeSheet: View {
     }
 
     private func mergeFullNASArtist() async {
-        guard synology.isLoggedIn else { return }
+        guard platformPrefs.isEnabled(SearchProvider.synology), synology.isLoggedIn else { return }
         guard let all = try? await synology.librarySongs() else { return }
         let matched = all.filter { Self.artistMatches($0.artists, artistName: artistName) }
         await MainActor.run {

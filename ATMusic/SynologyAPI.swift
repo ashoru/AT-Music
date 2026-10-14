@@ -20,11 +20,13 @@ struct SynologySearchResult {
     let albums: [Album]
 }
 
-/// 文件夹直接内容概要：是否含歌曲/子文件夹、取到的第一首歌（封面预览用）。
+/// 文件夹直接与十级深度内容概要：是否含可支持音频文件、取到的第一首歌（封面预览用）。
 struct SynologyFolderOverview {
-    var hasSong = false
-    var hasFolder = false
+    var hasSupportedAudio = false
     var previewSong: Song?
+
+    var hasSong: Bool { hasSupportedAudio }
+    var hasFolder: Bool = false
 }
 
 /// NAS 文件当前在编辑器中展示的标签快照。
@@ -663,6 +665,13 @@ final class SynologyAPI: ObservableObject {
         folderCacheLock.lock()
         folderMemoryCache.removeValue(forKey: key)
         folderCacheLock.unlock()
+        folderOverviewLock.lock()
+        if let folderID {
+            folderOverviewMemoryCache.removeValue(forKey: folderID)
+        } else {
+            folderOverviewMemoryCache.removeAll()
+        }
+        folderOverviewLock.unlock()
         try? FileManager.default.removeItem(at: folderCacheURL(folderID: folderID))
     }
 
@@ -699,19 +708,64 @@ final class SynologyAPI: ObservableObject {
         }
     }
 
-    /// 返回文件夹直接内容概要（供“隐藏无音乐文件夹”与“文件夹封面预览”使用）。
-    /// 有歌曲或子文件夹则保留（避免误隐藏深层音乐目录），全空则视为无音乐。
-    func folderOverview(folderID: String) async -> SynologyFolderOverview {
-        let items = (try? await folderItems(folderID: folderID, limit: 200)) ?? []
-        var ov = SynologyFolderOverview()
-        for item in items {
-            if item.kind == .folder { ov.hasFolder = true }
-            if let song = item.song {
-                ov.hasSong = true
-                if ov.previewSong == nil { ov.previewSong = song }
+    private let folderOverviewLock = NSLock()
+    private var folderOverviewMemoryCache: [String: SynologyFolderOverview] = [:]
+
+    /// 递归（最多十级子文件夹）检测文件夹及其子目录中是否包含可支持的音频文件。
+    /// 只要在任何一层找到音频文件，立即短路返回并保留封面预览歌；
+    /// 若十级内全无任何音频文件，则判定该文件夹无音乐，前台自动隐藏。
+    func folderOverview(folderID: String, maxDepth: Int = 10) async -> SynologyFolderOverview {
+        folderOverviewLock.lock()
+        if let cached = folderOverviewMemoryCache[folderID] {
+            folderOverviewLock.unlock()
+            return cached
+        }
+        folderOverviewLock.unlock()
+
+        var visited = Set<String>()
+        var queue: [(id: String, depth: Int)] = [(folderID, 1)]
+        visited.insert(folderID)
+
+        var result = SynologyFolderOverview()
+
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            let items: [SynologyFolderItem]
+            if let cached = cachedFolderItems(folderID: current.id, allowStale: true) {
+                items = cached
+            } else {
+                items = (try? await folderItems(folderID: current.id, limit: 200)) ?? []
+            }
+
+            var subfolderIDs: [String] = []
+            for item in items {
+                if let song = item.song {
+                    result.hasSupportedAudio = true
+                    if result.previewSong == nil {
+                        result.previewSong = song
+                    }
+                    folderOverviewLock.lock()
+                    folderOverviewMemoryCache[folderID] = result
+                    folderOverviewLock.unlock()
+                    return result
+                } else if item.kind == .folder {
+                    result.hasFolder = true
+                    if current.depth < maxDepth, !visited.contains(item.id) {
+                        visited.insert(item.id)
+                        subfolderIDs.append(item.id)
+                    }
+                }
+            }
+
+            for subID in subfolderIDs {
+                queue.append((subID, current.depth + 1))
             }
         }
-        return ov
+
+        folderOverviewLock.lock()
+        folderOverviewMemoryCache[folderID] = result
+        folderOverviewLock.unlock()
+        return result
     }
 
     /// 获取歌单列表 (SYNO.AudioStation.Playlist)
@@ -846,13 +900,60 @@ final class SynologyAPI: ObservableObject {
         guard !trimmedAlbum.isEmpty else { return [] }
         let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 尝试 1：SYNO.AudioStation.Song 官方接口按 album 查询
+        // 尝试 1：POST /webapi/AudioStation/song.cgi 按 album (和可选 album_artist) 查询 (官方原生标准接口)
+        var form1: [String: String] = [
+            "api": "SYNO.AudioStation.Song",
+            "version": "3",
+            "method": "list",
+            "library": "all",
+            "album": trimmedAlbum,
+            "sort_by": "title",
+            "sort_direction": "ASC",
+            "limit": "1000",
+            "additional": "song_tag,song_audio"
+        ]
+        if !trimmedArtist.isEmpty {
+            form1["album_artist"] = trimmedArtist
+        }
+        if let json = try? await postForm("/webapi/AudioStation/song.cgi", form: form1, authenticated: true),
+           let data = json["data"] as? [String: Any],
+           let songsArray = data["songs"] as? [[String: Any]],
+           !songsArray.isEmpty {
+            let songs = songsArray.compactMap { self.parseSong($0) }
+            if !songs.isEmpty {
+                return sortAlbumSongs(songs)
+            }
+        }
+
+        // 尝试 2：POST /webapi/AudioStation/song.cgi 仅按 album 查询（不加 artist 限制，避免因标签差异漏歌）
+        let form2: [String: String] = [
+            "api": "SYNO.AudioStation.Song",
+            "version": "3",
+            "method": "list",
+            "library": "all",
+            "album": trimmedAlbum,
+            "sort_by": "title",
+            "sort_direction": "ASC",
+            "limit": "1000",
+            "additional": "song_tag,song_audio"
+        ]
+        if let json = try? await postForm("/webapi/AudioStation/song.cgi", form: form2, authenticated: true),
+           let data = json["data"] as? [String: Any],
+           let songsArray = data["songs"] as? [[String: Any]],
+           !songsArray.isEmpty {
+            let songs = songsArray.compactMap { self.parseSong($0) }
+            if !songs.isEmpty {
+                return filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+            }
+        }
+
+        // 尝试 3：GET /webapi/AudioStation/song.cgi 兼容旧版 DSM
         let albumQuery: [URLQueryItem] = [
             URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
             URLQueryItem(name: "version", value: "3"),
             URLQueryItem(name: "method", value: "list"),
             URLQueryItem(name: "album", value: trimmedAlbum),
-            URLQueryItem(name: "sort_by", value: "track"),
+            URLQueryItem(name: "sort_by", value: "title"),
             URLQueryItem(name: "sort_direction", value: "ASC"),
             URLQueryItem(name: "library", value: "all"),
             URLQueryItem(name: "limit", value: "1000"),
@@ -869,43 +970,18 @@ final class SynologyAPI: ObservableObject {
             }
         }
 
-        // 尝试 2：部分 DSM 版本或 Audio Station 版本参数为 album_name
-        let albumNameQuery: [URLQueryItem] = [
-            URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
-            URLQueryItem(name: "version", value: "3"),
-            URLQueryItem(name: "method", value: "list"),
-            URLQueryItem(name: "album_name", value: trimmedAlbum),
-            URLQueryItem(name: "sort_by", value: "track"),
-            URLQueryItem(name: "sort_direction", value: "ASC"),
-            URLQueryItem(name: "library", value: "all"),
-            URLQueryItem(name: "limit", value: "1000"),
-            URLQueryItem(name: "additional", value: "song_tag,song_audio")
-        ]
-
-        if let json = try? await get("/webapi/AudioStation/song.cgi", query: albumNameQuery, authenticated: true),
-           let data = json["data"] as? [String: Any],
-           let songsArray = data["songs"] as? [[String: Any]],
-           !songsArray.isEmpty {
-            let songs = songsArray.compactMap { self.parseSong($0) }
-            if !songs.isEmpty {
-                return filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
-            }
-        }
-
-        // 尝试 3：若包含特殊符号或空格，尝试 keyword 筛选
-        let keywordQuery: [URLQueryItem] = [
-            URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
-            URLQueryItem(name: "version", value: "3"),
+        // 尝试 4：SYNO.AudioStation.Search 官方全搜索接口查找该专辑名
+        let searchQuery: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Search"),
+            URLQueryItem(name: "version", value: "1"),
             URLQueryItem(name: "method", value: "list"),
             URLQueryItem(name: "keyword", value: trimmedAlbum),
-            URLQueryItem(name: "sort_by", value: "track"),
-            URLQueryItem(name: "sort_direction", value: "ASC"),
             URLQueryItem(name: "library", value: "all"),
-            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "limit", value: "500"),
             URLQueryItem(name: "additional", value: "song_tag,song_audio")
         ]
 
-        if let json = try? await get("/webapi/AudioStation/song.cgi", query: keywordQuery, authenticated: true),
+        if let json = try? await get("/webapi/AudioStation/search.cgi", query: searchQuery, authenticated: true),
            let data = json["data"] as? [String: Any],
            let songsArray = data["songs"] as? [[String: Any]],
            !songsArray.isEmpty {
@@ -959,33 +1035,32 @@ final class SynologyAPI: ObservableObject {
         return []
     }
 
-    private func filterAndSortAlbumSongs(_ songs: [Song], albumName: String, artistName: String) -> [Song] {
+    func filterAndSortAlbumSongs(_ songs: [Song], albumName: String, artistName: String) -> [Song] {
         let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let filtered = songs.filter { song in
+        let albumMatches = songs.filter { song in
             guard song.source == .synology else { return false }
             let songAlbum = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
-                  songAlbum.localizedStandardContains(trimmedAlbum) ||
-                  trimmedAlbum.localizedStandardContains(songAlbum) else {
-                return false
-            }
-            if !trimmedArtist.isEmpty {
+            return songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
+                   songAlbum.localizedStandardContains(trimmedAlbum) ||
+                   trimmedAlbum.localizedStandardContains(songAlbum)
+        }
+        guard !albumMatches.isEmpty else { return [] }
+
+        if !trimmedArtist.isEmpty {
+            let artistMatches = albumMatches.filter { song in
                 let songArtist = song.artists.trimmingCharacters(in: .whitespacesAndNewlines)
                 let albumArtist = (song.albumArtist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                if songArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
-                   trimmedArtist.localizedCaseInsensitiveContains(songArtist) ||
-                   albumArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
-                   trimmedArtist.localizedCaseInsensitiveContains(albumArtist) {
-                    return true
-                }
-                return songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame
+                return songArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
+                       trimmedArtist.localizedCaseInsensitiveContains(songArtist) ||
+                       albumArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
+                       trimmedArtist.localizedCaseInsensitiveContains(albumArtist) ||
+                       song.album.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame
             }
-            return true
+            return sortAlbumSongs(artistMatches.isEmpty ? albumMatches : artistMatches)
         }
-
-        return sortAlbumSongs(filtered.isEmpty ? songs : filtered)
+        return sortAlbumSongs(albumMatches)
     }
 
     private func sortAlbumSongs(_ songs: [Song]) -> [Song] {
@@ -1035,7 +1110,16 @@ final class SynologyAPI: ObservableObject {
         let numericId = Self.stableID(synoId)
         let cover = coverURL(songId: synoId)
 
-        let parsedDisc = Self.intValue(tag?["disc"]) ?? Self.intValue(dict["disc"]) ?? 1
+        var parsedDisc = Self.intValue(tag?["disc"]) ?? Self.intValue(tag?["disc_number"]) ?? Self.intValue(dict["disc"]) ?? Self.intValue(dict["disc_number"]) ?? 1
+        if parsedDisc <= 1, !path.isEmpty {
+            let lowerPath = path.lowercased()
+            if let regex = try? NSRegularExpression(pattern: #"(?:^|[/\\( _-])(?:cd|disc)[ _-]*0*([1-9]\d*)"#, options: .caseInsensitive),
+               let match = regex.firstMatch(in: lowerPath, options: [], range: NSRange(location: 0, length: lowerPath.utf16.count)),
+               let range = Range(match.range(at: 1), in: lowerPath),
+               let num = Int(lowerPath[range]) {
+                parsedDisc = num
+            }
+        }
         let parsedTrack = Self.intValue(tag?["track"]) ?? Self.intValue(dict["track"]) ?? 0
 
         return Song(
@@ -1469,7 +1553,15 @@ final class SynologyAPI: ObservableObject {
     private static func intValue(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
-        if let value = value as? String { return Int(value) }
+        if let str = value as? String {
+            if let direct = Int(str.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return direct
+            }
+            let parts = str.components(separatedBy: CharacterSet(charactersIn: "/-,"))
+            if let first = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines), let num = Int(first) {
+                return num
+            }
+        }
         return nil
     }
 

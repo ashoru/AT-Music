@@ -194,9 +194,9 @@ final class PlayerManager: NSObject, ObservableObject {
     private let defaults = UserDefaults.standard
     private var didAttemptAutoResume = false
 
-    /// 只要存在启用的自定义音源，就允许官方地址失败后进行兜底解析。
+    /// 只要全局启用了第三方音源且存在启用的自定义音源，才允许兜底解析。
     private var externalSourcesEnabled: Bool {
-        UnblockSourceStore.shared.sources.contains(where: \.enabled)
+        UnblockSourceStore.shared.isEffectivelyEnabled
     }
 
     private struct ThirdPartyVIPNotice {
@@ -218,9 +218,11 @@ final class PlayerManager: NSObject, ObservableObject {
 
     /// 当前播放歌曲的解析后歌词，供主界面、微播放器与布局编辑器实时联动
     @Published var currentLyrics: [LyricLine] = []
+    @Published var currentLyricsSongIdentity: String? = nil
 
-    func updateCurrentLyrics(_ lyrics: [LyricLine]) {
+    func updateCurrentLyrics(_ lyrics: [LyricLine], for identityKey: String? = nil) {
         self.currentLyrics = lyrics
+        self.currentLyricsSongIdentity = identityKey ?? currentSong?.identityKey
     }
 
     /// 磁盘播放缓存跟随“播放音质”，避免设置为无损/Hi-Res 时误命中旧的 320k 缓存。
@@ -631,13 +633,7 @@ final class PlayerManager: NSObject, ObservableObject {
             if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
         }
 
-        let item: AVPlayerItem
-        if !playbackHeaders.isEmpty {
-            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": playbackHeaders])
-            item = AVPlayerItem(asset: asset)
-        } else {
-            item = AVPlayerItem(url: url)
-        }
+        let item = Self.makePlayerItem(url: url, headers: playbackHeaders)
         item.preferredForwardBufferDuration = 8.0
         let standby = AVPlayer(playerItem: item)
         standby.automaticallyWaitsToMinimizeStalling = false
@@ -884,6 +880,8 @@ final class PlayerManager: NSObject, ObservableObject {
     private func loadCurrent(resumeAt: Double? = nil, forceKugouStandard: Bool = false) {
         guard ensurePlaybackAllowed() else { return }
         guard let song = currentSong else { return }
+        currentLyrics = []
+        currentLyricsSongIdentity = nil
         let cacheQuality = playbackCacheQuality()
         loadGeneration += 1
         let generation = loadGeneration
@@ -1053,6 +1051,8 @@ final class PlayerManager: NSObject, ObservableObject {
                     // 后台并行静默解析第三方完整音轨并进行无感热置换
                     Task.detached(priority: .userInitiated) { [generation, weak self] in
                         guard let self else { return }
+                        let isEnabled = await MainActor.run { self.externalSourcesEnabled }
+                        guard isEnabled else { return }
                         let fullTrack = await UnblockService.resolve(
                             name: song.name,
                             artists: song.artists,
@@ -1174,17 +1174,29 @@ final class PlayerManager: NSObject, ObservableObject {
             levelCandidates = ["standard"]
         }
 
+        var trialURL: String? = nil
+
         // 逐级探测官方可播完整音轨，绝不因为母带不可用而直接跌入第三方
         for lvl in levelCandidates {
             if let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: lvl),
                let info = infos[song.id],
-               let u = info.url, !u.isEmpty, info.freeTrial != true {
-                ATMusicLogger.shared.log("网易云官方原生命中(级别=\(lvl))：\(song.name)", level: .info)
-                return (urlString: u, resolvedThirdParty: nil, isHotSwapTrial: false)
+               let u = info.url, !u.isEmpty {
+                if info.freeTrial != true {
+                    ATMusicLogger.shared.log("网易云官方原生命中(级别=\(lvl))：\(song.name)", level: .info)
+                    return (urlString: u, resolvedThirdParty: nil, isHotSwapTrial: false)
+                } else if trialURL == nil {
+                    trialURL = u
+                }
             }
         }
 
-        // 2. 只有当官方全档位均无版权或仅为试听片段时，且用户开启了第三方解封，方才触发第三方兜底
+        // 2. 若官方提供了试听片段且开启了解封，采用官方试听前奏秒出(150ms) + 第三方完整音轨静默热置换
+        if let trial = trialURL, enableUnblock {
+            ATMusicLogger.shared.log("网易云官方为试听片段，秒起试听并准备第三方热置换：\(song.name)", level: .info)
+            return (urlString: trial, resolvedThirdParty: nil, isHotSwapTrial: true)
+        }
+
+        // 3. 只有当官方全档位均无版权，且用户开启了第三方解封，方才触发第三方兜底
         if enableUnblock {
             ATMusicLogger.shared.log("网易云官方全档位无完整音轨，触发第三方音源兜底：\(song.name)", level: .warn)
             resolved = await UnblockService.resolve(
@@ -1197,7 +1209,7 @@ final class PlayerManager: NSObject, ObservableObject {
             )
         }
 
-        return (urlString: nil, resolvedThirdParty: resolved, isHotSwapTrial: false)
+        return (urlString: trialURL, resolvedThirdParty: resolved, isHotSwapTrial: false)
     }
 
     /// QQ 歌曲兜底：官方失败后只走 QQ 第三方接口，不跨平台匹配同名歌曲。
@@ -1506,7 +1518,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 song: song,
                 quality: ATMusicAudioQuality.current,
                 thirdPartyQuality: thirdPartyQuality,
-                enableUnblock: true,
+                enableUnblock: self.externalSourcesEnabled,
                 strict: strict
             )
             await MainActor.run {
@@ -1618,14 +1630,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 let cookie = KugouMusicAuth.shared.cookieHeader
                 if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
             }
-            if !playbackHeaders.isEmpty {
-                let asset = AVURLAsset(url: url, options: [
-                    "AVURLAssetHTTPHeaderFieldsKey": playbackHeaders
-                ])
-                item = AVPlayerItem(asset: asset)
-            } else {
-                item = AVPlayerItem(url: url)
-            }
+            item = Self.makePlayerItem(url: url, headers: playbackHeaders)
             item.preferredForwardBufferDuration = 8.0
             player = AVPlayer(playerItem: item)
             player.volume = targetVolume
@@ -1971,6 +1976,7 @@ final class PlayerManager: NSObject, ObservableObject {
         strict: Bool,
         excludedHosts: Set<String> = []
     ) async -> UnblockService.Resolved? {
+        guard externalSourcesEnabled else { return nil }
         switch song.source {
         case .netease:
             return await UnblockService.resolve(
@@ -1987,7 +1993,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 song: song,
                 quality: ATMusicAudioQuality.current,
                 thirdPartyQuality: quality,
-                enableUnblock: true,
+                enableUnblock: externalSourcesEnabled,
                 strict: strict,
                 excludedHosts: excludedHosts
             ).1
@@ -2371,20 +2377,50 @@ final class PlayerManager: NSObject, ObservableObject {
 
     // MARK: - 系统正在播放
 
+    static func makePlayerItem(url: URL, headers: [String: String]) -> AVPlayerItem {
+        guard !headers.isEmpty, url.scheme?.hasPrefix("http") == true else {
+            return AVPlayerItem(url: url)
+        }
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        return AVPlayerItem(asset: asset)
+    }
+
     private func updateNowPlaying() {
         guard let song = currentSong else { return }
+        let validDuration: Double
+        if duration.isFinite && !duration.isNaN && duration > 0 {
+            validDuration = duration
+        } else if song.duration.isFinite && !song.duration.isNaN && song.duration > 0 {
+            validDuration = song.duration
+        } else {
+            validDuration = 0
+        }
+        let validProgress: Double
+        if progress.isFinite && !progress.isNaN && progress >= 0 {
+            validProgress = progress
+        } else {
+            validProgress = 0
+        }
+        let validRate: Double
+        if rate.isFinite && !rate.isNaN && rate >= 0 {
+            validRate = isPlaying ? rate : 0.0
+        } else {
+            validRate = isPlaying ? 1.0 : 0.0
+        }
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: song.name,
             MPMediaItemPropertyArtist: song.artists,
             MPMediaItemPropertyAlbumTitle: song.album,
-            MPMediaItemPropertyPlaybackDuration: max(duration, song.duration),
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: progress,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? rate : 0.0,
+            MPMediaItemPropertyPlaybackDuration: validDuration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: validProgress,
+            MPNowPlayingInfoPropertyPlaybackRate: validRate,
         ]
         if let artworkURL = song.coverURL {
             let artworkKey = song.identityKey + "|" + artworkURL.absoluteString
-            if let cached = Self.nowPlayingArtworkCache.object(forKey: artworkURL as NSURL) {
-                info[MPMediaItemPropertyArtwork] = Self.nowPlayingArtwork(cached)
+            if let cached = Self.nowPlayingArtworkCache.object(forKey: artworkURL as NSURL),
+               let artwork = Self.nowPlayingArtwork(cached) {
+                info[MPMediaItemPropertyArtwork] = artwork
             } else if lastNowPlayingArtworkKey != artworkKey {
                 lastNowPlayingArtworkKey = artworkKey
                 loadNowPlayingArtwork(song: song, key: artworkKey, url: artworkURL)
@@ -2400,8 +2436,9 @@ final class PlayerManager: NSObject, ObservableObject {
     }
 
     /// 使用原始封面尺寸响应系统的多个请求，锁屏和控制中心就能拿到足够大的方形 artwork。
-    private static func nowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { requestedSize in
+    private static func nowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork? {
+        guard image.size.width > 0, image.size.height > 0 else { return nil }
+        return MPMediaItemArtwork(boundsSize: image.size) { requestedSize in
             guard requestedSize.width > 0, requestedSize.height > 0 else { return image }
             return image
         }
@@ -2430,8 +2467,10 @@ final class PlayerManager: NSObject, ObservableObject {
                       self.currentSong?.identityKey == song.identityKey,
                       self.lastNowPlayingArtworkKey == key else { return }
                 var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                updated[MPMediaItemPropertyArtwork] = Self.nowPlayingArtwork(image)
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+                if let art = Self.nowPlayingArtwork(image) {
+                    updated[MPMediaItemPropertyArtwork] = art
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+                }
             }
         }
     }

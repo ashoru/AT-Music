@@ -152,23 +152,32 @@ struct DiscoverView: View {
                     return
                 }
             }
-            // 仅在用户实际修改平台显示时刷新。计算型 publisher 会在视图
-            // 重建后回放当前值，曾导致聚合首页重复请求并在滚动时闪烁。
+            // 平台显示变化时立即无缝刷新并清除已隐藏平台的内容
             .onChange(of: platformPrefs.selectedRaw) { _, _ in
-                guard !homeRenderingPaused else { return }
                 let next = platformPrefs.ensureVisible(source)
                 if next != source {
                     homeSourceRaw = next.rawValue
                 }
                 let enabledSources = Set(homeProviders.map(\.songSource))
-                if isHomeAggregate {
-                    dailySongs.removeAll { !enabledSources.contains($0.source) }
-                    personalized.removeAll { !enabledSources.contains($0.source) }
-                    if !enabledSources.contains(.netease) { topLists = [] }
-                    if !enabledSources.contains(.qq) { qqTopLists = [] }
-                    if !enabledSources.contains(.kugou) { kugouTopLists = [] }
-                    Task { await load(force: true) }
+                dailySongs.removeAll { !enabledSources.contains($0.source) }
+                personalized.removeAll { !enabledSources.contains($0.source) }
+                if !enabledSources.contains(.netease) { topLists = [] }
+                if !enabledSources.contains(.qq) { qqTopLists = [] }
+                if !enabledSources.contains(.kugou) { kugouTopLists = [] }
+                Task { await load(force: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .atmusicPlatformPreferencesDidChange)) { _ in
+                let next = platformPrefs.ensureVisible(source)
+                if next != source {
+                    homeSourceRaw = next.rawValue
                 }
+                let enabledSources = Set(homeProviders.map(\.songSource))
+                dailySongs.removeAll { !enabledSources.contains($0.source) }
+                personalized.removeAll { !enabledSources.contains($0.source) }
+                if !enabledSources.contains(.netease) { topLists = [] }
+                if !enabledSources.contains(.qq) { qqTopLists = [] }
+                if !enabledSources.contains(.kugou) { kugouTopLists = [] }
+                Task { await load(force: true) }
             }
             .onChange(of: source) { _, _ in
                 guard !homeRenderingPaused else { return }

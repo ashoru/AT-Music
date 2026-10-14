@@ -684,13 +684,13 @@ struct PlayerView: View {
             if let song {
                 SongLyricsSearchSheet(song: song, onClear: {
                     lyrics = []
-                    player.updateCurrentLyrics([])
+                    player.updateCurrentLyrics([], for: song.identityKey)
                     Task {
                         await clearLyrics(for: song)
                     }
                 }) { rawLyrics in
                     lyrics = LyricParser.parse(rawLyrics)
-                    player.updateCurrentLyrics(lyrics)
+                    player.updateCurrentLyrics(lyrics, for: song.identityKey)
                     if song.source == .synology {
                         Task {
                             do {
@@ -2745,7 +2745,7 @@ struct PlayerView: View {
         let parsed = await SongLyricsLoader.loadLyrics(for: song)
         guard self.song?.identityKey == identity else { return }
         self.lyrics = parsed
-        player.updateCurrentLyrics(parsed)
+        player.updateCurrentLyrics(parsed, for: identity)
     }
 
     /// 当前歌曲没有歌词时，从可用平台候选中按歌名/歌手/专辑相似度选择最高项。
