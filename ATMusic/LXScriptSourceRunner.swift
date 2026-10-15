@@ -627,7 +627,7 @@ final class ATMusicLXScriptRuntime {
         }
     }
 
-    func invokeRequest(payload: [String: Any], timeout: TimeInterval = 6.0) -> Any? {
+    func invokeRequest(payload: [String: Any], timeout: TimeInterval = 12.0) -> Any? {
         let semaphore = DispatchSemaphore(value: 0)
         var result: Any?
         let resultLock = NSLock()
