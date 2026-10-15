@@ -39,8 +39,8 @@ final class ATMusicLogger: ObservableObject {
 
     private let maxEntries = 5000
     private let maxLogFileBytes = 10 * 1024 * 1024
-    /// 日志保留上限：只保留最近 12 小时
-    private let maxLogAge: TimeInterval = 12 * 3600
+    /// 日志保留上限：只保留最近 72 小时
+    private let maxLogAge: TimeInterval = 72 * 3600
     private let lock = NSLock()
     private var recentEntries: [ATMusicLogEntry] = []
     private var lastPruneDate = Date.distantPast
