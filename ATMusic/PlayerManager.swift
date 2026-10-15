@@ -117,6 +117,7 @@ final class PlayerManager: NSObject, ObservableObject {
     @Published var history: [Song] = []
     @Published var playCounts: [String: Int] = [:]
     @Published private(set) var listeningSeconds = 0
+    @Published private(set) var isInBackground: Bool = false
 
     // MARK: - 双播放器实例热备池（Dual-Player Warm-Standby Pipeline）
     private struct StandbyPlayback {
@@ -137,6 +138,13 @@ final class PlayerManager: NSObject, ObservableObject {
     private var itemStatusObserver: NSKeyValueObservation?
     private var timeControlStatusObserver: NSKeyValueObservation?
     private var equalizerSettingsObserver: NSObjectProtocol?
+    private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
+    private var backgroundPlayDate: Date?
+    private var currentIsThirdParty = false
+    private var currentFromPlaybackCache = false
+    private var currentPlaybackURL: URL?
     private var playbackConfirmed = false
     private var pendingThirdPartyVIPNotice: ThirdPartyVIPNotice?
     private var sessionConfigured = false
@@ -273,6 +281,9 @@ final class PlayerManager: NSObject, ObservableObject {
         playbackEndFallbackWorkItem?.cancel()
         playbackEndFallbackWorkItem = nil
         ATMusicLogger.shared.log("自动下一首：\(currentSong?.name ?? "?")｜触发=\(reason)", level: .debug)
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
+        savePersistedPlaybackState()
         advance()
         loadCurrent()
     }
@@ -336,12 +347,43 @@ final class PlayerManager: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.applyEqualizerToCurrentItem()
         }
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleDidEnterBackground()
+        }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleWillEnterForeground()
+        }
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleWillTerminate()
+        }
     }
 
     deinit {
         if let equalizerSettingsObserver {
             NotificationCenter.default.removeObserver(equalizerSettingsObserver)
         }
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
+        }
+        if let terminateObserver {
+            NotificationCenter.default.removeObserver(terminateObserver)
+        }
+        flushListeningSeconds()
     }
 
     /// 在首帧之后恢复轻量播放偏好，避免安装后启动阶段触碰系统媒体服务。
@@ -431,9 +473,14 @@ final class PlayerManager: NSObject, ObservableObject {
         if player.timeControlStatus == .playing {
             player.pause()
             isPlaying = false
+            recordBackgroundPlaybackDurationIfNeeded()
+            flushListeningSeconds()
         } else {
             player.playImmediately(atRate: Float(rate))
             isPlaying = true
+            if isInBackground {
+                backgroundPlayDate = Date()
+            }
         }
         savePersistedPlaybackState()
         updateNowPlaying()
@@ -442,6 +489,8 @@ final class PlayerManager: NSObject, ObservableObject {
     func next(manual: Bool = true) {
         guard ensurePlaybackAllowed() else { return }
         guard !queue.isEmpty else { return }
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
         advance()
         loadCurrent()
     }
@@ -449,6 +498,8 @@ final class PlayerManager: NSObject, ObservableObject {
     func previous() {
         guard ensurePlaybackAllowed() else { return }
         guard !queue.isEmpty else { return }
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
         cleanStandbyPlayer()
         // 直接切换到上一首（不再做“播放超过 3 秒先重头播放”的判断）
         if playMode == .shuffle {
@@ -638,7 +689,7 @@ final class PlayerManager: NSObject, ObservableObject {
         }
 
         let item = Self.makePlayerItem(url: url, headers: playbackHeaders)
-        item.preferredForwardBufferDuration = 8.0
+        item.preferredForwardBufferDuration = 5.0
         let standby = AVPlayer(playerItem: item)
         standby.automaticallyWaitsToMinimizeStalling = false
         standby.volume = 0
@@ -817,6 +868,9 @@ final class PlayerManager: NSObject, ObservableObject {
     private func pausePlayback() {
         player?.pause()
         isPlaying = false
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
+        savePersistedPlaybackState()
         updateNowPlaying()
     }
 
@@ -1816,90 +1870,13 @@ final class PlayerManager: NSObject, ObservableObject {
             lastCountedSongID = song.identityKey
         }
         lastListeningProgress = nil
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main) { [weak self] time in
-            guard let self, let player = self.player else { return }
-            if time.seconds.isFinite {
-                if let previous = self.lastListeningProgress,
-                   self.isPlaying,
-                   player.timeControlStatus == .playing {
-                    let elapsed = time.seconds - previous
-                    if elapsed > 0, elapsed < 0.6 {
-                        self.pendingListeningSeconds += elapsed
-                        if self.pendingListeningSeconds >= 5 {
-                            let wholeSeconds = Int(self.pendingListeningSeconds)
-                            self.pendingListeningSeconds -= Double(wholeSeconds)
-                            self.listeningSeconds += wholeSeconds
-                            self.defaults.set(self.listeningSeconds, forKey: self.listeningSecondsKey)
-                        }
-                    }
-                }
-                self.lastListeningProgress = time.seconds
-                if abs(time.seconds - self.lastPublishedProgress) >= 0.18 {
-                    self.lastPublishedProgress = time.seconds
-                    self.progress = time.seconds
-                    if abs(time.seconds - self.lastPersistedProgress) >= 2.0 {
-                        self.lastPersistedProgress = time.seconds
-                        self.savePersistedPlaybackState()
-                    }
-                }
-            }
-            if let itemDuration = player.currentItem?.duration, itemDuration.isNumeric {
-                let seconds = itemDuration.seconds
-                if seconds.isFinite {
-                    if (isThirdParty || fromPlaybackCache), seconds <= 20, loadedSong.duration >= 45 {
-                        ATMusicLogger.shared.log("🚫 播放中拦截到防盗链/截断音频（时长仅 \(String(format: "%.1f", seconds))s，原歌曲为 \(loadedSong.duration)s），立即终止并熔断重试！", level: .warn)
-                        AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
-                        MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
-                        player.pause()
-                        if fromPlaybackCache {
-                            self.loadCurrent()
-                            return
-                        }
-                        if isThirdParty && self.retryThirdPartyIfNeeded(excludingHost: url.host) { return }
-                        self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "音源返回防盗链或截断音频")
-                        return
-                    }
-                    if abs(seconds - self.duration) > 0.25 {
-                        self.duration = seconds
-                    }
-                }
-            }
-            if isThirdParty,
-               self.playMode != .repeatOne,
-               self.queue.count > 1,
-               let itemDuration = player.currentItem?.duration,
-               itemDuration.isNumeric,
-               itemDuration.seconds.isFinite,
-               itemDuration.seconds > 1,
-               time.seconds.isFinite,
-               time.seconds >= itemDuration.seconds - 0.65 {
-                self.schedulePlaybackEndFallback(
-                    player: player,
-                    item: item,
-                    songKey: loadedSong.identityKey,
-                    generation: playbackGeneration
-                )
-            }
-
-            // 🚀 当前歌曲播放进度超过 70% 时，保障热备播放器 (Player B) 预热完成
-            if self.queue.count > 1,
-               self.playMode != .repeatOne,
-               let itemDuration = player.currentItem?.duration,
-               itemDuration.isNumeric,
-               itemDuration.seconds.isFinite,
-               itemDuration.seconds > 10,
-               time.seconds.isFinite,
-               time.seconds >= itemDuration.seconds * 0.7,
-               self.standbyPlayback == nil,
-               self.preResolvingSongKey == nil {
-                self.preResolveNextTrackURL()
-            }
-
-            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-            if waiting != self.isBuffering {
-                self.isBuffering = waiting
-            }
+        currentIsThirdParty = isThirdParty
+        currentFromPlaybackCache = fromPlaybackCache
+        currentPlaybackURL = url
+        if isInBackground && isPlaying {
+            backgroundPlayDate = Date()
         }
+        attachTimeObserverIfNeeded()
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             guard let self else { return }
             if self.playMode == .repeatOne {
@@ -2138,10 +2115,8 @@ final class PlayerManager: NSObject, ObservableObject {
     }
 
     private func removeCurrentObservers() {
-        if let timeObserver {
-            player?.removeTimeObserver(timeObserver)
-        }
-        timeObserver = nil
+        detachTimeObserver()
+        currentPlaybackURL = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
         }
@@ -2424,6 +2399,169 @@ final class PlayerManager: NSObject, ObservableObject {
         return result.sorted { $0.count > $1.count }.prefix(8).map { $0 }
     }
 
+    // MARK: - 前后台生命周期与功耗优化
+
+    private func handleDidEnterBackground() {
+        isInBackground = true
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
+        if isPlaying {
+            backgroundPlayDate = Date()
+        }
+        savePersistedPlaybackState()
+        updateNowPlaying()
+        detachTimeObserver()
+    }
+
+    private func handleWillEnterForeground() {
+        isInBackground = false
+        recordBackgroundPlaybackDurationIfNeeded()
+
+        if let player = self.player {
+            let currentSec = player.currentTime().seconds
+            if currentSec.isFinite {
+                progress = currentSec
+                lastPublishedProgress = currentSec
+                lastListeningProgress = currentSec
+            }
+            if let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite, itemDuration > 0 {
+                duration = itemDuration
+            }
+        }
+        attachTimeObserverIfNeeded()
+        updateNowPlaying()
+    }
+
+    private func handleWillTerminate() {
+        recordBackgroundPlaybackDurationIfNeeded()
+        flushListeningSeconds()
+        savePersistedPlaybackState()
+    }
+
+    private func recordBackgroundPlaybackDurationIfNeeded() {
+        if let start = backgroundPlayDate {
+            let elapsed = Date().timeIntervalSince(start)
+            if elapsed > 0 {
+                listeningSeconds += Int(elapsed)
+                defaults.set(listeningSeconds, forKey: listeningSecondsKey)
+            }
+            backgroundPlayDate = nil
+        }
+    }
+
+    func flushListeningSeconds() {
+        if pendingListeningSeconds >= 1.0 {
+            let wholeSeconds = Int(pendingListeningSeconds)
+            pendingListeningSeconds -= Double(wholeSeconds)
+            listeningSeconds += wholeSeconds
+        }
+        defaults.set(listeningSeconds, forKey: listeningSecondsKey)
+    }
+
+    private func detachTimeObserver() {
+        if let timeObserver {
+            player?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+    }
+
+    private func attachTimeObserverIfNeeded() {
+        guard !isInBackground, let player = self.player, timeObserver == nil else { return }
+        let isThirdParty = currentIsThirdParty
+        let fromPlaybackCache = currentFromPlaybackCache
+        let playbackURL = currentPlaybackURL
+        let playbackGeneration = loadGeneration
+
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            guard let self, let player = self.player else { return }
+            guard self.loadGeneration == playbackGeneration else { return }
+            if time.seconds.isFinite {
+                if let previous = self.lastListeningProgress,
+                   self.isPlaying,
+                   player.timeControlStatus == .playing {
+                    let elapsed = time.seconds - previous
+                    if elapsed > 0, elapsed < 0.6 {
+                        self.pendingListeningSeconds += elapsed
+                        if self.pendingListeningSeconds >= 5 {
+                            let wholeSeconds = Int(self.pendingListeningSeconds)
+                            self.pendingListeningSeconds -= Double(wholeSeconds)
+                            self.listeningSeconds += wholeSeconds
+                        }
+                    }
+                }
+                self.lastListeningProgress = time.seconds
+                if abs(time.seconds - self.lastPublishedProgress) >= 0.25 {
+                    self.lastPublishedProgress = time.seconds
+                    self.progress = time.seconds
+                }
+            }
+            if let itemDuration = player.currentItem?.duration, itemDuration.isNumeric {
+                let seconds = itemDuration.seconds
+                if seconds.isFinite {
+                    if let loadedSong = self.currentSong,
+                       (isThirdParty || fromPlaybackCache),
+                       seconds <= 20,
+                       loadedSong.duration >= 45 {
+                        ATMusicLogger.shared.log("🚫 播放中拦截到防盗链/截断音频（时长仅 \(String(format: "%.1f", seconds))s，原歌曲为 \(loadedSong.duration)s），立即终止并熔断重试！", level: .warn)
+                        AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
+                        MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
+                        player.pause()
+                        if fromPlaybackCache {
+                            self.loadCurrent()
+                            return
+                        }
+                        if isThirdParty, let host = playbackURL?.host, self.retryThirdPartyIfNeeded(excludingHost: host) { return }
+                        self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "音源返回防盗链或截断音频")
+                        return
+                    }
+                    if abs(seconds - self.duration) > 0.25 {
+                        self.duration = seconds
+                    }
+                }
+            }
+            if isThirdParty,
+               self.playMode != .repeatOne,
+               self.queue.count > 1,
+               let item = player.currentItem,
+               let itemDuration = item.duration as CMTime?,
+               itemDuration.isNumeric,
+               itemDuration.seconds.isFinite,
+               itemDuration.seconds > 1,
+               time.seconds.isFinite,
+               time.seconds >= itemDuration.seconds - 0.65,
+               let songKey = self.currentSong?.identityKey {
+                self.schedulePlaybackEndFallback(
+                    player: player,
+                    item: item,
+                    songKey: songKey,
+                    generation: playbackGeneration
+                )
+            }
+
+            // 🚀 当前歌曲播放进度超过 70% 时，保障热备播放器 (Player B) 预热完成
+            if self.queue.count > 1,
+               self.playMode != .repeatOne,
+               let itemDuration = player.currentItem?.duration,
+               itemDuration.isNumeric,
+               itemDuration.seconds.isFinite,
+               itemDuration.seconds > 10,
+               time.seconds.isFinite,
+               time.seconds >= itemDuration.seconds * 0.7,
+               self.standbyPlayback == nil,
+               self.preResolvingSongKey == nil {
+                self.preResolveNextTrackURL()
+            }
+
+            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            if waiting != self.isBuffering {
+                self.isBuffering = waiting
+            }
+        }
+    }
+
     // MARK: - 系统正在播放
 
     static func makePlayerItem(url: URL, headers: [String: String]) -> AVPlayerItem {
@@ -2541,6 +2679,10 @@ final class PlayerManager: NSObject, ObservableObject {
                 guard self.ensurePlaybackAllowed() else { return }
                 self.player?.playImmediately(atRate: Float(self.rate))
                 self.isPlaying = true
+                if self.isInBackground {
+                    self.backgroundPlayDate = Date()
+                }
+                self.savePersistedPlaybackState()
                 self.updateNowPlaying()
             }
             return .success
@@ -2551,6 +2693,9 @@ final class PlayerManager: NSObject, ObservableObject {
                 guard let self else { return }
                 self.player?.pause()
                 self.isPlaying = false
+                self.recordBackgroundPlaybackDurationIfNeeded()
+                self.flushListeningSeconds()
+                self.savePersistedPlaybackState()
                 self.updateNowPlaying()
             }
             return .success

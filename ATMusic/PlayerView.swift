@@ -297,7 +297,7 @@ struct PlayerView: View {
     }
 
     private var playerVisualsActive: Bool {
-        player.isPlaying && !showPlayerSettings && !reduceVisualMotion
+        player.isPlaying && !player.isInBackground && !showPlayerSettings && !reduceVisualMotion
     }
 
     private func openPlayerSettings() {
@@ -4806,7 +4806,7 @@ struct CoverSpin: ViewModifier {
 
     func body(content: Content) -> some View {
         if enabled {
-            TimelineView(.animation(paused: !isPlaying)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { context in
                 let angle = (context.date.timeIntervalSinceReferenceDate * 15)
                     .truncatingRemainder(dividingBy: 360)
                 return content

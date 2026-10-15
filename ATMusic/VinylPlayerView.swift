@@ -61,7 +61,7 @@ struct VinylTurntableView: View {
         let stageHeight = discSize + armHeight * 0.38
 
         return ZStack(alignment: .top) {
-            TimelineView(.animation(paused: !isPlaying || reduceMotion || isDragging || isTransitioningTrack)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying || reduceMotion || isDragging || isTransitioningTrack)) { timeline in
                 let currentAngle = rotationState.currentAngle(at: timeline.date)
                 VinylRecordView(coverURL: coverURL, size: discSize)
                     .rotationEffect(.degrees(currentAngle))
@@ -382,7 +382,7 @@ struct VinylTonearmView: View {
             pivotBase(size: pivotSize)
                 .zIndex(3)
 
-            TimelineView(.animation(paused: !isPlaying || reduceMotion)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying || reduceMotion)) { timeline in
                 let wobble = wobbleDegrees(at: timeline.date)
                 armAssembly(width: width, height: height)
                     .rotationEffect(
