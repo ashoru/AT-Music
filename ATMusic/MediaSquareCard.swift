@@ -111,6 +111,7 @@ struct MediaSquareCard: View {
     var fixedCoverSize: CGFloat? = nil
     var titleLineLimit: Int = 2
     var subtitleLineLimit: Int = 1
+    var circularCover: Bool = false
 
     private var uiStyle: ATMusicUIStyle {
         uiStyleRaw == "outline" ? .clear : (ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid)
@@ -127,7 +128,7 @@ struct MediaSquareCard: View {
     private var coverCornerRadius: CGFloat {
         switch uiStyle {
         case .compact: return 12
-        case .nativeClean: return 14
+        case .nativeClean: return 8
         case .liquid, .clear: return 14
         }
     }
@@ -135,7 +136,7 @@ struct MediaSquareCard: View {
     private var cardPadding: CGFloat {
         switch uiStyle {
         case .compact: return 6
-        case .nativeClean: return 8
+        case .nativeClean: return 0
         case .liquid, .clear: return 8
         }
     }
@@ -143,15 +144,23 @@ struct MediaSquareCard: View {
     private var cardSpacing: CGFloat {
         switch uiStyle {
         case .compact: return 5
-        case .nativeClean, .liquid, .clear: return 7
+        case .nativeClean: return 6
+        case .liquid, .clear: return 7
         }
     }
 
     private var titleFontSize: CGFloat {
         switch uiStyle {
         case .compact: return 12.5
-        case .nativeClean: return 13.5
+        case .nativeClean: return 13
         case .liquid, .clear: return 13
+        }
+    }
+
+    private var subtitleFontSize: CGFloat {
+        switch uiStyle {
+        case .nativeClean: return 12
+        case .compact, .liquid, .clear: return 11
         }
     }
 
@@ -164,7 +173,8 @@ struct MediaSquareCard: View {
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 2,
-        subtitleLineLimit: Int = 1
+        subtitleLineLimit: Int = 1,
+        circularCover: Bool = false
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -175,6 +185,7 @@ struct MediaSquareCard: View {
         self.fixedCoverSize = fixedCoverSize
         self.titleLineLimit = titleLineLimit
         self.subtitleLineLimit = subtitleLineLimit
+        self.circularCover = circularCover
     }
 
     init(
@@ -182,7 +193,8 @@ struct MediaSquareCard: View {
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 2,
-        subtitleLineLimit: Int = 1
+        subtitleLineLimit: Int = 1,
+        circularCover: Bool = false
     ) {
         self.title = item.squareTitle
         self.subtitle = item.squareSubtitle
@@ -193,6 +205,7 @@ struct MediaSquareCard: View {
         self.fixedCoverSize = fixedCoverSize
         self.titleLineLimit = titleLineLimit
         self.subtitleLineLimit = subtitleLineLimit
+        self.circularCover = circularCover
     }
 
     init(
@@ -200,14 +213,16 @@ struct MediaSquareCard: View {
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 2,
-        subtitleLineLimit: Int = 1
+        subtitleLineLimit: Int = 1,
+        circularCover: Bool = false
     ) {
         self.init(
             item: playlist,
             showSourceBadge: showSourceBadge,
             fixedCoverSize: fixedCoverSize,
             titleLineLimit: titleLineLimit,
-            subtitleLineLimit: subtitleLineLimit
+            subtitleLineLimit: subtitleLineLimit,
+            circularCover: circularCover
         )
     }
 
@@ -216,14 +231,16 @@ struct MediaSquareCard: View {
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 2,
-        subtitleLineLimit: Int = 1
+        subtitleLineLimit: Int = 1,
+        circularCover: Bool = false
     ) {
         self.init(
             item: album,
             showSourceBadge: showSourceBadge,
             fixedCoverSize: fixedCoverSize,
             titleLineLimit: titleLineLimit,
-            subtitleLineLimit: subtitleLineLimit
+            subtitleLineLimit: subtitleLineLimit,
+            circularCover: circularCover
         )
     }
 
@@ -234,7 +251,11 @@ struct MediaSquareCard: View {
             textSection
         }
         .padding(cardPadding)
-        .background { MediaSquareCardSurface(shape: shape) }
+        .background {
+            if uiStyle != .nativeClean {
+                MediaSquareCardSurface(shape: shape)
+            }
+        }
         .clipShape(shape)
         .frame(width: fixedCoverSize.map { $0 + cardPadding * 2 }, alignment: .leading)
     }
@@ -243,8 +264,14 @@ struct MediaSquareCard: View {
     private var coverView: some View {
         ZStack(alignment: .bottomTrailing) {
             if let fixedSize = fixedCoverSize {
-                CoverImage(url: coverURL, size: fixedSize, cornerRadius: coverCornerRadius)
+                CoverImage(url: coverURL, size: fixedSize, cornerRadius: circularCover ? fixedSize / 2 : coverCornerRadius)
                     .frame(width: fixedSize, height: fixedSize)
+            } else if circularCover {
+                GeometryReader { proxy in
+                    CoverImage(url: coverURL, size: proxy.size.width, cornerRadius: proxy.size.width / 2)
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
             } else {
                 CoverImage(url: coverURL, size: 0, cornerRadius: coverCornerRadius, isFlexible: true)
                     .aspectRatio(1, contentMode: .fit)
@@ -278,7 +305,7 @@ struct MediaSquareCard: View {
                 }
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(ATMusicFont.appFont(11, .regular))
+                        .font(ATMusicFont.appFont(subtitleFontSize, .regular))
                         .foregroundStyle(Color.atmusicComment)
                         .lineLimit(subtitleLineLimit)
                         .frame(maxWidth: .infinity, alignment: .leading)

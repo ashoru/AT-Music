@@ -662,7 +662,7 @@ struct FeaturedView: View {
                 maxWidth: 240,
                 spacing: 16
             ),
-            spacing: 20
+            spacing: 18
         ) {
             ForEach(playlists, id: \.identityKey) { playlist in
                 NavigationLink {

@@ -18,6 +18,8 @@ struct SongCell: View {
     var playbackContext: [Song] = []
     var playbackIndex: Int?
     var trackNumber: Int? = nil
+    /// 副标题覆盖；nil 时按默认规则显示艺人/专辑
+    var subtitleText: String? = nil
     var onTap: (() -> Void)?
 
     @State private var showAddToPlaylist = false
@@ -31,6 +33,19 @@ struct SongCell: View {
         ATMusicUIStyle(rawValue: uiStyleRaw) == .nativeClean
     }
 
+    // MARK: - 四风格统一行规格（nativeClean 严格对标 Apple Music 列表）
+    private var rowMinHeight: CGFloat { isNativeClean ? 56 : 64 }
+    private var coverSize: CGFloat { isNativeClean ? 44 : 46 }
+    private var coverRadius: CGFloat { isNativeClean ? 8 : 10 }
+    private var subtitleFontSize: CGFloat { isNativeClean ? 13 : 12 }
+    private var dividerLeading: CGFloat {
+        (trackNumber != nil ? 38 : 0) + (showCover ? coverSize + 12 : 0)
+    }
+    private var resolvedSubtitle: String {
+        if let subtitleText { return subtitleText }
+        return song.artists.isEmpty ? song.album : song.artists
+    }
+
     private var rowContent: some View {
         HStack(spacing: 12) {
             if let trackNumber {
@@ -40,7 +55,7 @@ struct SongCell: View {
                     .frame(width: 26, alignment: .center)
             }
             if showCover {
-                CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
+                CoverImage(url: song.coverURL, size: coverSize, cornerRadius: coverRadius)
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -52,8 +67,8 @@ struct SongCell: View {
                         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                Text(song.artists.isEmpty ? song.album : song.artists)
-                    .font(ATMusicFont.appFont(12))
+                Text(resolvedSubtitle)
+                    .font(ATMusicFont.appFont(subtitleFontSize))
                     .foregroundStyle(Color.atmusicComment)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -74,7 +89,7 @@ struct SongCell: View {
                 .frame(minWidth: 42, alignment: .trailing)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: 64)
+        .frame(minHeight: rowMinHeight)
         .contentShape(Rectangle())
         .onTapGesture {
             onTap?()
@@ -150,7 +165,7 @@ struct SongCell: View {
             Rectangle()
                 .fill(Color.atmusicComment.opacity(0.18))
                 .frame(height: 0.5)
-                .padding(.leading, (trackNumber != nil ? 38 : 0) + (showCover ? 58 : 0))
+                .padding(.leading, dividerLeading)
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .listRowBackground(Color.clear)

@@ -678,7 +678,6 @@ struct LibraryView: View {
                         SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
                             playFromHistory(song)
                         }
-                        Divider().overlay(Color.atmusicComment.opacity(0.15))
                     }
                 }
                 .padding(.horizontal, 14)

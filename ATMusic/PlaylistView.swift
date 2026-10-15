@@ -26,7 +26,6 @@ struct PlaylistView: View {
     @State private var resolvedPopularity: Int?
     @State private var searchText = ""
     @State private var sortMode: PlaylistSortMode = .original
-    @State private var showSearch = false
     @State private var showInfo = false
     @AppStorage("atmusic.homeHeaderHideSort") private var hideSortButton = false
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
@@ -93,7 +92,7 @@ struct PlaylistView: View {
                         Section {
                             ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
                                 // 1.8.1 的歌单内歌曲是连续列表，不是每首一张独立玻璃卡。
-                                PlaylistTrackRow(song: song, playbackContext: displayedTracks, playbackIndex: index) {
+                                SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
                                     player.play(songs: displayedTracks, startAt: index)
                                 }
                                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
@@ -121,7 +120,6 @@ struct PlaylistView: View {
             }
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
-            .modifier(PlaylistSearchModifier(enabled: showSearch, text: $searchText))
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -134,14 +132,6 @@ struct PlaylistView: View {
                     .accessibilityLabel(favoritePlaylists.isFavorite(playlist) ? "取消收藏歌单" : "收藏歌单")
 
                     Menu {
-                        Button {
-                            ATMusicHaptics.tap()
-                            showSearch.toggle()
-                            if !showSearch { searchText = "" }
-                        } label: {
-                            Label(showSearch ? "关闭搜索" : "搜索歌单", systemImage: "magnifyingglass")
-                        }
-
                         if !hideSortButton {
                             Picker("排序", selection: $sortMode) {
                                 ForEach(PlaylistSortMode.allCases) { mode in
@@ -224,6 +214,8 @@ struct PlaylistView: View {
                     .disabled(displayedTracks.isEmpty)
                 }
 
+                playlistSearchRow
+
                 if let desc = displayDescription {
                     Text(desc)
                         .font(ATMusicFont.appFont(12))
@@ -250,7 +242,7 @@ struct PlaylistView: View {
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                         ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                            PlaylistTrackRow(song: song, playbackContext: displayedTracks, playbackIndex: index) {
+                            SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
                                 player.play(songs: displayedTracks, startAt: index)
                             }
                             .padding(.horizontal, 8)
@@ -265,6 +257,32 @@ struct PlaylistView: View {
                 .padding(.trailing, 32)
                 .padding(.bottom, 120)
             }
+        }
+    }
+
+    /// 歌单内搜索框：播放全部下方独立一行（四种 UI 风格跟随主题）
+    private var playlistSearchRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color.atmusicComment)
+            TextField("搜索歌单内歌曲", text: $searchText)
+                .font(ATMusicFont.appFont(14))
+                .tint(Color.atmusicAmber)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    ATMusicHaptics.tap()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background {
+            ATMusicSurface(shape: Capsule())
         }
     }
 
@@ -310,6 +328,8 @@ struct PlaylistView: View {
 
                 Spacer(minLength: 0)
             }
+
+            playlistSearchRow
         }
         .padding(.vertical, 4)
     }
@@ -392,24 +412,6 @@ struct PlaylistView: View {
     }
 }
 
-private struct PlaylistSearchModifier: ViewModifier {
-    let enabled: Bool
-    @Binding var text: String
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled {
-            content.searchable(
-                text: $text,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: LocalizedStringKey("搜索歌单内歌曲")
-            )
-        } else {
-            content
-        }
-    }
-}
-
 private struct PlaylistInfoSheet: View {
     @Environment(\.dismiss) private var dismiss
     let name: String
@@ -450,114 +452,3 @@ private struct PlaylistInfoSheet: View {
 }
 
 /// 1.8.1 歌单详情中的紧凑歌曲行：连续排列、统一行高、只用细分隔线区分歌曲。
-private struct PlaylistTrackRow: View {
-    @EnvironmentObject private var player: PlayerManager
-    @EnvironmentObject private var theme: ThemeStore
-    @AppStorage("atmusic.showSongVIPBadge") private var showSongVIPBadge = true
-    @AppStorage(ThirdPartyAudioQuality.downloadStorageKey) private var downloadQualityRaw = ThirdPartyAudioQuality.kb320.rawValue
-
-    @State private var showAddToPlaylist = false
-    @State private var shareFile: ShareFileItem?
-
-    let song: Song
-    let playbackContext: [Song]
-    let playbackIndex: Int
-    let onTap: () -> Void
-
-    private var isCurrent: Bool { player.currentSong?.identityKey == song.identityKey }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            CoverImage(url: song.coverURL, size: 46, cornerRadius: 8)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(song.name)
-                        .font(ATMusicFont.appFont(15, isCurrent ? .semibold : .regular))
-                        .foregroundStyle(isCurrent ? Color.atmusicAmber : Color.atmusicLabel)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Text(song.artists.isEmpty ? song.album : song.artists)
-                    .font(ATMusicFont.appFont(12))
-                    .foregroundStyle(Color.atmusicComment)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            if isCurrent && player.isPlaying {
-                NowPlayingIndicator()
-            }
-            if showSongVIPBadge, song.isVIP {
-                SongVIPBadgeView()
-            }
-            SourceBadgeView(source: song.source, compact: true)
-            Text(song.formattedDuration)
-                .font(ATMusicFont.appFont(12, .regular, .monospaced))
-                .foregroundStyle(Color.atmusicComment)
-                .frame(minWidth: 42, alignment: .trailing)
-        }
-        .padding(.vertical, 9)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.atmusicComment.opacity(0.18))
-                .frame(height: 0.5)
-                .padding(.leading, 58)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
-        .contextMenu {
-            Button {
-                player.playNext(song)
-            } label: {
-                Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            Button {
-                player.play(songs: playbackContext, startAt: playbackIndex)
-            } label: {
-                Label("立即播放", systemImage: "play.fill")
-            }
-            Divider()
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                Label("加入歌单", systemImage: "text.badge.plus")
-            }
-            Button {
-                Task { await downloadSong() }
-            } label: {
-                Label("下载歌曲", systemImage: "arrow.down.circle")
-            }
-        }
-        .sheet(isPresented: $showAddToPlaylist) {
-            AddToLocalPlaylistSheet(song: song)
-                .environmentObject(theme)
-        }
-        .sheet(item: $shareFile) { item in
-            ShareSheet(items: [item.url])
-        }
-    }
-
-    @MainActor
-    private func downloadSong() async {
-        let quality: DownloadQuality
-        if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
-            quality = ThirdPartyAudioQuality.current
-        } else {
-            quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
-        }
-
-        ATMusicHaptics.medium()
-        ToastCenter.shared.show("开始下载：\(song.name)（\(quality.displayName)）")
-        let result = await DownloadManager.shared.download(song: song, quality: quality)
-        switch result {
-        case .success(let downloaded):
-            if downloaded.downgraded {
-                ToastCenter.shared.show("目标音质不可用，已降级为 \(downloaded.actualQuality.displayName)", duration: 3)
-            }
-            shareFile = ShareFileItem(url: downloaded.url)
-        case .failure(let error):
-            ToastCenter.shared.show("下载失败：\(error.localizedDescription)", duration: 3)
-        }
-    }
-}

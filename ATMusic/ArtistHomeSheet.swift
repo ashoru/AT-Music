@@ -191,49 +191,8 @@ struct ArtistHomeSheet: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(displayedHotSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        Button {
-                            ATMusicHaptics.tap()
+                        SongCell(song: song, playbackContext: displayedHotSongs, playbackIndex: index, trackNumber: index + 1, subtitleText: song.album) {
                             player.play(songs: displayedHotSongs, startAt: index)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Text("\(index + 1)")
-                                    .font(ATMusicFont.appFont(13, .semibold, .rounded))
-                                    .foregroundStyle(index < 3 ? Color.atmusicAmber : Color.atmusicComment)
-                                    .frame(width: 22)
-                                CoverImage(url: song.coverURL, size: 40, cornerRadius: 8)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(song.name)
-                                        .font(ATMusicFont.appFont(14, .medium))
-                                        .foregroundStyle(Color.atmusicLabel)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                                    Text(song.album)
-                                        .font(ATMusicFont.appFont(11))
-                                        .foregroundStyle(Color.atmusicComment)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                                }
-                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 16)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                player.playNext(song)
-                            } label: {
-                                Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
-                            }
-                            Button {
-                                player.play(songs: displayedHotSongs, startAt: index)
-                            } label: {
-                                Label("立即播放", systemImage: "play.fill")
-                            }
                         }
                     }
                 }
@@ -263,7 +222,7 @@ struct ArtistHomeSheet: View {
                     .foregroundStyle(Color.atmusicComment)
                     .padding(.horizontal, 16)
             } else {
-                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 14), spacing: 16) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
                     ForEach(albums) { album in
                         NavigationLink {
                             if album.source == .synology {
@@ -670,7 +629,7 @@ struct AllSourcesArtistHomeSheet: View {
                     .foregroundStyle(Color.atmusicComment)
                     .padding(.horizontal, 16)
             } else {
-                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 14), spacing: 16) {
+                LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
                     ForEach(visibleAlbums) { album in
                         NavigationLink {
                             if album.source == .synology {

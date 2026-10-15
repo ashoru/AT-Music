@@ -983,7 +983,7 @@ struct SynologyAppleHomeSection: View {
                                 Button {
                                     player.play(songs: songs, startAt: index)
                                 } label: {
-                                    SynologySquareTile(coverURL: song.coverURL, title: song.name, subtitle: song.artists)
+                                    MediaSquareCard(title: song.name, subtitle: song.artists, coverURL: song.coverURL, showSourceBadge: false)
                                 }
                                 .frame(width: cardWidth)
                                 .buttonStyle(.plain)
@@ -1015,7 +1015,7 @@ struct SynologyAppleHomeSection: View {
                                             source: .synology
                                         )
                                     } label: {
-                                        SynologySquareTile(coverURL: song.coverURL, title: song.album, subtitle: song.artists)
+                                        MediaSquareCard(title: song.album, subtitle: song.artists, coverURL: song.coverURL, showSourceBadge: false)
                                     }
                                     .frame(width: cardWidth)
                                     .buttonStyle(.plain)
@@ -1042,7 +1042,7 @@ struct SynologyAppleHomeSection: View {
                                     NavigationLink {
                                         SynologyArtistView(artistName: song.artists, coverURL: song.coverURL, initialSongs: self.songs)
                                     } label: {
-                                        SynologySquareTile(coverURL: song.coverURL, title: song.artists, subtitle: "歌手", circularCover: true)
+                                        MediaSquareCard(title: song.artists, subtitle: "歌手", coverURL: song.coverURL, showSourceBadge: false, circularCover: true)
                                     }
                                     .frame(width: cardWidth)
                                     .buttonStyle(.plain)
@@ -1068,10 +1068,11 @@ struct SynologyAppleHomeSection: View {
                         ForEach(playlists.prefix(8)) { playlist in
                             NavigationLink { PlaylistView(playlist: playlist) } label: {
                                 let playlistID = playlist.synologyPlaylistId ?? "\(playlist.id)"
-                                SynologySquareTile(
-                                    coverURL: playlistPreviewSongs[playlistID]?.coverURL ?? playlist.coverURL,
+                                MediaSquareCard(
                                     title: playlist.name,
-                                    subtitle: "\(playlist.trackCount) 首"
+                                    subtitle: "\(playlist.trackCount) 首",
+                                    coverURL: playlistPreviewSongs[playlistID]?.coverURL ?? playlist.coverURL,
+                                    showSourceBadge: false
                                 )
                             }
                             .frame(width: cardWidth)
@@ -1471,29 +1472,6 @@ struct SynologyArtistCollectionView: View {
     }
 }
 
-private struct SynologySquareTile: View {
-    let coverURL: URL?
-    let title: String
-    let subtitle: String
-    var circularCover = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            GeometryReader { proxy in
-                CoverImage(url: coverURL, size: proxy.size.width, cornerRadius: circularCover ? proxy.size.width / 2 : 10)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            Text(title)
-                .font(ATMusicFont.appFont(13, .medium))
-                .foregroundStyle(Color.atmusicLabel)
-                .lineLimit(1)
-            Text(subtitle)
-                .font(ATMusicFont.appFont(11))
-                .foregroundStyle(Color.atmusicComment)
-                .lineLimit(1)
-        }
-    }
-}
 
 private struct SynologyLibraryRow: View {
     let coverURL: URL?
@@ -2258,7 +2236,7 @@ struct SynologyArtistView: View {
                     Button {
                         selectedAlbum = album
                     } label: {
-                        SynologySquareTile(coverURL: album.coverURL, title: album.album, subtitle: "\(songsForAlbum(album).count) 首")
+                        MediaSquareCard(title: album.album, subtitle: "\(songsForAlbum(album).count) 首", coverURL: album.coverURL, showSourceBadge: false)
                     }
                     .buttonStyle(.plain)
                 }

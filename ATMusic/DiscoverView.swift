@@ -56,6 +56,21 @@ struct DiscoverView: View {
     private var isHomeAggregate: Bool { homeScopeRaw == "aggregate" }
     private var isNativeClean: Bool { ATMusicUIStyle(rawValue: uiStyleRaw) == .nativeClean }
 
+    /// 横向滚动方形卡封面边长（四风格统一）
+    private func hScrollCardSize(isIPadRegular: Bool) -> CGFloat {
+        if isIPadRegular { return 176 }
+        if isNativeClean { return 140 }
+        if uiStyleRaw == ATMusicUIStyle.compact.rawValue { return 120 }
+        return 136
+    }
+
+    /// 推荐功能卡圆角（四风格统一）
+    private var featureCardRadius: CGFloat {
+        if isNativeClean { return 12 }
+        if uiStyleRaw == ATMusicUIStyle.compact.rawValue { return 14 }
+        return 18
+    }
+
     @State private var qqTopLists: [QQTopInfo] = []
     @State private var kugouTopLists: [KugouTopInfo] = []
     /// 首页加载去重：SwiftUI 视图刷新时 .task 可能被重复触发，避免网络请求风暴。
@@ -574,29 +589,12 @@ struct DiscoverView: View {
     }
 
     private func aggregateRankCard(name: String, subtitle: String, coverURL: URL?, action: @escaping () -> Void) -> some View {
-        let isRegular = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
-        let cardSize: CGFloat = isRegular ? 176 : (isNativeClean ? 156 : 136)
+        let cardSize = hScrollCardSize(isIPadRegular: DeviceLayoutHelper.isIPadRegular(horizontalSizeClass))
         return Button {
             ATMusicHaptics.tap()
             action()
         } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                CoverImage(url: coverURL, size: cardSize, cornerRadius: 16)
-                Text(name)
-                    .font(ATMusicFont.appFont(isNativeClean ? 14 : 12, .medium))
-                    .foregroundStyle(Color.atmusicLabel)
-                    .lineLimit(2)
-                    .frame(width: cardSize, alignment: .leading)
-                Text(subtitle)
-                    .font(ATMusicFont.appFont(11, .medium))
-                    .foregroundStyle(Color.atmusicComment)
-                    .lineLimit(1)
-                    .frame(width: cardSize, alignment: .leading)
-            }
-            .padding(8)
-            .background {
-                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
+            MediaSquareCard(title: name, subtitle: subtitle, coverURL: coverURL, showSourceBadge: false, fixedCoverSize: cardSize)
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.96))
     }
@@ -758,7 +756,7 @@ struct DiscoverView: View {
         return Button(action: action) {
             ZStack(alignment: .bottomLeading) {
                 if let coverURL {
-                    CoverImage(url: coverURL, size: resolvedCardSize, cornerRadius: isNativeClean ? 16 : 18, width: cardWidth, height: cardHeight)
+                    CoverImage(url: coverURL, size: resolvedCardSize, cornerRadius: featureCardRadius, width: cardWidth, height: cardHeight)
                         .overlay {
                             LinearGradient(
                                 colors: [.black.opacity(0.05), .black.opacity(0.62)],
@@ -767,7 +765,7 @@ struct DiscoverView: View {
                             )
                         }
                 } else {
-                    RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: featureCardRadius, style: .continuous)
                         .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: cardWidth, height: cardHeight)
                         .overlay(alignment: .topTrailing) {
@@ -810,9 +808,9 @@ struct DiscoverView: View {
                 .padding(14)
             }
             .frame(width: cardWidth, height: cardHeight)
-            .clipShape(RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: featureCardRadius, style: .continuous))
             .shadow(color: Color.black.opacity(isNativeClean ? 0.06 : 0.12), radius: 16, x: 0, y: 8)
-            .contentShape(RoundedRectangle(cornerRadius: isNativeClean ? 16 : 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: featureCardRadius, style: .continuous))
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.95))
         .disabled(loadingKey != nil && recommendationActionLoading != nil)
@@ -992,31 +990,12 @@ struct DiscoverView: View {
     }
 
     private func recentSongCard(_ song: Song, index: Int) -> some View {
-        let isRegular = DeviceLayoutHelper.isIPadRegular(horizontalSizeClass)
-        let size: CGFloat = isRegular ? 176 : (isNativeClean ? 156 : 136)
+        let size = hScrollCardSize(isIPadRegular: DeviceLayoutHelper.isIPadRegular(horizontalSizeClass))
         return Button {
             ATMusicHaptics.tap()
             player.play(songs: recentPlayedSongs, startAt: index)
         } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                CoverImage(url: song.coverURL, size: size, cornerRadius: 16)
-                HStack(spacing: 5) {
-                    Text(song.name)
-                        .font(ATMusicFont.appFont(isNativeClean ? 14 : 12, .medium))
-                        .foregroundStyle(Color.atmusicLabel)
-                        .lineLimit(1)
-                    if isHomeAggregate {
-                        SourceBadgeView(source: song.source, compact: true)
-                    }
-                }
-                .frame(width: size, alignment: .leading)
-                Text(song.artists)
-                    .font(ATMusicFont.appFont(isNativeClean ? 12 : 11, .medium))
-                    .foregroundStyle(Color.atmusicComment)
-                    .lineLimit(1)
-                    .frame(width: size, alignment: .leading)
-            }
-            .frame(width: size, alignment: .leading)
+            MediaSquareCard(title: song.name, subtitle: song.artists, coverURL: song.coverURL, source: song.source, showSourceBadge: isHomeAggregate, fixedCoverSize: size, titleLineLimit: 1)
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.96))
     }
@@ -2012,6 +1991,18 @@ struct TopListDetailView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
+
+    /// 榜单页头卡圆角（四风格统一）
+    private var headerCardRadius: CGFloat {
+        let style = ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid
+        switch style {
+        case .nativeClean: return 12
+        case .compact: return 14
+        case .clear: return 18
+        case .liquid: return 22
+        }
+    }
 
     let topList: TopList
     @State private var tracks: [Song] = []
@@ -2166,7 +2157,7 @@ struct TopListDetailView: View {
         }
         .padding(14)
         .background {
-            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: headerCardRadius, style: .continuous))
         }
         .atmusicCardShadow(radius: 8, y: 3)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))

@@ -607,7 +607,7 @@ struct MusicLibraryHomeView: View {
                                     NavigationLink {
                                         PlaylistView(playlist: playlist)
                                     } label: {
-                                        MediaSquareCard(playlist: playlist, fixedCoverSize: 124)
+                                        MediaSquareCard(playlist: playlist, fixedCoverSize: isNativeClean ? 140 : (uiStyleRaw == ATMusicUIStyle.compact.rawValue ? 120 : 136))
                                     }
                                     .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                                     .contextMenu {
@@ -1058,8 +1058,8 @@ struct MusicLibraryAllPlaylistsView: View {
                                 .padding(.top, 60)
                         } else {
                             LazyVGrid(
-                                columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 18),
-                                spacing: 22
+                                columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16),
+                                spacing: 18
                             ) {
                                 ForEach(items) { item in
                                     switch item.kind {
@@ -1076,17 +1076,7 @@ struct MusicLibraryAllPlaylistsView: View {
                                             LocalPlaylistBrowserView(playlistID: id)
                                                 .onAppear { activityStore.mark(item.id) }
                                         } label: {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                CoverImage(url: item.coverURL, size: 160, cornerRadius: 16)
-                                                Text(item.title)
-                                                    .font(ATMusicFont.appFont(14, .semibold))
-                                                    .foregroundStyle(Color.atmusicLabel)
-                                                    .lineLimit(1)
-                                                Text(item.subtitle)
-                                                    .font(ATMusicFont.appFont(12))
-                                                    .foregroundStyle(Color.atmusicComment)
-                                                    .lineLimit(1)
-                                            }
+                                            MediaSquareCard(title: item.title, subtitle: item.subtitle, coverURL: item.coverURL, showSourceBadge: false)
                                         }
                                         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                                     }
@@ -1424,23 +1414,29 @@ struct LocalFileCollectionView: View {
                             player.play(songs: displayedSongs, startAt: index)
                         } label: {
                             HStack(spacing: 12) {
-                                CoverImage(url: song.coverURL, size: 46, cornerRadius: 9)
+                                CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(originalFilename(for: song))
-                                        .font(ATMusicFont.appFont(14, .medium))
+                                        .font(ATMusicFont.appFont(15))
                                         .foregroundStyle(Color.atmusicLabel)
                                         .lineLimit(1)
                                     Text(fileSubtitle(for: song))
-                                        .font(ATMusicFont.appFont(11))
+                                        .font(ATMusicFont.appFont(12))
                                         .foregroundStyle(Color.atmusicComment)
                                         .lineLimit(1)
                                 }
                                 Spacer(minLength: 8)
                                 Text(song.formattedDuration)
-                                    .font(ATMusicFont.appFont(11, .regular, .monospaced))
+                                    .font(ATMusicFont.appFont(12, .regular, .monospaced))
                                     .foregroundStyle(Color.atmusicComment)
                             }
-                            .padding(.vertical, 5)
+                            .frame(minHeight: 64)
+                            .overlay(alignment: .bottom) {
+                                Rectangle()
+                                    .fill(Color.atmusicComment.opacity(0.18))
+                                    .frame(height: 0.5)
+                                    .padding(.leading, 58)
+                            }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(GlassPressButtonStyle(scale: 0.985))
@@ -1848,10 +1844,10 @@ struct UnifiedFavoritesDetailView: View {
                         Section {
                             ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 HStack(spacing: 12) {
-                                    CoverImage(url: song.coverURL, size: 48, cornerRadius: 8)
+                                    CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(song.name)
-                                            .font(ATMusicFont.appFont(15, .semibold))
+                                            .font(ATMusicFont.appFont(15))
                                             .foregroundStyle(Color.atmusicLabel)
                                             .lineLimit(1)
                                         HStack(spacing: 6) {
@@ -1874,6 +1870,7 @@ struct UnifiedFavoritesDetailView: View {
                                     }
                                     .buttonStyle(.plain)
                                 }
+                                .frame(minHeight: 64)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     player.play(songs: displayedSongs, startAt: index)

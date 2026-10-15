@@ -1014,17 +1014,18 @@ struct LocalMusicManagementSheet: View {
                                 editingSong = song
                             } label: {
                                 HStack(spacing: 12) {
-                                    CoverImage(url: song.coverURL, size: 48, cornerRadius: 8)
+                                    CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(song.name)
+                                            .font(ATMusicFont.appFont(15))
                                             .foregroundStyle(Color.atmusicLabel)
                                             .lineLimit(1)
                                         Text("\(song.artists) · \(song.album)")
-                                            .font(.caption)
+                                            .font(ATMusicFont.appFont(12))
                                             .foregroundStyle(Color.atmusicComment)
                                             .lineLimit(1)
                                         Text(song.formattedDuration)
-                                            .font(.caption2)
+                                            .font(ATMusicFont.appFont(11))
                                             .foregroundStyle(Color.atmusicComment.opacity(0.8))
                                     }
                                     Spacer(minLength: 8)
