@@ -460,59 +460,14 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
 
-            // 4 大平台连接状态胶囊条
+            // 4 大平台连接状态胶囊条（与简洁风格一致，只显示一次）
             platformConnectivityBar
-
-            if (platformPrefs.isEnabled(SearchProvider.netease) && auth.isLoggedIn)
-                || (platformPrefs.isEnabled(SearchProvider.qq) && qqAuth.isLoggedIn)
-                || (platformPrefs.isEnabled(SearchProvider.kugou) && kugouAuth.isLoggedIn) {
-                platformStatusRow
-            }
         }
         .padding(16)
         .background {
                         ATMusicGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .atmusicCardShadow(radius: 10, y: 4)
-    }
-
-    /// 每个登录平台单独展示登录成功状态（网易云 / QQ 音乐）
-    private var platformStatusRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if platformPrefs.isEnabled(SearchProvider.netease), auth.isLoggedIn {
-                platformChip(imageName: "BrandNetease", name: "网易云音乐", status: auth.user?.nickname ?? "已登录", badge: auth.user?.vipBadge)
-            }
-            if platformPrefs.isEnabled(SearchProvider.qq), qqAuth.isLoggedIn {
-                platformChip(imageName: "BrandQQ", name: "QQ 音乐", status: qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname, badge: qqAuth.vipBadge)
-            }
-            if platformPrefs.isEnabled(SearchProvider.kugou), kugouAuth.isLoggedIn {
-                platformChip(imageName: "BrandKugou", name: "酷狗音乐", status: kugouAuth.nickname.isEmpty ? "已登录" : kugouAuth.nickname, badge: kugouAuth.vipBadge)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    private func platformChip(imageName: String, name: String, status: String, badge: String?) -> some View {
-        HStack(spacing: 6) {
-            Image(imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 16, height: 16)
-            Text(name)
-                .font(ATMusicFont.appFont(12, .semibold))
-                .foregroundStyle(Color.atmusicLabel)
-            Text(status)
-                .font(ATMusicFont.appFont(11))
-                .foregroundStyle(Color.atmusicComment)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-            if let badge {
-                VIPBadgeView(text: badge)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background { ATMusicSurface(shape: Capsule()) }
     }
 
     // MARK: - 4 大平台实时连接状态胶囊条
@@ -741,12 +696,7 @@ struct ProfileView: View {
         }
         .padding(16)
         .background {
-            if isNativeClean {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color(UIColor.secondarySystemGroupedBackground))
-            } else {
-                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .atmusicCardShadow(radius: 10, y: 4)
     }
@@ -1556,7 +1506,6 @@ struct SettingsView: View {
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var synology = SynologyAPI.shared
 
-    @State private var appearanceExpanded = false
     @State private var moreAppearanceExpanded = false
     @State private var platformExpanded = false
     @State private var playbackExpanded = false
@@ -1582,6 +1531,12 @@ struct SettingsView: View {
     @State private var showLogViewer = false
     @State private var showAccountHub = false
     @State private var settingsQuery = ""
+    // 设置页 5 张大卡片折叠状态（默认全部折叠，用户改过之后记住他的选择）
+    @AppStorage("atmusic.settingsCard.account.collapsed") private var accountCardCollapsed = true
+    @AppStorage("atmusic.settingsCard.audio.collapsed") private var audioCardCollapsed = true
+    @AppStorage("atmusic.settingsCard.source.collapsed") private var sourceCardCollapsed = true
+    @AppStorage("atmusic.settingsCard.appearance.collapsed") private var appearanceCardCollapsed = true
+    @AppStorage("atmusic.settingsCard.storage.collapsed") private var storageCardCollapsed = true
     @State private var sourceQualityExpanded = false
 
     private var isNativeClean: Bool { uiStyleRaw == ATMusicUIStyle.nativeClean.rawValue }
@@ -1837,7 +1792,7 @@ struct SettingsView: View {
         )
         if isNativeClean {
             shape
-                .fill(selected ? Color.atmusicAmber.opacity(0.12) : Color(UIColor.tertiarySystemGroupedBackground))
+                .fill(selected ? Color.atmusicAmber.opacity(0.12) : Color.atmusicGlassFill)
                 .overlay {
                     shape.stroke(selected ? Color.atmusicAmber : Color.clear, lineWidth: 1.2)
                 }
@@ -1873,43 +1828,59 @@ struct SettingsView: View {
         title: String,
         icon: String,
         subtitle: String? = nil,
+        collapsed: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cornerRadius: CGFloat = isNativeClean ? 20 : (uiStyleRaw == "compact" ? 14 : (uiStyleRaw == "clear" ? 18 : 22))
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        // 搜索设置项时强制全部展开；清空搜索后恢复用户之前的折叠状态
+        let isSearching = !settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isCollapsed = !isSearching && collapsed.wrappedValue
 
         return VStack(alignment: .leading, spacing: uiStyleRaw == "compact" ? 10 : 13) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: uiStyleRaw == "compact" ? 13 : 15, weight: .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
-                    .frame(width: uiStyleRaw == "compact" ? 26 : 30, height: uiStyleRaw == "compact" ? 26 : 30)
-                    .background(Color.atmusicAmber.opacity(0.12), in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(LocalizedStringKey(title))
-                        .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 15 : 16, .bold))
-                        .foregroundStyle(Color.atmusicLabel)
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(LocalizedStringKey(subtitle))
-                            .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 10 : 11))
-                            .foregroundStyle(Color.atmusicComment)
-                            .lineLimit(2)
-                    }
+            Button {
+                ATMusicHaptics.tap()
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    collapsed.wrappedValue.toggle()
                 }
-                Spacer(minLength: 0)
-            }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: icon)
+                        .font(.system(size: uiStyleRaw == "compact" ? 13 : 15, weight: .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .frame(width: uiStyleRaw == "compact" ? 26 : 30, height: uiStyleRaw == "compact" ? 26 : 30)
+                        .background(Color.atmusicAmber.opacity(0.12), in: Circle())
 
-            content()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LocalizedStringKey(title))
+                            .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 15 : 16, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(LocalizedStringKey(subtitle))
+                                .font(ATMusicFont.appFont(uiStyleRaw == "compact" ? 10 : 11))
+                                .foregroundStyle(Color.atmusicComment)
+                                .lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.atmusicComment)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .animation(.easeInOut(duration: 0.25), value: isCollapsed)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if !isCollapsed {
+                content()
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: isCollapsed)
         .padding(.horizontal, uiStyleRaw == "compact" ? 12 : 15)
         .padding(.vertical, uiStyleRaw == "compact" ? 11 : 14)
         .background {
-            if isNativeClean {
-                shape.fill(Color(UIColor.secondarySystemGroupedBackground))
-            } else {
-                ATMusicGlass(shape: shape)
-            }
+            ATMusicGlass(shape: shape)
         }
         .clipShape(shape)
         .overlay {
@@ -1935,7 +1906,8 @@ struct SettingsView: View {
         settingsCardContainer(
             title: "账号与多平台服务",
             icon: "person.crop.circle.badge.checkmark",
-            subtitle: "统一管理网易云、QQ 音乐、酷狗与群晖服务登录与检索偏好"
+            subtitle: "统一管理网易云、QQ 音乐、酷狗与群晖服务登录与检索偏好",
+            collapsed: $accountCardCollapsed,
         ) {
             VStack(spacing: 12) {
                 accountSettingsRow
@@ -1961,7 +1933,8 @@ struct SettingsView: View {
         settingsCardContainer(
             title: "音频品质与播放体验",
             icon: "waveform.badge.magnifyingglass",
-            subtitle: "对标网易与QQ高规格音质架构、均衡器调音与核心播放控制"
+            subtitle: "对标网易与QQ高规格音质架构、均衡器调音与核心播放控制",
+            collapsed: $audioCardCollapsed,
         ) {
             VStack(spacing: 12) {
                 playbackQualitySection
@@ -2064,7 +2037,8 @@ struct SettingsView: View {
         settingsCardContainer(
             title: "第三方音源与解封扩展",
             icon: "shippingbox.and.arrow.backward.fill",
-            subtitle: "本地 JavaScript 脚本订阅、第三方音质调度与会员歌解封"
+            subtitle: "本地 JavaScript 脚本订阅、第三方音质调度与会员歌解封",
+            collapsed: $sourceCardCollapsed,
         ) {
             thirdPartySourceSection
         }
@@ -2075,7 +2049,8 @@ struct SettingsView: View {
         settingsCardContainer(
             title: "界面外观与主页定制",
             icon: "paintpalette.fill",
-            subtitle: "主题模式、四套全局 UI 风格、壁纸与高自由度布局定制"
+            subtitle: "主题模式、四套全局 UI 风格、壁纸与高自由度布局定制",
+            collapsed: $appearanceCardCollapsed,
         ) {
             appearanceSection
         }
@@ -2086,7 +2061,8 @@ struct SettingsView: View {
         settingsCardContainer(
             title: "存储、数据与关于",
             icon: "internaldrive.fill",
-            subtitle: "音乐缓存空间、配置备份恢复、诊断日志与版本说明"
+            subtitle: "音乐缓存空间、配置备份恢复、诊断日志与版本说明",
+            collapsed: $storageCardCollapsed,
         ) {
             VStack(spacing: 12) {
                 musicCacheSection
@@ -2131,12 +2107,7 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .frame(height: 44)
         .background {
-            if isNativeClean {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(UIColor.secondarySystemGroupedBackground))
-            } else {
-                ATMusicSurface(shape: Capsule())
-            }
+            ATMusicSurface(shape: Capsule())
         }
         .padding(.bottom, 2)
     }
@@ -2574,42 +2545,6 @@ struct SettingsView: View {
     /// 外观设置（原「我的」页外观折叠内容）
     private var appearanceSection: some View {
         VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
-            // 外观设置行：点击展开 / 收起全部外观设置
-            Button {
-                ATMusicHaptics.select()
-                withAnimation {
-                    appearanceExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "paintpalette.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("主题模式")
-                            .font(ATMusicFont.appFont(15))
-                            .foregroundStyle(Color.atmusicLabel)
-                        Text(themeMode.title)
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                    Spacer()
-                    Image(systemName: appearanceExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: isNativeClean ? 51 : 47)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-
-            if appearanceExpanded {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
                     ForEach(ATMusicThemeMode.allCases) { mode in
@@ -2659,7 +2594,6 @@ struct SettingsView: View {
                         ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
             .atmusicCardShadow(radius: 9, y: 3)
-            }
         }
     }
 

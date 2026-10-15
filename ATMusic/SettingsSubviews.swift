@@ -45,7 +45,7 @@ struct SettingsSectionCard<Content: View>: View {
     private var cardBackground: some View {
         switch uiStyle {
         case .nativeClean:
-            cardShape.fill(Color(UIColor.secondarySystemGroupedBackground))
+            ATMusicGlass(shape: cardShape)
         case .compact:
             ATMusicGlass(shape: cardShape)
                 .overlay {
