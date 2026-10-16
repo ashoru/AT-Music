@@ -109,7 +109,7 @@ struct MediaSquareCard: View {
     var badgeText: String? = nil
     var showSourceBadge: Bool = true
     var fixedCoverSize: CGFloat? = nil
-    var titleLineLimit: Int = 2
+    var titleLineLimit: Int = 1
     var subtitleLineLimit: Int = 1
     var circularCover: Bool = false
 
@@ -172,7 +172,7 @@ struct MediaSquareCard: View {
         badgeText: String? = nil,
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
-        titleLineLimit: Int = 2,
+        titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
         circularCover: Bool = false
     ) {
@@ -192,7 +192,7 @@ struct MediaSquareCard: View {
         item: any MediaSquareItem,
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
-        titleLineLimit: Int = 2,
+        titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
         circularCover: Bool = false
     ) {
@@ -212,7 +212,7 @@ struct MediaSquareCard: View {
         playlist: Playlist,
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
-        titleLineLimit: Int = 2,
+        titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
         circularCover: Bool = false
     ) {
@@ -230,7 +230,7 @@ struct MediaSquareCard: View {
         album: Album,
         showSourceBadge: Bool = true,
         fixedCoverSize: CGFloat? = nil,
-        titleLineLimit: Int = 2,
+        titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
         circularCover: Bool = false
     ) {
@@ -246,7 +246,7 @@ struct MediaSquareCard: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-        VStack(alignment: .leading, spacing: cardSpacing) {
+        let content = VStack(alignment: .leading, spacing: cardSpacing) {
             coverView
             textSection
         }
@@ -256,8 +256,14 @@ struct MediaSquareCard: View {
                 MediaSquareCardSurface(shape: shape)
             }
         }
-        .clipShape(shape)
         .frame(width: fixedCoverSize.map { $0 + cardPadding * 2 }, alignment: .leading)
+        // 简洁风格无卡片底框、内边距为 0：整卡裁剪会啃掉左下角文字，
+        // 封面已有自带圆角，这里不再裁；其余风格保持原样
+        if uiStyle == .nativeClean {
+            content
+        } else {
+            content.clipShape(shape)
+        }
     }
 
     @ViewBuilder
@@ -297,7 +303,8 @@ struct MediaSquareCard: View {
                 .foregroundStyle(Color.atmusicLabel)
                 .lineLimit(titleLineLimit)
                 .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // 预留 titleLineLimit 行高度：一行/两行标题的卡片等高，网格对齐
+                .frame(maxWidth: .infinity, minHeight: titleFontSize * 1.35 * CGFloat(titleLineLimit), alignment: .topLeading)
 
             HStack(spacing: 4) {
                 if showSourceBadge, let source {

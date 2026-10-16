@@ -81,7 +81,7 @@ struct PlayerView: View {
     @AppStorage("atmusic.playerSecondaryIconColorHex") private var playerSecondaryIconColorHex = ""
     @AppStorage("atmusic.playerPrimaryButtonColorHex") private var playerPrimaryButtonColorHex = ""
     /// 播放器顶部与底部控制按钮的统一样式
-    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.glass.rawValue
+    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
     /// 进度条样式：0 流光 / 1 辉光 / 2 极光 / 3 波浪
     @AppStorage("atmusic.progressBarStyle") private var progressBarStyle = 0
@@ -189,7 +189,7 @@ struct PlayerView: View {
     }
 
     private var playerButtonStyle: ATMusicPlayerButtonStyle {
-        ATMusicPlayerButtonStyle(rawValue: playerButtonStyleRaw) ?? .glass
+        ATMusicPlayerButtonStyle(rawValue: playerButtonStyleRaw) ?? .appleMusic
     }
 
     private var coverPlayerStyle: ATMusicCoverPlayerStyle {
@@ -3803,7 +3803,7 @@ struct PlayerSettingsSheet: View {
     @AppStorage("atmusic.lyricBackground.image") private var lyricBackgroundImagePath = ""
     @AppStorage("atmusic.lyricBackground.blur") private var lyricBackgroundBlur = 12.0
     @AppStorage("atmusic.lyricBackground.syncCover") private var lyricBackgroundSyncCover = false
-    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.glass.rawValue
+    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.albumTitleColorHex") private var albumTitleColorHex = ""
     @AppStorage("atmusic.albumArtistColorHex") private var albumArtistColorHex = ""
     @AppStorage("atmusic.albumPreviewLyricColorHex") private var albumPreviewLyricColorHex = ""
@@ -4194,6 +4194,7 @@ struct PlayerSettingsSheet: View {
                     LazyVStack(spacing: 12) {
                         layoutEditorCard
                         coverStyleCard
+                        playingCard
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 34)

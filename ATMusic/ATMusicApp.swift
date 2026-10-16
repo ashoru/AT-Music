@@ -16,6 +16,12 @@ struct ATMusicApp: App {
         // 1.8 的页面基准是 Apple 简洁布局。旧版本曾把液态/紧凑样式持久化下来，
         // 只改默认值不会影响已经安装过的用户，所以这里做一次显式迁移。
         let defaults = UserDefaults.standard
+        // 播放器按钮统一为无圆圈的 Apple Music 风格：旧版三处默认值不一致（两处 glass、一处 appleMusic），
+        // 且该设置按设备本地存储、不会跨设备同步，导致两台手机按钮样式不一样。这里做一次显式迁移。
+        if !defaults.bool(forKey: "atmusic.playerButtonStyleMigrated") {
+            defaults.set(ATMusicPlayerButtonStyle.appleMusic.rawValue, forKey: "atmusic.playerButtonStyle")
+            defaults.set(true, forKey: "atmusic.playerButtonStyleMigrated")
+        }
         if !defaults.bool(forKey: "atmusic.reference18LayoutMigrated") {
             defaults.set(ATMusicUIStyle.nativeClean.rawValue, forKey: "atmusic.uiStyle")
             defaults.set(true, forKey: "atmusic.reference18LayoutMigrated")

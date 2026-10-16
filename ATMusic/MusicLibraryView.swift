@@ -1843,22 +1843,16 @@ struct UnifiedFavoritesDetailView: View {
 
                         Section {
                             ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                HStack(spacing: 12) {
-                                    CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(song.name)
-                                            .font(ATMusicFont.appFont(15))
-                                            .foregroundStyle(Color.atmusicLabel)
-                                            .lineLimit(1)
-                                        HStack(spacing: 6) {
-                                            SourceBadgeView(source: song.source, compact: true)
-                                            Text("\(song.artists) · \(song.album)")
-                                                .font(ATMusicFont.appFont(12))
-                                                .foregroundStyle(Color.atmusicComment)
-                                                .lineLimit(1)
+                                HStack(spacing: 0) {
+                                    SongCell(
+                                        song: song,
+                                        playbackContext: displayedSongs,
+                                        playbackIndex: index,
+                                        subtitleText: "\(song.artists) · \(song.album)",
+                                        onTap: {
+                                            player.play(songs: displayedSongs, startAt: index)
                                         }
-                                    }
-                                    Spacer()
+                                    )
                                     Button {
                                         Task {
                                             await favorites.toggleFavorite(song)
@@ -1869,12 +1863,12 @@ struct UnifiedFavoritesDetailView: View {
                                             .font(.system(size: 16))
                                     }
                                     .buttonStyle(.plain)
+                                    .padding(.trailing, 4)
                                 }
-                                .frame(minHeight: 64)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    player.play(songs: displayedSongs, startAt: index)
-                                }
+                                // SongCell 包在 HStack 里时它内部的 listRow 样式不生效，移到行上
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
                                         Task {
