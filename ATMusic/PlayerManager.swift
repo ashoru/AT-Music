@@ -636,6 +636,29 @@ final class PlayerManager: NSObject, ObservableObject {
         defaults.removeObject(forKey: historyKey)
     }
 
+    /// 跨设备云端同步：合并播放历史记录
+    func mergeRemoteHistory(_ remoteHistory: [Song]) {
+        var map: [String: Song] = [:]
+        var orderedKeys: [String] = []
+        for s in history {
+            if map[s.identityKey] == nil {
+                map[s.identityKey] = s
+                orderedKeys.append(s.identityKey)
+            }
+        }
+        for s in remoteHistory {
+            if map[s.identityKey] == nil {
+                map[s.identityKey] = s
+                orderedKeys.append(s.identityKey)
+            }
+        }
+        let merged = orderedKeys.prefix(50).compactMap { map[$0] }
+        history = Array(merged)
+        if let data = try? JSONEncoder().encode(history) {
+            defaults.set(data, forKey: historyKey)
+        }
+    }
+
     /// 清空队列，仅保留当前歌曲
     func clearQueue() {
         guard !queue.isEmpty else { return }

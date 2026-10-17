@@ -3074,6 +3074,8 @@ struct SettingsView: View {
             .buttonStyle(.plain)
 
             if backupExpanded {
+                nasSyncCard
+
             VStack(spacing: 10) {
                 Toggle("备份登录信息", isOn: $backupIncludeAccounts)
                     .tint(Color.atmusicAmber)
@@ -3109,6 +3111,83 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             }
+        }
+    }
+
+
+    private var nasSyncCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    .foregroundStyle(Color.atmusicAmber)
+                Text("群晖 NAS 多设备云端同步")
+                    .font(ATMusicFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+            }
+
+            if SynologyAPI.shared.isLoggedIn {
+                Toggle("自动静默同步", isOn: Binding(
+                    get: { NASUserSyncManager.shared.autoSyncEnabled },
+                    set: { enabled in NASUserSyncManager.shared.autoSyncEnabled = enabled }
+                ))
+                .tint(Color.atmusicAmber)
+                .font(ATMusicFont.appFont(13))
+
+                HStack {
+                    Text("上次同步状态")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                    Spacer()
+                    Text(NASUserSyncManager.shared.formattedLastSyncTime)
+                        .font(ATMusicFont.appFont(11, .medium))
+                        .foregroundStyle(Color.atmusicLabel)
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task {
+                            await NASUserSyncManager.shared.backupToNAS(isManual: true)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.icloud")
+                            Text("备份至 NAS")
+                        }
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.atmusicAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(GlassPressButtonStyle(scale: 0.95))
+
+                    Button {
+                        Task {
+                            await NASUserSyncManager.shared.restoreFromNAS(isManual: true)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.icloud")
+                            Text("从 NAS 恢复")
+                        }
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(GlassPressButtonStyle(scale: 0.95))
+                }
+            } else {
+                Text("连接群晖 NAS 后，可自动在 iPhone、iPad 之间无感同步本地歌单、红心收藏、播放历史与全局设置。")
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+        }
+        .padding(14)
+        .background {
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 

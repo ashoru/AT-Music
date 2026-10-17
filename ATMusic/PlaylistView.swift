@@ -28,6 +28,7 @@ struct PlaylistView: View {
     @State private var sortMode: PlaylistSortMode = .original
     @State private var showInfo = false
     @State private var isBatchDownloading = false
+    @State private var isBatchUploading = false
 
     @MainActor
     private func batchDownloadPlaylist() {
@@ -49,8 +50,13 @@ struct PlaylistView: View {
 
     @MainActor
     private func batchUploadPlaylistToNAS() {
-        guard !displayedTracks.isEmpty else { return }
+        guard !displayedTracks.isEmpty, !isBatchUploading else { return }
+        isBatchUploading = true
+        ATMusicHaptics.medium()
         DownloadManager.shared.startBatchUploadToNAS(songs: displayedTracks)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            isBatchUploading = false
+        }
     }
     @AppStorage("atmusic.homeHeaderHideSort") private var hideSortButton = false
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue

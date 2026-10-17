@@ -53,4 +53,18 @@ final class FavoritePlaylistStore: ObservableObject {
         playlists.removeAll { $0.identityKey == playlist.identityKey }
         save()
     }
+
+    /// 跨设备云端同步：并集无损合并在线收藏歌单
+    func mergeRemotePlaylists(_ remotePlaylists: [Playlist]) {
+        var existingKeys = Set(playlists.map { $0.identityKey })
+        var updated = playlists
+        for p in remotePlaylists {
+            if !existingKeys.contains(p.identityKey) {
+                updated.append(p)
+                existingKeys.insert(p.identityKey)
+            }
+        }
+        playlists = updated
+        save()
+    }
 }

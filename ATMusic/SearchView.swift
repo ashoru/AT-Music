@@ -2056,10 +2056,12 @@ struct AlbumDetailView: View {
     @State private var errorMessage: String?
     @State private var showArtistHome = false
     @State private var isBatchDownloading = false
+    @State private var isBatchUploading = false
 
     @MainActor
     private func batchDownloadAlbum() {
-        guard !sortedTracks.isEmpty else { return }
+        guard !sortedTracks.isEmpty, !isBatchDownloading else { return }
+        isBatchDownloading = true
         ATMusicHaptics.medium()
         let quality: DownloadQuality
         let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
@@ -2069,12 +2071,20 @@ struct AlbumDetailView: View {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
         DownloadManager.shared.startBatchDownload(songs: sortedTracks, quality: quality)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            isBatchDownloading = false
+        }
     }
 
     @MainActor
     private func batchUploadAlbumToNAS() {
-        guard !sortedTracks.isEmpty else { return }
+        guard !sortedTracks.isEmpty, !isBatchUploading else { return }
+        isBatchUploading = true
+        ATMusicHaptics.medium()
         DownloadManager.shared.startBatchUploadToNAS(songs: sortedTracks)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            isBatchUploading = false
+        }
     }
 
     private var albumAccentColor: Color {

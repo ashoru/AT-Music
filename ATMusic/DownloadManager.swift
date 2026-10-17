@@ -287,6 +287,17 @@ final class DownloadManager: ObservableObject {
         }
     }
 
+    func isUploading(song: Song) -> Bool {
+        activeUploads.contains {
+            $0.song.identityKey == song.identityKey &&
+            ($0.status == .waiting || $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags)
+        }
+    }
+
+    func isArchivedToNAS(song: Song) -> Bool {
+        NASArchiveStore.shared.isArchived(song: song)
+    }
+
     nonisolated func localAudioURL(for song: Song) -> URL? {
         if song.source == .local, let relativePath = song.localRelativePath {
             if let url = try? ManagedAudioPath.resolve(relativePath), FileManager.default.fileExists(atPath: url.path) {
@@ -365,9 +376,19 @@ final class DownloadManager: ObservableObject {
     }
 
     func startBatchDownload(songs: [Song], quality: DownloadQuality? = nil) {
-        let missing = songs.filter { !isDownloaded(song: $0) && !isDownloading(song: $0) }
-        guard !missing.isEmpty else {
-            ToastCenter.shared.show("选中的歌曲均已在本地离线库中")
+        guard !songs.isEmpty else { return }
+
+        let alreadyDownloaded = songs.filter { isDownloaded(song: $0) }
+        let notDownloaded = songs.filter { !isDownloaded(song: $0) }
+        let alreadyDownloading = notDownloaded.filter { isDownloading(song: $0) }
+        let toDownload = notDownloaded.filter { !isDownloading(song: $0) }
+
+        if toDownload.isEmpty {
+            if notDownloaded.isEmpty {
+                ToastCenter.shared.show("选中的歌曲均已在本地离线库中")
+            } else {
+                ToastCenter.shared.show("选中的歌曲已全部在下载队列中")
+            }
             return
         }
 
@@ -379,12 +400,18 @@ final class DownloadManager: ObservableObject {
             targetQuality = saved.flatMap { DownloadQuality(sourceValue: $0) } ?? ThirdPartyAudioQuality.current
         }
 
-        for song in missing {
+        for song in toDownload {
             let item = DownloadTaskItem(song: song, requestedQuality: targetQuality)
             activeDownloads.append(item)
         }
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("已将 \(missing.count) 首歌曲加入离线下载队列")
+
+        var skipNotes: [String] = []
+        if !alreadyDownloaded.isEmpty { skipNotes.append("已离线 \(alreadyDownloaded.count) 首") }
+        if !alreadyDownloading.isEmpty { skipNotes.append("下载中 \(alreadyDownloading.count) 首") }
+        let skipStr = skipNotes.isEmpty ? "" : "（已跳过\(skipNotes.joined(separator: "、"))）"
+        ToastCenter.shared.show("已将 \(toDownload.count) 首歌曲加入离线下载队列\(skipStr)")
+
         scheduleDownloadQueue()
     }
 
@@ -637,6 +664,21 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        if song.source == .synology {
+            ToastCenter.shared.show("《\(song.name)》源自群晖 NAS，无需重复归档")
+            return
+        }
+
+        if isUploading(song: song) {
+            ToastCenter.shared.show("《\(song.name)》已在群晖 NAS 上传队列中")
+            return
+        }
+
+        if isArchivedToNAS(song: song) {
+            ToastCenter.shared.show("《\(song.name)》已成功归档至群晖 NAS")
+            return
+        }
+
         let folder: String
         if let custom = customFolder, !custom.isEmpty {
             folder = custom
@@ -659,9 +701,30 @@ final class DownloadManager: ObservableObject {
             ToastCenter.shared.show("请先在「我的」或设置中登录群晖 NAS 账号")
             return
         }
+        guard !songs.isEmpty else { return }
+
+        let candidateSongs = songs.filter { $0.source != .synology }
+        if candidateSongs.isEmpty {
+            ToastCenter.shared.show("选中的歌曲均源自群晖 NAS，无需重复归档")
+            return
+        }
+
+        let alreadyUploading = candidateSongs.filter { isUploading(song: $0) }
+        let notUploading = candidateSongs.filter { !isUploading(song: $0) }
+        let alreadyArchived = notUploading.filter { isArchivedToNAS(song: $0) }
+        let toUpload = notUploading.filter { !isArchivedToNAS(song: $0) }
+
+        if toUpload.isEmpty {
+            if !alreadyUploading.isEmpty {
+                ToastCenter.shared.show("选中的歌曲均已在群晖 NAS 上传队列中")
+            } else {
+                ToastCenter.shared.show("选中的歌曲均已完成群晖 NAS 归档")
+            }
+            return
+        }
 
         let root = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
-        for song in songs {
+        for song in toUpload {
             let folder: String
             if let custom = customFolder, !custom.isEmpty {
                 folder = custom
@@ -674,7 +737,13 @@ final class DownloadManager: ObservableObject {
             activeUploads.append(item)
         }
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入群晖 NAS 上传队列")
+
+        var skipNotes: [String] = []
+        if !alreadyArchived.isEmpty { skipNotes.append("已归档 \(alreadyArchived.count) 首") }
+        if !alreadyUploading.isEmpty { skipNotes.append("上传中 \(alreadyUploading.count) 首") }
+        let skipStr = skipNotes.isEmpty ? "" : "（已跳过\(skipNotes.joined(separator: "、"))）"
+        ToastCenter.shared.show("已将 \(toUpload.count) 首歌曲加入上传队列\(skipStr)")
+
         scheduleUploadQueue()
     }
 
@@ -790,6 +859,8 @@ final class DownloadManager: ObservableObject {
 
                 task.status = .completed
                 task.progress = 1.0
+                NASArchiveStore.shared.markArchived(song: song, nasPath: nasPath)
+                NASUserSyncManager.shared.scheduleAutoSync()
                 ATMusicHaptics.success()
                 ToastCenter.shared.show("已成功归档到群晖 NAS：\(song.name)")
                 ATMusicLogger.shared.log("✅ 成功归档到 NAS：\(song.name) -> \(nasPath)", level: .info)

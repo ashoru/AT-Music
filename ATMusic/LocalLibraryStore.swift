@@ -323,4 +323,24 @@ final class LocalLibraryStore: ObservableObject {
             defaults.set(data, forKey: importedSongsKey)
         }
     }
+
+    /// 跨设备云端同步：双向合并本地自建歌单（同名或同 ID 则合并曲目，全新歌单则直接追加）
+    func mergePlaylists(_ remotePlaylists: [LocalPlaylist]) {
+        var updated = playlists
+        for remote in remotePlaylists {
+            if let index = updated.firstIndex(where: { $0.id == remote.id || $0.name == remote.name }) {
+                var existingKeys = Set(updated[index].songs.map { $0.identityKey })
+                for s in remote.songs {
+                    if !existingKeys.contains(s.identityKey) {
+                        updated[index].songs.append(s)
+                        existingKeys.insert(s.identityKey)
+                    }
+                }
+            } else {
+                updated.append(remote)
+            }
+        }
+        playlists = updated
+        save()
+    }
 }

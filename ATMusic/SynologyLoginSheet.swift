@@ -4,6 +4,7 @@ struct SynologyLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var synology = SynologyAPI.shared
+    @ObservedObject private var syncManager = NASUserSyncManager.shared
 
     // 局域网 (LAN) 设置
     @State private var lanHost: String = ""
@@ -35,6 +36,10 @@ struct SynologyLoginSheet: View {
                     VStack(spacing: 20) {
                         headerCard
 
+                        if synology.isLoggedIn {
+                            userSyncCard
+                        }
+
                         lanConfigCard
 
                         wanConfigCard
@@ -64,6 +69,97 @@ struct SynologyLoginSheet: View {
             .onAppear {
                 loadCurrentValues()
             }
+        }
+    }
+
+    private var userSyncCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.atmusicAmber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("用户数据云同步与备份")
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("自动同步本地歌单、红心收藏、播放历史与个性化设置")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                Spacer()
+            }
+
+            Divider().opacity(0.15)
+
+            Toggle(isOn: Binding(get: { syncManager.autoSyncEnabled }, set: { syncManager.autoSyncEnabled = $0 })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("自动静默同步")
+                        .font(ATMusicFont.appFont(14, .medium))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("数据变更及应用启动/切后台时自动合并")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+            }
+            .tint(Color.atmusicAmber)
+
+            HStack {
+                Text("上次同步状态")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+                Spacer()
+                Text(syncManager.formattedLastSyncTime)
+                    .font(ATMusicFont.appFont(12, .medium))
+                    .foregroundStyle(Color.atmusicLabel)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    Task {
+                        await syncManager.backupToNAS(isManual: true)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if syncManager.isSyncing {
+                            ProgressView().tint(Color.atmusicAmber).scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.up.icloud")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        Text("立即备份到 NAS")
+                            .font(ATMusicFont.appFont(13, .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.atmusicAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(Color.atmusicAmber)
+                }
+                .disabled(syncManager.isSyncing)
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+
+                Button {
+                    Task {
+                        await syncManager.restoreFromNAS(isManual: true)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.icloud")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("从 NAS 恢复同步")
+                            .font(ATMusicFont.appFont(13, .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .foregroundStyle(Color.atmusicLabel)
+                }
+                .disabled(syncManager.isSyncing)
+                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            }
+        }
+        .padding(16)
+        .background {
+            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 

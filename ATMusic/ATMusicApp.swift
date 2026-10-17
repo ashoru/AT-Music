@@ -83,9 +83,14 @@ struct ATMusicApp: App {
                 player.resumePersistedPlaybackIfEnabled()
                 FontManager.reinstallIfNeeded()
                 theme.restoreWallpapersIfNeeded()
+                NASUserSyncManager.shared.checkAndAutoSyncOnLaunch()
             }
             .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
+                if phase == .background {
+                    NASUserSyncManager.shared.syncOnBackground()
+                } else if phase == .active {
+                    NASUserSyncManager.shared.checkAndAutoSyncOnLaunch()
+                }
             }
         }
     }

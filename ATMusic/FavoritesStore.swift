@@ -205,4 +205,33 @@ final class FavoritesStore: ObservableObject {
         neteaseFavoriteSongs = []
         defaults.removeObject(forKey: neteaseKey)
     }
+
+    /// 跨设备云端同步：双向并集无损合并红心收藏
+    func mergeRemoteFavorites(qq: [Song], netease: [Song], kugou: [Song], synology: [Song]) {
+        func mergeList(local: [Song], remote: [Song]) -> [Song] {
+            var map: [String: Song] = [:]
+            var order: [String] = []
+            for song in local {
+                if map[song.identityKey] == nil {
+                    map[song.identityKey] = song
+                    order.append(song.identityKey)
+                }
+            }
+            for song in remote {
+                if map[song.identityKey] == nil {
+                    map[song.identityKey] = song
+                    order.append(song.identityKey)
+                }
+            }
+            return order.compactMap { map[$0] }
+        }
+        qqFavoriteSongs = mergeList(local: qqFavoriteSongs, remote: qq)
+        saveSongs(qqFavoriteSongs, key: qqKey)
+        neteaseFavoriteSongs = mergeList(local: neteaseFavoriteSongs, remote: netease)
+        saveSongs(neteaseFavoriteSongs, key: neteaseKey)
+        kugouFavoriteSongs = mergeList(local: kugouFavoriteSongs, remote: kugou)
+        saveSongs(kugouFavoriteSongs, key: kugouKey)
+        synologyFavoriteSongs = mergeList(local: synologyFavoriteSongs, remote: synology)
+        saveSongs(synologyFavoriteSongs, key: synologyKey)
+    }
 }

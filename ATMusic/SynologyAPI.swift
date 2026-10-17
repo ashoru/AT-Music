@@ -1874,6 +1874,50 @@ final class SynologyAPI: ObservableObject {
         return destinationFolder + "/" + filename
     }
 
+    // MARK: - 文件下载 (SYNO.FileStation.Download)
+
+    /// 从群晖 NAS 下载任意指定路径的文件二进制数据（支持自动静默重登续期）
+    func downloadFileFromNAS(path: String) async throws -> Data {
+        guard !sid.isEmpty else { throw SynologyError.unauthenticated }
+        var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
+        components?.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid)
+        ]
+        guard let url = components?.url else { throw SynologyError.invalidURL("下载地址无效") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue("ATMusic/1.0", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw SynologyError.apiError(-1, "群晖 NAS 下载网络异常 (HTTP \(status))")
+        }
+
+        // 若群晖返回 JSON 报错（如文件不存在或令牌过期）
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let success = json["success"] as? Bool, !success {
+            let errorDict = json["error"] as? [String: Any]
+            let code = errorDict?["code"] as? Int ?? -1
+            if (code == 105 || code == 106 || code == 119) {
+                if await trySilentReauth() {
+                    return try await downloadFileFromNAS(path: path)
+                }
+                await MainActor.run { self.isLoggedIn = false }
+                throw SynologyError.sessionExpired
+            }
+            throw SynologyError.apiError(code, "群晖 NAS 文件下载失败 (错误码 \(code))")
+        }
+
+        return data
+    }
+
     private func optimizedCoverData(_ data: Data) -> Data {
         guard let image = UIImage(data: data) else { return data }
         let maxSide: CGFloat = 1_600
