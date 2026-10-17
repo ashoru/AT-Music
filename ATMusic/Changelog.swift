@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.24-build-86-cover-art-resolution-and-nas-sync",
+            version: "1.9.24",
+            title: "全面重构封面智能解析与沙盒自愈、离线歌曲多级封面提取、群晖 NAS 专辑封面双重同步",
+            features: [
+                "动态沙盒路径修复（ManagedAudioPath）：针对 iOS 应用更新或重启引发的沙盒容器 UUID 漂移，增加智能路径动态重定向与多层级兜底解析，彻底根除离线歌曲因沙盒路径变化丢失封面的问题",
+                "离线下载 4 级封面智能提取：下载歌曲时自动执行「原平台直链下载 -> 内存缓存读取 -> 本地音频文件内嵌 APIC/ID3/FLAC 标签提取 -> 兜底图」，确保离线入库曲目 100% 拥有本地高清封面",
+                "群晖 NAS 专辑封面双重云同步：归档曲目至群晖时，自动向目标专辑文件夹同步上传标准 cover.jpg 与 folder.jpg，并向 Audio Station 媒体标签编辑器绑定独立封面，完美适配群晖 Audio Station、DS audio、Plex、Infuse 及 DLNA 播放器",
+                "历史离线曲库无感自动修复：App 启动时静默巡检历史已下载歌曲，自动自愈丢失的封面文件，免去用户重新下载即可全量恢复专辑封面",
+                "本地与离线封面极速渲染与锁屏全景适配：CoverImage、CoverBlurView 与锁屏媒体中心（NowPlaying）全面重构为原生磁盘零拷贝读取，彻底消灭 URLSession 对本地文件的网络代理开销与空白卡顿"
+            ],
+            fixes: [
+                "解决下载歌曲在应用更新后封面全部丢失、无法显示专辑图片的问题",
+                "解决同步至群晖 NAS 的歌曲和专辑缺少封面图的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.23-build-85-prevent-duplicate-operations-and-nas-sync",
             version: "1.9.23",
             title: "离线归档防重复点击与去重、NAS 归档账本防二次上传、用户全量数据多设备定时同步至群晖",

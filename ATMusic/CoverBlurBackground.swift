@@ -123,28 +123,50 @@ final class CoverBlurView: UIView {
     func load(url: URL?) {
         guard let url else {
             imageView.image = nil
+            currentURL = nil
             return
         }
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
         // 相同封面不重复加载/重设，避免播放器高频重绘时反复赋值
-        if currentURL == url { return }
-        currentURL = url
+        if currentURL == resolved { return }
+        currentURL = resolved
 
-        if let cached = Self.imageCache.object(forKey: url as NSURL) {
+        if let cached = Self.imageCache.object(forKey: resolved as NSURL) {
             setImage(cached, animated: false)
-            applyGradientIfNeeded(for: url)
+            applyGradientIfNeeded(for: resolved)
             return
         }
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        if resolved.isFileURL {
+            Self.blurQueue.async { [weak self] in
+                guard let self, let source = UIImage(contentsOfFile: resolved.path) else { return }
+                let blurred = Self.makeBlurredImage(source)
+                let colors = Self.extractGradientColors(from: source)
+                if let blurred {
+                    Self.imageCache.setObject(blurred, forKey: resolved as NSURL)
+                }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.currentURL == resolved else { return }
+                    if let blurred { self.setImage(blurred, animated: true) }
+                    self.applyGradient(colors)
+                }
+            }
+            return
+        }
+
+        var req = URLRequest(url: resolved)
+        req.timeoutInterval = 15
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
             guard let self, let data, let source = UIImage(data: data) else { return }
             Self.blurQueue.async {
                 let blurred = Self.makeBlurredImage(source)
                 let colors = Self.extractGradientColors(from: source)
                 if let blurred {
-                    Self.imageCache.setObject(blurred, forKey: url as NSURL)
+                    Self.imageCache.setObject(blurred, forKey: resolved as NSURL)
                 }
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.currentURL == url else { return }
+                    guard let self, self.currentURL == resolved else { return }
                     if let blurred { self.setImage(blurred, animated: true) }
                     self.applyGradient(colors)
                 }

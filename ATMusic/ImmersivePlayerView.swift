@@ -447,9 +447,19 @@ struct ImmersivePlayerView: View {
             }
             return
         }
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let image = UIImage(data: data) else { return }
+            let image: UIImage?
+            if resolved.isFileURL {
+                image = UIImage(contentsOfFile: resolved.path)
+            } else {
+                var req = URLRequest(url: resolved)
+                req.timeoutInterval = 12
+                req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                let (data, _) = try await URLSession.shared.data(for: req)
+                image = UIImage(data: data)
+            }
+            guard let image else { return }
             let extracted = NetEaseAmbientPalette.extract(from: image)
             let dominant = PaletteExtractor.dominantColor(in: image)
             withAnimation(.easeInOut(duration: 0.55)) {

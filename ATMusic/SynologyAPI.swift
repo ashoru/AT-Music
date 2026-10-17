@@ -1658,6 +1658,8 @@ final class SynologyAPI: ObservableObject {
     /// 封面接口可能命中 NAS 的缓存，因此每次回读都加一个只用于校验的随机参数。
     /// 只要回读到的图片摘要与保存前不同，才向用户报告封面已写入。
     private func verifyCoverWrite(song: Song, previousDigest: String?) async throws {
+        // 对于尚未被 Audio Station 编入索引的初次上传歌曲（无 synologyId），跳过通过 songId 的回读校验，避免误判失败
+        guard song.synologyId != nil else { return }
         var lastDigest: String?
         for delay in [UInt64(0), 400_000_000, 1_000_000_000] {
             if delay > 0 { try await Task.sleep(nanoseconds: delay) }

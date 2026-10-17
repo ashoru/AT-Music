@@ -230,7 +230,11 @@ struct Song: Identifiable, Hashable, Codable {
     let name: String
     let artists: String
     let album: String
-    let coverURL: URL?
+    private let _coverURL: URL?
+    var coverURL: URL? {
+        ManagedAudioPath.resolveCoverURL(candidate: _coverURL, localRelativePath: localRelativePath)
+    }
+    var rawCoverURL: URL? { _coverURL }
     let duration: TimeInterval
     /// 歌曲来源（网易云 / QQ音乐 / 酷狗 / 群晖）
     let source: SongSource
@@ -304,7 +308,7 @@ struct Song: Identifiable, Hashable, Codable {
         self.name = name
         self.artists = artists
         self.album = album
-        self.coverURL = coverURL
+        self._coverURL = coverURL
         self.duration = duration
         self.source = source
         self.qqMid = qqMid
@@ -364,14 +368,14 @@ struct Song: Identifiable, Hashable, Codable {
         if let albumDict = json["album"] as? [String: Any] {
             album = albumDict["name"] as? String ?? ""
             let pic = albumDict["picUrl"] as? String ?? (albumDict["blurPicUrl"] as? String ?? "")
-            coverURL = pic.isEmpty ? nil : URL(string: pic)
+            _coverURL = pic.isEmpty ? nil : URL(string: pic)
         } else if let al = json["al"] as? [String: Any] {
             album = al["name"] as? String ?? ""
             let pic = al["picUrl"] as? String ?? ""
-            coverURL = pic.isEmpty ? nil : URL(string: pic)
+            _coverURL = pic.isEmpty ? nil : URL(string: pic)
         } else {
             album = ""
-            coverURL = nil
+            _coverURL = nil
         }
         let ms = json["duration"] as? Int ?? (json["dt"] as? Int) ?? 0
         duration = Double(ms) / 1000.0
@@ -415,7 +419,7 @@ struct Song: Identifiable, Hashable, Codable {
         name = try c.decode(String.self, forKey: .name)
         artists = try c.decodeIfPresent(String.self, forKey: .artists) ?? ""
         album = try c.decodeIfPresent(String.self, forKey: .album) ?? ""
-        coverURL = try c.decodeIfPresent(URL.self, forKey: .coverURL)
+        _coverURL = try c.decodeIfPresent(URL.self, forKey: .coverURL)
         duration = try c.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
         source = try c.decodeIfPresent(SongSource.self, forKey: .source) ?? .netease
         qqMid = try c.decodeIfPresent(String.self, forKey: .qqMid)
@@ -443,7 +447,7 @@ struct Song: Identifiable, Hashable, Codable {
         try c.encode(name, forKey: .name)
         try c.encode(artists, forKey: .artists)
         try c.encode(album, forKey: .album)
-        try c.encodeIfPresent(coverURL, forKey: .coverURL)
+        try c.encodeIfPresent(_coverURL ?? coverURL, forKey: .coverURL)
         try c.encode(duration, forKey: .duration)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(qqMid, forKey: .qqMid)

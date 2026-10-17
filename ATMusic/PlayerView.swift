@@ -2773,9 +2773,19 @@ struct PlayerView: View {
     /// 一次性提取当前封面主色，带动整个播放器配色动态变化（失败时保持主题回退色，不影响任何功能）
     private func extractCoverPalette() async {
         guard let url = song?.coverURL else { return }
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let image = UIImage(data: data),
+            let image: UIImage?
+            if resolved.isFileURL {
+                image = UIImage(contentsOfFile: resolved.path)
+            } else {
+                var req = URLRequest(url: resolved)
+                req.timeoutInterval = 12
+                req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                let (data, _) = try await URLSession.shared.data(for: req)
+                image = UIImage(data: data)
+            }
+            guard let image,
                   let dominant = PaletteExtractor.dominantColor(in: image) else { return }
             withAnimation {
                 dominantColor = dominant

@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import UIKit
 
 enum LibraryStorageError: LocalizedError {
     case invalidPath, unsupportedSchema, unavailable
@@ -77,6 +79,65 @@ enum ManagedAudioPath {
             throw LibraryStorageError.invalidPath
         }
         return file
+    }
+
+    /// 动态修复可能包含旧沙盒容器 UUID 的本地文件 URL，自动映射到当前运行沙盒 Documents 真实目录
+    static func resolveFileURL(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        guard url.isFileURL else { return url }
+
+        // 1. 若当前路径真实存在，直接返回
+        if FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+
+        // 2. 检查是否包含 ATMusicAudio 受管目录
+        let fullPath = url.path
+        if let range = fullPath.range(of: "ATMusicAudio/") {
+            let relativePath = String(fullPath[range.lowerBound...])
+            if let resolved = try? ManagedAudioPath.resolve(relativePath),
+               FileManager.default.fileExists(atPath: resolved.path) {
+                return resolved
+            }
+        }
+
+        // 3. 检查是否包含 /Documents/ 目录
+        if let range = fullPath.range(of: "/Documents/") {
+            let relativeDocPath = String(fullPath[range.upperBound...])
+            let currentTarget = documents.appendingPathComponent(relativeDocPath)
+            if FileManager.default.fileExists(atPath: currentTarget.path) {
+                return currentTarget
+            }
+        }
+
+        return url
+    }
+
+    /// 针对歌曲封面多层级解析：本地已持久化封面优先，沙盒相对路径解析，内嵌封面兜底
+    static func resolveCoverURL(candidate: URL?, localRelativePath: String?) -> URL? {
+        // 1. 如果有 localRelativePath，优先计算对应的本地 Artwork 路径
+        if let localRelativePath, !localRelativePath.isEmpty {
+            let recordId = ((localRelativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+            let artworkRelative = "ATMusicAudio/Artwork/\(recordId).jpg"
+            if let artworkURL = try? ManagedAudioPath.resolve(artworkRelative),
+               FileManager.default.fileExists(atPath: artworkURL.path) {
+                return artworkURL
+            }
+        }
+
+        // 2. 如果 candidate 是本地文件，尝试修复沙盒路径
+        if let candidate {
+            if candidate.isFileURL {
+                if let resolved = resolveFileURL(candidate), FileManager.default.fileExists(atPath: resolved.path) {
+                    return resolved
+                }
+            } else {
+                // 网络直链直接返回
+                return candidate
+            }
+        }
+
+        return candidate
     }
 }
 

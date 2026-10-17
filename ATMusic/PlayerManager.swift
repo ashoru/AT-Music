@@ -2663,23 +2663,34 @@ final class PlayerManager: NSObject, ObservableObject {
     }
 
     private func loadNowPlayingArtwork(song: Song, key: String, url: URL) {
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
         Task.detached(priority: .utility) { [weak self] in
             var image: UIImage?
-            for _ in 0..<2 {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 12
-                request.cachePolicy = .returnCacheDataElseLoad
-                if let (data, response) = try? await URLSession.shared.data(for: request),
-                   let http = response as? HTTPURLResponse,
-                   (200..<300).contains(http.statusCode),
-                   let img = UIImage(data: data) {
+            if resolved.isFileURL {
+                if let cached = ATMusicImageFileCache.image(at: resolved.path) {
+                    image = cached
+                } else if let img = UIImage(contentsOfFile: resolved.path) {
                     image = img
-                    break
+                }
+            } else {
+                for _ in 0..<2 {
+                    var request = URLRequest(url: resolved)
+                    request.timeoutInterval = 12
+                    request.cachePolicy = .returnCacheDataElseLoad
+                    request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                    if let (data, response) = try? await URLSession.shared.data(for: request),
+                       let http = response as? HTTPURLResponse,
+                       (200..<300).contains(http.statusCode),
+                       let img = UIImage(data: data) {
+                        image = img
+                        break
+                    }
                 }
             }
             guard let image else { return }
 
             Self.nowPlayingArtworkCache.setObject(image, forKey: url as NSURL)
+            Self.nowPlayingArtworkCache.setObject(image, forKey: resolved as NSURL)
             await MainActor.run {
                 guard let self,
                       self.currentSong?.identityKey == song.identityKey,

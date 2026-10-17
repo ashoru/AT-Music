@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import UIKit
 
 /// 歌单播放来源策略。歌单仍保存原始歌曲；策略只影响播放时选择哪个已存在来源。
 enum PlaylistSourceStrategy: String, CaseIterable, Codable, Identifiable {
@@ -86,6 +88,7 @@ final class LocalLibraryStore: ObservableObject {
         } else {
             importedSongs = []
         }
+        repairLocalArtworksIfNeeded()
     }
 
     @discardableResult
@@ -343,4 +346,87 @@ final class LocalLibraryStore: ObservableObject {
         playlists = updated
         save()
     }
+
+    // MARK: - 历史离线歌曲封面自愈与补齐
+
+    func repairLocalArtworksIfNeeded() {
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let songs = await MainActor.run { self.importedSongs }
+            var didUpdate = false
+            var updatedSongs = songs
+
+            for index in updatedSongs.indices {
+                let song = updatedSongs[index]
+                guard song.source == .local, let relPath = song.localRelativePath else { continue }
+                let recId = ((relPath as NSString).lastPathComponent as NSString).deletingPathExtension
+                let artworkRelative = "ATMusicAudio/Artwork/\(recId).jpg"
+
+                // 如果本地 Artwork 文件已存在，跳过
+                if let artURL = try? ManagedAudioPath.resolve(artworkRelative),
+                   FileManager.default.fileExists(atPath: artURL.path) {
+                    continue
+                }
+
+                var resolvedData: Data? = nil
+
+                // 1. 从本地音频文件提取内嵌封面
+                if let audioURL = try? ManagedAudioPath.resolve(relPath),
+                   FileManager.default.fileExists(atPath: audioURL.path) {
+                    let asset = AVURLAsset(url: audioURL)
+                    if let artworkData = asset.commonMetadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue, !artworkData.isEmpty {
+                        resolvedData = artworkData
+                    }
+                }
+
+                // 2. 从原封面直链尝试拉取
+                if resolvedData == nil, let coverURL = song.rawCoverURL, !coverURL.isFileURL {
+                    var req = URLRequest(url: coverURL)
+                    req.timeoutInterval = 10
+                    req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                    if let (data, resp) = try? await URLSession.shared.data(for: req),
+                       let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty {
+                        resolvedData = data
+                    }
+                }
+
+                // 3. 落盘并更新歌曲
+                if let resolvedData, !resolvedData.isEmpty {
+                    if let localCoverURL = try? LocalAudioFileManager.shared.writeSupportData(resolvedData, relativePath: artworkRelative) {
+                        if let img = UIImage(data: resolvedData) {
+                            ATMusicRemoteCoverCache.store(img, for: localCoverURL)
+                        }
+                        let newSong = Song(
+                            id: song.id,
+                            name: song.name,
+                            artists: song.artists,
+                            album: song.album,
+                            coverURL: localCoverURL,
+                            duration: song.duration,
+                            source: .local,
+                            localRelativePath: song.localRelativePath,
+                            albumArtist: song.albumArtist,
+                            genre: song.genre,
+                            year: song.year,
+                            comment: song.comment,
+                            discNumber: song.discNumber,
+                            trackNumber: song.trackNumber,
+                            fee: song.fee
+                        )
+                        updatedSongs[index] = newSong
+                        didUpdate = true
+                    }
+                }
+            }
+
+            if didUpdate {
+                await MainActor.run {
+                    self.importedSongs = updatedSongs
+                    self.saveImportedSongs()
+                    ATMusicLogger.shared.log("🖼️ 已自动修复并补齐历史离线歌曲封面缓存", level: .info)
+                }
+            }
+        }
+    }
 }
+

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import AVFoundation
 
 // MARK: - 下载音质
 
@@ -348,6 +349,76 @@ final class DownloadManager: ObservableObject {
         return nil
     }
 
+    // MARK: - 封面数据智能多级嗅探与提取
+
+    func fetchOrExtractCoverData(for song: Song, stagingURL: URL?) async -> Data? {
+        // 1. 优先从已持久化的本地 Artwork 读取
+        if let localRel = song.localRelativePath {
+            let recId = ((localRel as NSString).lastPathComponent as NSString).deletingPathExtension
+            let artRel = "ATMusicAudio/Artwork/\(recId).jpg"
+            if let artURL = try? ManagedAudioPath.resolve(artRel),
+               let data = try? Data(contentsOf: artURL), !data.isEmpty {
+                return data
+            }
+        }
+
+        // 2. 检查 song.coverURL (无论是本地文件还是远程直链)
+        if let coverURL = song.coverURL {
+            let resolved = ManagedAudioPath.resolveFileURL(coverURL) ?? coverURL
+            if resolved.isFileURL {
+                if let data = try? Data(contentsOf: resolved), !data.isEmpty {
+                    return data
+                }
+            } else {
+                var req = URLRequest(url: resolved)
+                req.timeoutInterval = 15
+                req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty {
+                    return data
+                }
+            }
+        }
+
+        // 3. 检查 rawCoverURL
+        if let raw = song.rawCoverURL, raw != song.coverURL {
+            let resolved = ManagedAudioPath.resolveFileURL(raw) ?? raw
+            if resolved.isFileURL {
+                if let data = try? Data(contentsOf: resolved), !data.isEmpty {
+                    return data
+                }
+            } else {
+                var req = URLRequest(url: resolved)
+                req.timeoutInterval = 15
+                req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty {
+                    return data
+                }
+            }
+        }
+
+        // 4. 检查内存缓存
+        if let coverURL = song.coverURL {
+            let resolved = ManagedAudioPath.resolveFileURL(coverURL) ?? coverURL
+            if let cached = ATMusicRemoteCoverCache.image(for: resolved) ?? ATMusicRemoteCoverCache.image(for: coverURL) {
+                if let jpeg = cached.jpegData(compressionQuality: 0.88) {
+                    return jpeg
+                }
+            }
+        }
+
+        // 5. 从音频文件提取内嵌封面 (AVAsset)
+        if let stagingURL, FileManager.default.fileExists(atPath: stagingURL.path) {
+            let asset = AVURLAsset(url: stagingURL)
+            if let artworkData = asset.commonMetadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue, !artworkData.isEmpty {
+                return artworkData
+            }
+        }
+
+        return nil
+    }
+
     // MARK: - 一键离线下载调度
 
     func startDownload(song: Song, quality: DownloadQuality? = nil) {
@@ -521,10 +592,12 @@ final class DownloadManager: ObservableObject {
 
                 // 并行异步持久化封面
                 var localCoverURL: URL? = nil
-                if let coverURL = song.coverURL,
-                   let (coverData, _) = try? await URLSession.shared.data(from: coverURL), !coverData.isEmpty {
-                    let localCoverPath = "ATMusicAudio/Artwork/\(record.id).jpg"
+                let localCoverPath = "ATMusicAudio/Artwork/\(record.id).jpg"
+                if let coverData = await fetchOrExtractCoverData(for: song, stagingURL: stagingURL), !coverData.isEmpty {
                     localCoverURL = try? LocalAudioFileManager.shared.writeSupportData(coverData, relativePath: localCoverPath)
+                    if let localCoverURL, let img = UIImage(data: coverData) {
+                        ATMusicRemoteCoverCache.store(img, for: localCoverURL)
+                    }
                 }
 
                 let localSong = Song(
@@ -834,7 +907,28 @@ final class DownloadManager: ObservableObject {
                     try? FileManager.default.removeItem(at: tempLRC)
                 }
 
-                // 4. 写入 NAS Audio Station 媒体标签
+                // 3.5 上传封面文件至 NAS 目标专辑目录 (cover.jpg 与 folder.jpg)
+                let coverData = await fetchOrExtractCoverData(for: song, stagingURL: localAudioURL)
+                if let coverData, !coverData.isEmpty {
+                    let tempCover = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+                    if (try? coverData.write(to: tempCover)) != nil {
+                        defer { try? FileManager.default.removeItem(at: tempCover) }
+                        _ = try? await SynologyAPI.shared.uploadFileToNAS(
+                            localFileURL: tempCover,
+                            destinationFolder: task.destinationFolder,
+                            filename: "cover.jpg",
+                            mimeType: "image/jpeg"
+                        )
+                        _ = try? await SynologyAPI.shared.uploadFileToNAS(
+                            localFileURL: tempCover,
+                            destinationFolder: task.destinationFolder,
+                            filename: "folder.jpg",
+                            mimeType: "image/jpeg"
+                        )
+                    }
+                }
+
+                // 4. 写入 NAS Audio Station 媒体标签与封面绑定
                 task.status = .syncingTags
                 let patch = SynologyTagPatch(
                     title: song.name,
@@ -855,7 +949,12 @@ final class DownloadManager: ObservableObject {
                     source: .synology,
                     synologyPath: nasPath
                 )
-                try? await SynologyAPI.shared.applyMetadata(song: remoteSong, patch: patch)
+                try? await SynologyAPI.shared.applyMetadata(
+                    song: remoteSong,
+                    patch: patch,
+                    coverURL: (song.coverURL?.isFileURL == false) ? song.coverURL : nil,
+                    coverData: coverData
+                )
 
                 task.status = .completed
                 task.progress = 1.0

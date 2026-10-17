@@ -707,7 +707,7 @@ private struct ATMusicDetailMiniPlayerModifier: ViewModifier {
 
 // MARK: - 封面图
 
-private enum ATMusicRemoteCoverCache {
+enum ATMusicRemoteCoverCache {
     private static let images = NSCache<NSURL, UIImage>()
 
     static func image(for url: URL?) -> UIImage? {
@@ -731,26 +731,48 @@ private final class ATMusicCoverImageLoader: ObservableObject {
             loadedURL = nil
             return
         }
-        if loadedURL == url, image != nil { return }
-        if let cached = ATMusicRemoteCoverCache.image(for: url) {
-            loadedURL = url
+        let resolvedURL = ManagedAudioPath.resolveFileURL(url) ?? url
+        if loadedURL == resolvedURL, image != nil { return }
+        if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
+            loadedURL = resolvedURL
             image = cached
             return
         }
 
-        loadedURL = url
+        loadedURL = resolvedURL
         image = nil
+
+        if resolvedURL.isFileURL {
+            let decoded: UIImage? = await Task.detached(priority: .utility) {
+                if let cached = ATMusicImageFileCache.image(at: resolvedURL.path) {
+                    return cached
+                }
+                guard let img = UIImage(contentsOfFile: resolvedURL.path)?.preparingForDisplay() else {
+                    return nil
+                }
+                return img
+            }.value
+            guard !Task.isCancelled, loadedURL == resolvedURL, let decoded else { return }
+            ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
+            image = decoded
+            return
+        }
+
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: resolvedURL)
+            request.timeoutInterval = 15
+            request.cachePolicy = .returnCacheDataElseLoad
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard !Task.isCancelled else { return }
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 return
             }
-            let decoded = await Task.detached(priority: .utility) {
+            let decoded: UIImage? = await Task.detached(priority: .utility) {
                 UIImage(data: data)?.preparingForDisplay()
             }.value
-            guard !Task.isCancelled, loadedURL == url, let decoded else { return }
-            ATMusicRemoteCoverCache.store(decoded, for: url)
+            guard !Task.isCancelled, loadedURL == resolvedURL, let decoded else { return }
+            ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
             image = decoded
         } catch {
             // 保持中性占位；滚动和任务取消不切换为醒目的失败状态。
@@ -771,8 +793,10 @@ struct CoverImage: View {
     @StateObject private var loader = ATMusicCoverImageLoader()
 
     private var displayedImage: UIImage? {
-        if let cached = ATMusicRemoteCoverCache.image(for: url) { return cached }
-        if loader.loadedURL == url, let image = loader.image { return image }
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+        if let cached = ATMusicRemoteCoverCache.image(for: resolved) { return cached }
+        if let url, let cached = ATMusicRemoteCoverCache.image(for: url) { return cached }
+        if (loader.loadedURL == resolved || loader.loadedURL == url), let image = loader.image { return image }
         return nil
     }
 
@@ -804,8 +828,9 @@ struct CoverImage: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .task(id: url) {
-                    if ATMusicRemoteCoverCache.image(for: url) == nil {
-                        await loader.load(url)
+                    let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+                    if ATMusicRemoteCoverCache.image(for: resolved) == nil {
+                        await loader.load(resolved)
                     }
                 }
         } else {
@@ -827,8 +852,9 @@ struct CoverImage: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .task(id: url) {
-                    if ATMusicRemoteCoverCache.image(for: url) == nil {
-                        await loader.load(url)
+                    let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+                    if ATMusicRemoteCoverCache.image(for: resolved) == nil {
+                        await loader.load(resolved)
                     }
                 }
         }
