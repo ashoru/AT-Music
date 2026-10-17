@@ -48,6 +48,25 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.19-build-80-nas-audiophile-and-smooth-streaming-suite",
+            version: "1.9.19",
+            title: "群晖 NAS 发烧级双通道智能路由、Bit-Perfect 原盘无损直出、静默自动重鉴权、流式搜索即刻出结果与全局原生排版",
+            features: [
+                "群晖 NAS 局域网/公网双通道智能路由：支持分别配置家庭内网 IP 与公网 DDNS 域名，切换网络时自动极速探测，在 Wi-Fi 下优先走千兆直连，外出漫游时无缝切至公网",
+                "Bit-Perfect 原盘无损直出与动态格式识别：提取原始音频后缀并以 original 格式直出，保留原生母带采样率与位深；增加蜂窝移动网络下自动转码（320kbps MP3）省流选项",
+                "会话静默自动重鉴权（Auto-Reauth）：当 Audio Station 令牌自然过期（105/106/119）时，利用安全钥匙串凭证在后台自动重新鉴权并静默重试，彻底告别播放中断或掉登录",
+                "发烧级音频信号通路（Audio Signal Path）看板：轻触播放器音质微标胶囊，即可查看存储源头、传输管道、解码引擎与输出终点完整信号流，支持将当前在线歌词持久化写回群晖 NAS",
+                "流式聚合搜索极速出结果与插队机制：多平台搜索首个结果即刻展示无需等待，后续音源与私有 NAS 母带回包后平滑更新并优先插队置顶",
+                "专辑详情页一键离线下载：iPhone 与 iPad 专辑页均新增「一键离线」按钮，批量加入下载队列",
+                "iPad 播放器与专辑页全局原生对齐：全面适配 iPadOS 宽屏 Apple Music 规范排版，音质微标、原盘看板及触控交互体验统一"
+            ],
+            fixes: [
+                "解决长时间听歌后群晖 NAS 会话超时导致无法切歌或获取流地址的体验问题",
+                "修复综合搜索等待全部平台响应完毕才展示造成的首屏盲等延迟",
+                "优化 iPad 端播放器与专辑详情页的控件对齐与层级排版"
+            ]
+        ),
+        VersionLog(
             id: "1.9.16-build-72-ultra-low-power-background-optimization",
             version: "1.9.16",
             title: "全链路后台超低功耗优化、锁屏主线程定时器停用与渲染帧率节能调优",

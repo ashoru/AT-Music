@@ -107,23 +107,31 @@ final class AggregatedSearchService: @unchecked Sendable {
             else { result.failedProviders.append(partial.provider) }
         }
 
-        // 不再按平台拼接。先按相关性评分，再用各平台接口返回的原始名次作为稳定的次排序，
-        // 这样完全匹配的结果会跨平台交错显示，而不会被某一个平台整组占据顶部。
-        result.songs = Self.uniqueSongs(Self.rankSongs(
+        // 先按相关性与原始位次聚合排序
+        let rankedSongs = Self.uniqueSongs(Self.rankSongs(
             partials.flatMap { partial in
                 partial.songs.enumerated().map { (song: $0.element, backendRank: $0.offset) }
             }, keyword: keyword
         ))
+        // 私有群晖 NAS 原盘高解析母带无缝插队置顶，在线流媒体紧随其后
+        let nasSongs = rankedSongs.filter { $0.source == .synology }
+        let otherSongs = rankedSongs.filter { $0.source != .synology }
+        result.songs = nasSongs + otherSongs
+
         result.artists = Self.uniqueArtists(Self.rankArtists(
             partials.flatMap { partial in
                 partial.artists.enumerated().map { (artist: $0.element, backendRank: $0.offset) }
             }, keyword: keyword
         ))
-        result.albums = Self.uniqueAlbums(Self.rankAlbums(
+
+        let rankedAlbums = Self.uniqueAlbums(Self.rankAlbums(
             partials.flatMap { partial in
                 partial.albums.enumerated().map { (album: $0.element, backendRank: $0.offset) }
             }, keyword: keyword
         ))
+        let nasAlbums = rankedAlbums.filter { $0.source == .synology }
+        let otherAlbums = rankedAlbums.filter { $0.source != .synology }
+        result.albums = nasAlbums + otherAlbums
         result.playlists = Self.uniquePlaylists(Self.rankPlaylists(
             partials.flatMap { partial in
                 partial.playlists.enumerated().map { (playlist: $0.element, backendRank: $0.offset) }

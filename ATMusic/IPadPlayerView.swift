@@ -159,6 +159,8 @@ struct IPadPlayerView: View {
                             .background(Capsule().fill(Color.atmusicAmber))
                             .foregroundStyle(.black)
                     }
+
+                    AudioQualityCapsule(song: song)
                 }
             }
 
@@ -249,6 +251,13 @@ struct IPadPlayerView: View {
                         selectedAlbum = album
                     }
                 )
+
+                HStack(spacing: 8) {
+                    if let source = song?.source {
+                        SourceBadgeView(source: source, compact: true)
+                    }
+                    AudioQualityCapsule(song: song)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)

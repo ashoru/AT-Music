@@ -81,6 +81,18 @@ final class SynologyAPI: ObservableObject {
     @Published var port: Int = 5000
     @Published var isHTTPS: Bool = false
     @Published var account: String = ""
+
+    // MARK: - 局域网 (LAN) 与公网 (WAN) 双通道智能路由
+    @Published var lanHost: String = ""
+    @Published var lanPort: Int = 5000
+    @Published var lanHTTPS: Bool = false
+    @Published var wanHost: String = ""
+    @Published var wanPort: Int = 5000
+    @Published var wanHTTPS: Bool = false
+    @Published var isLanActive: Bool = false
+    @Published var lanLatencyMs: Int? = nil
+    @Published var wanLatencyMs: Int? = nil
+
     /// 全库索引完成后递增，搜索页可据此把首屏远程结果替换为完整本地结果。
     @Published private(set) var libraryIndexRevision: Int = 0
     @Published private(set) var isLibraryIndexLoading: Bool = false
@@ -143,6 +155,14 @@ final class SynologyAPI: ObservableObject {
         port = defaults.integer(forKey: portKey) == 0 ? 5000 : defaults.integer(forKey: portKey)
         isHTTPS = defaults.bool(forKey: httpsKey)
         account = defaults.string(forKey: accountKey) ?? ""
+
+        lanHost = defaults.string(forKey: "atmusic.synology.lanHost") ?? defaults.string(forKey: hostKey) ?? ""
+        lanPort = defaults.integer(forKey: "atmusic.synology.lanPort") == 0 ? (defaults.integer(forKey: portKey) == 0 ? 5000 : defaults.integer(forKey: portKey)) : defaults.integer(forKey: "atmusic.synology.lanPort")
+        lanHTTPS = defaults.object(forKey: "atmusic.synology.lanHTTPS") != nil ? defaults.bool(forKey: "atmusic.synology.lanHTTPS") : defaults.bool(forKey: httpsKey)
+
+        wanHost = defaults.string(forKey: "atmusic.synology.wanHost") ?? ""
+        wanPort = defaults.integer(forKey: "atmusic.synology.wanPort") == 0 ? 5000 : defaults.integer(forKey: "atmusic.synology.wanPort")
+        wanHTTPS = defaults.bool(forKey: "atmusic.synology.wanHTTPS")
         let credentials = SecureCredentialStore.shared
         let passwordDestination = "synology.password." + currentServerScope
         _ = credentials.migrateLegacyPassword(defaults: defaults, destinationKey: passwordDestination)
@@ -161,15 +181,81 @@ final class SynologyAPI: ObservableObject {
             }
         }
         isLoggedIn = !sid.isEmpty && !host.isEmpty
+
+        NetworkMonitor.shared.onPathUpdate = { [weak self] in
+            self?.checkNetworkRoute()
+        }
+        checkNetworkRoute()
     }
 
     var baseURL: String {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleaned = trimmedHost
+        let activeHost: String
+        let activePort: Int
+        let activeHTTPS: Bool
+
+        if isLanActive && !lanHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            activeHost = lanHost
+            activePort = lanPort
+            activeHTTPS = lanHTTPS
+        } else if !wanHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            activeHost = wanHost
+            activePort = wanPort
+            activeHTTPS = wanHTTPS
+        } else {
+            activeHost = host
+            activePort = port
+            activeHTTPS = isHTTPS
+        }
+
+        let cleaned = activeHost.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "http://", with: "")
             .replacingOccurrences(of: "https://", with: "")
-        let scheme = isHTTPS ? "https" : "http"
-        return "\(scheme)://\(cleaned):\(port)"
+        let scheme = activeHTTPS ? "https" : "http"
+        return "\(scheme)://\(cleaned):\(activePort)"
+    }
+
+    /// 局域网/公网自适应测速探测（<= 500ms 快速判别，切勿长耗时阻塞）
+    func checkNetworkRoute() {
+        let trimmedLan = lanHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "https://", with: "")
+
+        guard !trimmedLan.isEmpty else {
+            DispatchQueue.main.async {
+                self.isLanActive = false
+                self.lanLatencyMs = nil
+            }
+            return
+        }
+
+        let lanScheme = lanHTTPS ? "https" : "http"
+        guard let probeURL = URL(string: "\(lanScheme)://\(trimmedLan):\(lanPort)/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query&query=SYNO.API.Auth") else { return }
+
+        Task {
+            let start = Date()
+            var request = URLRequest(url: probeURL)
+            request.timeoutInterval = 0.6
+            request.httpMethod = "GET"
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                    let rtt = Int(Date().timeIntervalSince(start) * 1000)
+                    await MainActor.run {
+                        self.isLanActive = true
+                        self.lanLatencyMs = max(1, rtt)
+                    }
+                    return
+                }
+            } catch {
+                // LAN 探测超时或不可达，降级到公网
+            }
+
+            await MainActor.run {
+                self.isLanActive = false
+                self.lanLatencyMs = nil
+            }
+        }
     }
 
     // MARK: - 鉴权
@@ -197,8 +283,21 @@ final class SynologyAPI: ObservableObject {
         return defaults.string(forKey: "atmusic.synology.sessionScope." + sessionFingerprint(token)) == currentServerScope
     }
 
-    func saveConfiguration(host: String, port: Int, isHTTPS: Bool, account: String, password: String) throws {
-        let scope = NASSourceScope.make(host: host, port: port, https: isHTTPS, account: account)
+    func saveDualConfiguration(
+        lanHost: String,
+        lanPort: Int,
+        lanHTTPS: Bool,
+        wanHost: String,
+        wanPort: Int,
+        wanHTTPS: Bool,
+        account: String,
+        password: String
+    ) throws {
+        let primaryHost = !lanHost.isEmpty ? lanHost : wanHost
+        let primaryPort = !lanHost.isEmpty ? lanPort : wanPort
+        let primaryHTTPS = !lanHost.isEmpty ? lanHTTPS : wanHTTPS
+
+        let scope = NASSourceScope.make(host: primaryHost, port: primaryPort, https: primaryHTTPS, account: account)
         guard SecureCredentialStore.shared.setSecret(password, for: "synology.password." + scope) else {
             throw SynologyError.loginFailed("密码未能安全保存，请解锁设备后重试；原连接和密码未删除")
         }
@@ -213,17 +312,47 @@ final class SynologyAPI: ObservableObject {
             isLoggedIn = false
             defaults.removeObject(forKey: sidKey)
         }
-        self.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.port = port
-        self.isHTTPS = isHTTPS
+
+        self.lanHost = lanHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.lanPort = lanPort
+        self.lanHTTPS = lanHTTPS
+        self.wanHost = wanHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.wanPort = wanPort
+        self.wanHTTPS = wanHTTPS
+
+        self.host = primaryHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.port = primaryPort
+        self.isHTTPS = primaryHTTPS
         self.account = account.trimmingCharacters(in: .whitespacesAndNewlines)
         self.storedPassword = password
+
+        defaults.set(self.lanHost, forKey: "atmusic.synology.lanHost")
+        defaults.set(self.lanPort, forKey: "atmusic.synology.lanPort")
+        defaults.set(self.lanHTTPS, forKey: "atmusic.synology.lanHTTPS")
+        defaults.set(self.wanHost, forKey: "atmusic.synology.wanHost")
+        defaults.set(self.wanPort, forKey: "atmusic.synology.wanPort")
+        defaults.set(self.wanHTTPS, forKey: "atmusic.synology.wanHTTPS")
 
         defaults.set(self.host, forKey: hostKey)
         defaults.set(self.port, forKey: portKey)
         defaults.set(self.isHTTPS, forKey: httpsKey)
         defaults.set(self.account, forKey: accountKey)
         defaults.removeObject(forKey: passwordKey)
+
+        checkNetworkRoute()
+    }
+
+    func saveConfiguration(host: String, port: Int, isHTTPS: Bool, account: String, password: String) throws {
+        try saveDualConfiguration(
+            lanHost: host,
+            lanPort: port,
+            lanHTTPS: isHTTPS,
+            wanHost: wanHost,
+            wanPort: wanPort,
+            wanHTTPS: wanHTTPS,
+            account: account,
+            password: password
+        )
     }
 
     /// 登录群晖 Audio Station (SYNO.API.Auth)
@@ -298,11 +427,38 @@ final class SynologyAPI: ObservableObject {
         guard accepts(song: song), isLoggedIn, !sid.isEmpty, let synoId = song.synologyId ?? (song.source == .synology ? "\(song.id)" : nil) else {
             return nil
         }
-        var url = URLComponents(string: baseURL + "/webapi/AudioStation/stream.cgi/0.mp3")
-        url?.queryItems = [URLQueryItem(name: "api", value: "SYNO.AudioStation.Stream"),
-            URLQueryItem(name: "version", value: "2"), URLQueryItem(name: "method", value: "stream"),
-            URLQueryItem(name: "id", value: synoId), URLQueryItem(name: "_sid", value: sid)]
-        return url?.url?.absoluteString
+
+        let transcodeCellular = UserDefaults.standard.bool(forKey: "atmusic.nas.transcodeOnCellular")
+        let isCellular = NetworkMonitor.shared.isCellular
+
+        if transcodeCellular && isCellular {
+            // 蜂窝移动网络下按用户要求自动转码为 320kbps MP3 省流
+            var url = URLComponents(string: baseURL + "/webapi/AudioStation/stream.cgi/0.mp3")
+            url?.queryItems = [
+                URLQueryItem(name: "api", value: "SYNO.AudioStation.Stream"),
+                URLQueryItem(name: "version", value: "2"),
+                URLQueryItem(name: "method", value: "stream"),
+                URLQueryItem(name: "id", value: synoId),
+                URLQueryItem(name: "_sid", value: sid),
+                URLQueryItem(name: "format", value: "mp3")
+            ]
+            return url?.url?.absoluteString
+        } else {
+            // 原盘无损直出 (Bit-Perfect Direct Output，动态探测原始扩展名)
+            let path = song.synologyPath ?? ""
+            let ext = ((path as NSString).pathExtension).lowercased()
+            let streamExt = ext.isEmpty ? "flac" : ext
+            var url = URLComponents(string: baseURL + "/webapi/AudioStation/stream.cgi/0.\(streamExt)")
+            url?.queryItems = [
+                URLQueryItem(name: "api", value: "SYNO.AudioStation.Stream"),
+                URLQueryItem(name: "version", value: "2"),
+                URLQueryItem(name: "method", value: "stream"),
+                URLQueryItem(name: "id", value: synoId),
+                URLQueryItem(name: "_sid", value: sid),
+                URLQueryItem(name: "format", value: "original")
+            ]
+            return url?.url?.absoluteString
+        }
     }
 
     /// 构造封面图直链 (SYNO.AudioStation.Cover)
@@ -1679,6 +1835,25 @@ final class SynologyAPI: ObservableObject {
         return Int(hash & 0x7fff_ffff_ffff_ffff) == 0 ? 1 : Int(hash & 0x7fff_ffff_ffff_ffff)
     }
 
+    
+    private var isReauthenticating = false
+
+    /// 静默自动重新鉴权：当令牌自然过期时，用安全钥匙串中的凭证自动登录，无需打扰用户
+    func trySilentReauth() async -> Bool {
+        guard !isReauthenticating else { return false }
+        guard !account.isEmpty, !storedPassword.isEmpty else { return false }
+        isReauthenticating = true
+        defer { isReauthenticating = false }
+
+        do {
+            try await login()
+            return true
+        } catch {
+            ATMusicLogger.shared.log("群晖静默重鉴权失败: \(error.localizedDescription)", level: .warn)
+            return false
+        }
+    }
+
     // MARK: - 网络底层
 
     private func get(_ path: String, query: [URLQueryItem], authenticated: Bool = true) async throws -> [String: Any] {
@@ -1722,8 +1897,11 @@ final class SynologyAPI: ObservableObject {
         if !success {
             let errorDict = json["error"] as? [String: Any]
             let code = errorDict?["code"] as? Int ?? -1
-            if code == 105 || code == 106 || code == 119 {
-                // Session 过期
+            if (code == 105 || code == 106 || code == 119) && authenticated {
+                // Session 过期，静默尝试重新登录并重试一次
+                if await trySilentReauth() {
+                    return try await get(path, query: query, authenticated: true)
+                }
                 await MainActor.run { self.isLoggedIn = false }
                 throw SynologyError.sessionExpired
             }
@@ -1754,6 +1932,13 @@ final class SynologyAPI: ObservableObject {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw SynologyError.decodingError }
         if let success = json["success"] as? Bool, !success {
             let code = (json["error"] as? [String: Any])?["code"] as? Int ?? -1
+            if (code == 105 || code == 106 || code == 119) && authenticated {
+                if await trySilentReauth() {
+                    return try await postForm(path, form: form, authenticated: true, acceptsMissingSuccess: acceptsMissingSuccess)
+                }
+                await MainActor.run { self.isLoggedIn = false }
+                throw SynologyError.sessionExpired
+            }
             throw SynologyError.apiError(code, Self.describeErrorCode(code))
         }
         if !acceptsMissingSuccess && json["success"] == nil {

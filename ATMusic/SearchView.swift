@@ -1816,9 +1816,14 @@ struct SearchView: View {
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
                         guard aggregateSearch, searchGeneration == generation else { return }
-                        // 综合页等待全部平台结束后一次性提交结果。多平台中途回包只在
-                        // 用户已进入某个分类时更新，防止综合页不断重排、玻璃层反复重建。
-                        if !aggregateOverview {
+                        if aggregateOverview {
+                            // 流式响应：最先给结果的直接显示，后续平台给结果的往前插队刷新快照
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                captureOverviewSnapshot(from: partial, localPlaylists: localPlaylists)
+                            }
+                        } else {
                             var transaction = Transaction()
                             transaction.disablesAnimations = true
                             withTransaction(transaction) {
@@ -2050,6 +2055,31 @@ struct AlbumDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showArtistHome = false
+    @State private var isBatchDownloading = false
+
+    @MainActor
+    private func batchDownloadAlbum() {
+        guard !sortedTracks.isEmpty else { return }
+        isBatchDownloading = true
+        ATMusicHaptics.medium()
+        ToastCenter.shared.show("已将专辑全部 \(sortedTracks.count) 首歌曲加入下载队列")
+        let quality: DownloadQuality
+        let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+        if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+            quality = ThirdPartyAudioQuality.current
+        } else {
+            quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
+        }
+        Task {
+            for song in sortedTracks {
+                _ = await DownloadManager.shared.download(song: song, quality: quality)
+            }
+            await MainActor.run {
+                isBatchDownloading = false
+                ToastCenter.shared.show("《\(album.name)》专辑下载已就绪")
+            }
+        }
+    }
 
     private var albumAccentColor: Color {
         switch album.source {
@@ -2243,6 +2273,10 @@ struct AlbumDetailView: View {
                                 player.play(songs: sortedTracks, startAt: 0)
                             }
                         }
+                        GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
+                            batchDownloadAlbum()
+                        }
+                        .disabled(isBatchDownloading)
                     }
                 }
 
@@ -2381,6 +2415,10 @@ struct AlbumDetailView: View {
                             player.play(songs: sortedTracks, startAt: 0)
                         }
                     }
+                    GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: "arrow.down.circle") {
+                        batchDownloadAlbum()
+                    }
+                    .disabled(isBatchDownloading)
                 }
             }
         }

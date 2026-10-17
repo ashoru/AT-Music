@@ -20,6 +20,42 @@ struct PlayerLayoutEditorSheet: View {
     @AppStorage("atmusic.playerButtonStyle.classic") private var classicButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.playerButtonStyle.vinyl") private var vinylButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.playerButtonStyle.immersive") private var immersiveButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
+
+    // MARK: - 从播放器设置页按功能归位迁移的视觉设置（与播放器设置页共用同一套 key，实时预览调整）
+    // 歌词排版
+    @AppStorage("atmusic.lyricBlurStart") private var lyricBlurStart = 1
+    @AppStorage("atmusic.lyricTiltY") private var lyricTiltY = 0
+    // 色彩发光：渐变色
+    @AppStorage("atmusic.lyricGradStart") private var gradStartRaw = ""
+    @AppStorage("atmusic.lyricGradEnd") private var gradEndRaw = ""
+    // 色彩发光：歌词背景
+    @AppStorage("atmusic.lyricBackground.image") private var lyricBackgroundImagePath = ""
+    @State private var showLyricBackgroundPicker = false
+    @AppStorage("atmusic.lyricBackground.blur") private var lyricBackgroundBlur = 12.0
+    @AppStorage("atmusic.lyricBackground.syncCover") private var lyricBackgroundSyncCover = false
+    // 色彩发光：封面文字
+    @AppStorage("atmusic.albumTextGradient") private var albumTextGradient = false
+    @AppStorage("atmusic.albumTextGlow") private var albumTextGlow = false
+    @AppStorage("atmusic.albumTextGlowIntensity") private var albumTextGlowIntensity = 1.0
+    @AppStorage("atmusic.albumTitleColorHex") private var albumTitleColorHex = ""
+    @AppStorage("atmusic.albumArtistColorHex") private var albumArtistColorHex = ""
+    @AppStorage("atmusic.albumPreviewLyricColorHex") private var albumPreviewLyricColorHex = ""
+    @AppStorage("atmusic.albumPreviewDimColorHex") private var albumPreviewDimColorHex = ""
+    // 色彩发光：播放器控件与进度条
+    @AppStorage("atmusic.playerControlsUseCoverColor") private var controlsUseCoverColor = true
+    @AppStorage("atmusic.playerMainIconColorHex") private var playerMainIconColorHex = ""
+    @AppStorage("atmusic.playerSecondaryIconColorHex") private var playerSecondaryIconColorHex = ""
+    @AppStorage("atmusic.playerPrimaryButtonColorHex") private var playerPrimaryButtonColorHex = ""
+    @AppStorage("atmusic.progressAccentHex") private var progressAccentHex = ""
+    @AppStorage("atmusic.progressBarStyle") private var progressBarStyle = 0
+    @AppStorage("atmusic.playerBreath") private var breath = 0.6
+    @AppStorage("atmusic.playerDustMode") private var playerDustModeRaw = ATMusicPlayerDustMode.off.rawValue
+    @AppStorage("atmusic.playerDustDensity") private var playerDustDensity = 1.0
+    @AppStorage("atmusic.playerDustSize") private var playerDustSize = 1.0
+    @AppStorage("atmusic.djVisual") private var djVisualEnabled = false
+    @AppStorage("atmusic.djVisualIntensity") private var djVisualIntensity = 0.8
+    // 组件布局：指示线
+    @AppStorage("atmusic.deckGrabberEnabled") private var deckGrabberEnabled = true
     @AppStorage("atmusic.appleMusic.showLyricPreview") private var showLyricPreview = true
     @AppStorage("atmusic.appleMusic.showVolume") private var showVolume = false
     @AppStorage("atmusic.appleMusic.syncWallpaper") private var syncWallpaper = false
@@ -66,6 +102,169 @@ struct PlayerLayoutEditorSheet: View {
         case .vinyl: return $vinylButtonStyleRaw
         case .classic: return $classicButtonStyleRaw
         case .appleMusic: return .constant(ATMusicPlayerButtonStyle.appleMusic.rawValue)
+        }
+    }
+
+    // MARK: - 迁移设置的辅助
+    private var tiltYText: String {
+        if lyricTiltY == 0 { return "关闭" }
+        return lyricTiltY > 0 ? "右倾 \(lyricTiltY)°" : "左倾 \(-lyricTiltY)°"
+    }
+
+    private var gradStart: Binding<Color> {
+        Binding(
+            get: {
+                if gradStartRaw.hasPrefix("#"), let c = Color(hex: gradStartRaw) { return c }
+                return Color.atmusicAmber
+            },
+            set: { newValue in
+                gradStartRaw = "#" + UIColor(newValue).hexString
+                lyricGradMode = 1
+            }
+        )
+    }
+
+    private var gradEnd: Binding<Color> {
+        Binding(
+            get: {
+                if gradEndRaw.hasPrefix("#"), let c = Color(hex: gradEndRaw) { return c }
+                return Color.atmusicAmber
+            },
+            set: { newValue in
+                gradEndRaw = "#" + UIColor(newValue).hexString
+                lyricGradMode = 1
+            }
+        )
+    }
+
+    private var playerMainIconColor: Binding<Color> {
+        Binding(
+            get: {
+                if playerMainIconColorHex.hasPrefix("#"), let c = Color(hex: playerMainIconColorHex) { return c }
+                return Color.atmusicLabel
+            },
+            set: { playerMainIconColorHex = "#" + UIColor($0).hexString }
+        )
+    }
+
+    private var playerSecondaryIconColor: Binding<Color> {
+        Binding(
+            get: {
+                if playerSecondaryIconColorHex.hasPrefix("#"), let c = Color(hex: playerSecondaryIconColorHex) { return c }
+                return Color.atmusicLabel.opacity(0.7)
+            },
+            set: { playerSecondaryIconColorHex = "#" + UIColor($0).hexString }
+        )
+    }
+
+    private var playerPrimaryButtonColor: Binding<Color> {
+        Binding(
+            get: {
+                if playerPrimaryButtonColorHex.hasPrefix("#"), let c = Color(hex: playerPrimaryButtonColorHex) { return c }
+                return Color.atmusicAmber
+            },
+            set: { playerPrimaryButtonColorHex = "#" + UIColor($0).hexString }
+        )
+    }
+
+    private var progressAccentColor: Binding<Color> {
+        Binding(
+            get: {
+                if progressAccentHex.hasPrefix("#"), let c = Color(hex: progressAccentHex) { return c }
+                return Color.atmusicAmber
+            },
+            set: { newValue in
+                progressAccentHex = "#" + UIColor(newValue).hexString
+            }
+        )
+    }
+
+    private func coverTextColor(hex: Binding<String>, fallback: Color) -> Binding<Color> {
+        Binding(
+            get: {
+                if hex.wrappedValue.hasPrefix("#"), let c = Color(hex: hex.wrappedValue) { return c }
+                return fallback
+            },
+            set: { hex.wrappedValue = "#" + UIColor($0).hexString }
+        )
+    }
+
+    private var dustModeSelector: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("背景浮尘")
+                    .font(ATMusicFont.appFont(13, .semibold))
+                    .foregroundStyle(Color.atmusicLabel)
+                Text("关闭可隐藏播放页小白点，动态轻雪只在播放时运动")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+            HStack(spacing: 8) {
+                ForEach(ATMusicPlayerDustMode.allCases) { mode in
+                    let selected = playerDustModeRaw == mode.rawValue
+                    Button {
+                        playerDustModeRaw = mode.rawValue
+                        ATMusicHaptics.select()
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 14, weight: .semibold))
+                            Text(LocalizedStringKey(mode.title))
+                                .font(ATMusicFont.appFont(11, .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                        }
+                        .atmusicSelectionForeground(selected: selected, accent: .atmusicAmber)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background {
+                            ATMusicSelectableSurface(
+                                selected: selected,
+                                shape: RoundedRectangle(cornerRadius: 13, style: .continuous),
+                                accent: .atmusicAmber
+                            )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// 进度条样式：全局 UI 样式统一选中态。
+    private var progressStyleGrid: some View {
+        let styles: [(Int, String, String)] = [
+            (0, "流光", "rays"),
+            (1, "辉光", "sun.max"),
+            (2, "极光", "sparkles"),
+            (3, "波浪", "waveform"),
+        ]
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            ForEach(styles, id: \.0) { idx, name, icon in
+                let selected = progressBarStyle == idx
+                Button {
+                    progressBarStyle = idx
+                    ATMusicHaptics.select()
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: icon)
+                            .font(.system(size: 15, weight: .medium))
+                        Text(name)
+                            .font(ATMusicFont.appFont(11, .medium))
+                    }
+                    .atmusicSelectionForeground(selected: selected, accent: .atmusicAmber)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background {
+                        ATMusicSelectableSurface(
+                            selected: selected,
+                            shape: RoundedRectangle(cornerRadius: 12, style: .continuous),
+                            accent: .atmusicAmber
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -156,6 +355,18 @@ struct PlayerLayoutEditorSheet: View {
         }
         .task(id: player.currentSong?.identityKey) {
             await reloadRealLyrics()
+        }
+        .fullScreenCover(isPresented: $showLyricBackgroundPicker) {
+            WallpaperPhotoPicker { data in
+                if let path = LyricBackgroundStore.save(data) {
+                    lyricBackgroundImagePath = path
+                    ATMusicHaptics.success()
+                    ToastCenter.shared.show("歌词背景已应用")
+                } else {
+                    ToastCenter.shared.show("歌词背景保存失败")
+                }
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -580,6 +791,18 @@ struct PlayerLayoutEditorSheet: View {
             .padding(14)
             .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
 
+            // 底部指示线（从播放器设置页迁移）
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("显示底部指示线", isOn: $deckGrabberEnabled)
+                    .font(ATMusicFont.appFont(14, .medium))
+                    .tint(Color.atmusicAmber)
+                Text("关闭后隐藏指示线，仍可上滑呼出评论区")
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+            .padding(14)
+            .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+
             // X/Y 偏移、Scale、Rotation、Opacity 滑杆控制板
             VStack(spacing: 10) {
                 sliderRow(title: "水平 X", value: selectedEntry.x, range: -180...180, format: "%.0f pt") {
@@ -730,6 +953,46 @@ struct PlayerLayoutEditorSheet: View {
                         get: { Double(lyricTilt) },
                         set: { lyricTilt = Int($0) }
                     ), in: 0...45, step: 1)
+                    .tint(Color.atmusicAmber)
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 模糊起始距离（从播放器设置页迁移）
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("模糊起始距离")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        Text("\(lyricBlurStart) 行")
+                            .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(lyricBlurStart) },
+                        set: { lyricBlurStart = Int($0) }
+                    ), in: 0...4, step: 1)
+                    .tint(Color.atmusicAmber)
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 左右倾斜（从播放器设置页迁移）
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("左右倾斜")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        Text(tiltYText)
+                            .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(lyricTiltY) },
+                        set: { lyricTiltY = Int($0) }
+                    ), in: -45...45, step: 1)
                     .tint(Color.atmusicAmber)
                 }
 
@@ -907,7 +1170,320 @@ struct PlayerLayoutEditorSheet: View {
 
                 Divider().overlay(Color.atmusicComment.opacity(0.12))
 
-                // 4. 一键恢复默认配色
+                // 4. 自定义渐变色（从播放器设置页迁移；开启自定义配色后生效）
+                if lyricGradMode == 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("自定义渐变色")
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        HStack {
+                            Text("渐变起始色")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                            ColorPicker("", selection: gradStart, supportsOpacity: false)
+                                .labelsHidden()
+                        }
+                        HStack {
+                            Text("渐变结束色")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                            ColorPicker("", selection: gradEnd, supportsOpacity: false)
+                                .labelsHidden()
+                        }
+                    }
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.12))
+                }
+
+                // 5. 歌词背景（从播放器设置页迁移）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("歌词背景")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("歌词界面背景图")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Text(lyricBackgroundImagePath.isEmpty ? "未设置" : "已使用自定义图片")
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                        Spacer()
+                        Button("上传") {
+                            showLyricBackgroundPicker = true
+                            ATMusicHaptics.tap()
+                        }
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background { ATMusicSurface(shape: Capsule()) }
+                        .buttonStyle(.plain)
+                        if !lyricBackgroundImagePath.isEmpty {
+                            Button("清除") {
+                                LyricBackgroundStore.clear()
+                                lyricBackgroundImagePath = ""
+                                ATMusicHaptics.select()
+                            }
+                            .font(ATMusicFont.appFont(12, .semibold))
+                            .foregroundStyle(Color.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background { ATMusicSurface(shape: Capsule()) }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    if !lyricBackgroundImagePath.isEmpty {
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("背景模糊")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                Text("\(Int(lyricBackgroundBlur))")
+                                    .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                    .foregroundStyle(Color.atmusicAmber)
+                            }
+                            Slider(value: $lyricBackgroundBlur, in: 0...30, step: 1)
+                                .tint(Color.atmusicAmber)
+                        }
+                        Toggle("同步到封面页背景", isOn: $lyricBackgroundSyncCover)
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .tint(Color.atmusicAmber)
+                        Text("开启后播放器封面界面也使用这张自定义背景")
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 6. 封面文字（从播放器设置页迁移）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("封面文字")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Toggle("文字渐变", isOn: $albumTextGradient)
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .tint(Color.atmusicAmber)
+                    Toggle("文字高光", isOn: $albumTextGlow)
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .tint(Color.atmusicAmber)
+                    if albumTextGlow {
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("高光强度")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                Text("\(Int((albumTextGlowIntensity * 100).rounded()))%")
+                                    .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                    .foregroundStyle(Color.atmusicAmber)
+                            }
+                            Slider(value: $albumTextGlowIntensity, in: 0.2...2.0, step: 0.05)
+                                .tint(Color.atmusicAmber)
+                        }
+                    }
+                    HStack {
+                        Text("歌名颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: coverTextColor(hex: $albumTitleColorHex, fallback: Color.atmusicLabel), supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text("歌手颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: coverTextColor(hex: $albumArtistColorHex, fallback: Color.atmusicLabel.opacity(0.7)), supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text("预览歌词颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: coverTextColor(hex: $albumPreviewLyricColorHex, fallback: Color.atmusicLabel), supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text("预览未播放颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: coverTextColor(hex: $albumPreviewDimColorHex, fallback: Color.atmusicLabel.opacity(0.5)), supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    Button("恢复封面文字默认") {
+                        albumTitleColorHex = ""
+                        albumArtistColorHex = ""
+                        albumPreviewLyricColorHex = ""
+                        albumPreviewDimColorHex = ""
+                        albumTextGradient = false
+                        albumTextGlow = false
+                        albumTextGlowIntensity = 1.0
+                        ATMusicHaptics.select()
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 7. 播放器控件（从播放器设置页迁移）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("播放器控件")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Toggle("控件跟随封面取色", isOn: $controlsUseCoverColor)
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .tint(Color.atmusicAmber)
+                    Text("关闭后使用全局主题色")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                    HStack {
+                        Text("主图标颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: playerMainIconColor, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text("次级图标颜色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: playerSecondaryIconColor, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    HStack {
+                        Text("播放按钮强调色")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Spacer()
+                        ColorPicker("", selection: playerPrimaryButtonColor, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    Button("恢复控件颜色默认") {
+                        playerMainIconColorHex = ""
+                        playerSecondaryIconColorHex = ""
+                        playerPrimaryButtonColorHex = ""
+                        ATMusicHaptics.select()
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("进度条颜色")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Text(progressAccentHex.isEmpty ? "跟随播放控件" : "自定义")
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+                        Spacer()
+                        ColorPicker("", selection: progressAccentColor)
+                            .labelsHidden()
+                        Button("跟随") {
+                            progressAccentHex = ""
+                            ATMusicHaptics.select()
+                        }
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.atmusicAmber.opacity(0.12), in: Capsule())
+                        .buttonStyle(.plain)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("进度条样式")
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicLabel)
+                        progressStyleGrid
+                    }
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 8. 背景光晕 / 浮尘 / DJ 光效（从播放器设置页迁移）
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("氛围光效")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    VStack(spacing: 4) {
+                        HStack {
+                            Text("背景光晕强度")
+                                .font(ATMusicFont.appFont(13, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                            Spacer()
+                            Text("\(Int((breath * 100).rounded()))%")
+                                .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                .foregroundStyle(Color.atmusicAmber)
+                        }
+                        Slider(value: $breath, in: 0...1, step: 0.05)
+                            .tint(Color.atmusicAmber)
+                    }
+                    dustModeSelector
+                    if playerDustModeRaw == ATMusicPlayerDustMode.snow.rawValue {
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("浮尘密度")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                Text(String(format: "%.1fx", playerDustDensity))
+                                    .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                    .foregroundStyle(Color.atmusicAmber)
+                            }
+                            Slider(value: $playerDustDensity, in: 0.4...2.6, step: 0.1)
+                                .tint(Color.atmusicAmber)
+                        }
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("浮尘大小")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                Text(String(format: "%.1fx", playerDustSize))
+                                    .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                    .foregroundStyle(Color.atmusicAmber)
+                            }
+                            Slider(value: $playerDustSize, in: 0.8...2.8, step: 0.1)
+                                .tint(Color.atmusicAmber)
+                        }
+                    }
+                    Toggle("DJ 节奏脉冲光效", isOn: $djVisualEnabled)
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .tint(Color.atmusicAmber)
+                    Text("封面背后随节拍扩散光环")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                    if djVisualEnabled {
+                        VStack(spacing: 4) {
+                            HStack {
+                                Text("光效强度")
+                                    .font(ATMusicFont.appFont(13, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                Text("\(Int((djVisualIntensity * 100).rounded()))%")
+                                    .font(ATMusicFont.appFont(12, .semibold, .monospaced))
+                                    .foregroundStyle(Color.atmusicAmber)
+                            }
+                            Slider(value: $djVisualIntensity, in: 0...1, step: 0.05)
+                                .tint(Color.atmusicAmber)
+                        }
+                    }
+                }
+
+                Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+                // 9. 一键恢复默认配色
                 Button {
                     lyricGradMode = 0
                     lyricColorRaw = "accent"

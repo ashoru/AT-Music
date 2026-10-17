@@ -1343,6 +1343,8 @@ struct SettingsView: View {
     @AppStorage("atmusic.audioQuality") private var playbackAudioQualityRaw = ATMusicAudioQuality.hires.rawValue
     @AppStorage(ATMusicHaptics.enabledKey) private var hapticsEnabled = true
     @AppStorage("atmusic.playback.autoResumeLast") private var autoResumeLastPlayback = false
+    @AppStorage("atmusic.swipeSwitchSong") private var swipeSwitchSong = true
+    @AppStorage("atmusic.playback.autoSkipOnFailure") private var autoSkipOnFailure = true
     @AppStorage(MusicCacheManager.prefetchEnabledKey) private var prefetchNextSong = true
     @AppStorage(MusicCacheManager.limitMBKey) private var musicCacheLimitMB = MusicCacheManager.defaultLimitMB
     @ObservedObject private var musicCache = MusicCacheManager.shared
@@ -1846,6 +1848,48 @@ struct SettingsView: View {
                     .onChange(of: mixesWithOthers) { _, value in
                         PlayerManager.applyAudioMixPreference(value)
                     }
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.10))
+
+                    Toggle(isOn: $swipeSwitchSong) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "hand.draw.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("左右滑动切歌")
+                                    .font(ATMusicFont.appFont(14))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text("左滑下一首，右滑上一首")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
+
+                    Divider().overlay(Color.atmusicComment.opacity(0.10))
+
+                    Toggle(isOn: $autoSkipOnFailure) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("播放失败自动下一首")
+                                    .font(ATMusicFont.appFont(14))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Text("当前歌曲解析失败或播放地址失效时，自动跳到下一首")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.atmusicAmber)
 
                     Divider().overlay(Color.atmusicComment.opacity(0.10))
 

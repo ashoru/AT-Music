@@ -19,9 +19,11 @@
 		0AD1FD948506F5BE93047F95 /* SyncedPlaylistOrderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4956E792EF3A809043C61E6C /* SyncedPlaylistOrderStore.swift */; };
 		0CF4556E9CC4D13CCC70C795 /* SecureCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45881FE84469298FE68EE7A /* SecureCredentialStore.swift */; };
 		0D4C1843D29035D574804130 /* ImageFileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2E2991179C7A363B0D4BA2 /* ImageFileCache.swift */; };
+		0EE2FFE71DEA2E828A97EE2F /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5E5968F75AB736812E6B78 /* NetworkMonitor.swift */; };
 		0FFA388600E8906D1BB90BBA /* WebLoginDataCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A05ADFA71A97C2375F6C12 /* WebLoginDataCleaner.swift */; };
 		10DCDA1698C23EB196A69AD1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F39452605945742735AE2DFC /* Assets.xcassets */; };
 		156ED57D67259C92E4263D06 /* UnblockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA7323AE174C932FD2F378EC /* UnblockService.swift */; };
+		1A7BC656A4CE5D6A664FEFA9 /* AudioSignalPathSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947204114621CA3CFF059014 /* AudioSignalPathSheet.swift */; };
 		22FEE5D9E6A51A91D9952941 /* ATMusicLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C14C4989C5544E73D1CCBB /* ATMusicLogger.swift */; };
 		244085B9A36EB7719B9E272A /* PlayerLayoutEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A62D1A99E625A522106F6A /* PlayerLayoutEditorSheet.swift */; };
 		2802CAD851751AE7D612E336 /* ThirdPartySourceManagerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE690F3FC1681BF4460BEA64 /* ThirdPartySourceManagerSheet.swift */; };
@@ -161,6 +163,7 @@
 		755E5E34911145179BEF534A /* KugouMusicAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KugouMusicAuth.swift; sourceTree = "<group>"; };
 		765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricBackgroundStore.swift; sourceTree = "<group>"; };
 		7AEB3C7462435ADDB41D2C14 /* QQMusicAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQMusicAuth.swift; sourceTree = "<group>"; };
+		7D5E5968F75AB736812E6B78 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		810044AD24E71FD337BC8D03 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		82AA3624A107A89B2153DACB /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		8798336209FB3B7B9C9943EC /* UnifiedSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSongStore.swift; sourceTree = "<group>"; };
@@ -169,6 +172,7 @@
 		8E791FF8CB1DF14CEDCE4193 /* FavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesStore.swift; sourceTree = "<group>"; };
 		8F0B9AB6EB336FB974DB0825 /* IPADownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPADownloader.swift; sourceTree = "<group>"; };
 		925AAFA68A3B19335C3C09BC /* ReferencePlaybackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferencePlaybackView.swift; sourceTree = "<group>"; };
+		947204114621CA3CFF059014 /* AudioSignalPathSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSignalPathSheet.swift; sourceTree = "<group>"; };
 		95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritePlaylistStore.swift; sourceTree = "<group>"; };
 		9676442732A09AD59868CC4F /* UnblockSourceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnblockSourceStore.swift; sourceTree = "<group>"; };
 		96D777FC5F8A9F728B289BB5 /* PlatformPreferenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformPreferenceStore.swift; sourceTree = "<group>"; };
@@ -233,6 +237,7 @@
 				DB603FDF5A9890A380533A5F /* ATMusicEqualizer.swift */,
 				D1C14C4989C5544E73D1CCBB /* ATMusicLogger.swift */,
 				C8FA993E8E37413E52E53C18 /* ATMusicLogSanitizer.swift */,
+				947204114621CA3CFF059014 /* AudioSignalPathSheet.swift */,
 				C281DE6BBA57ECFB8BF4B2FF /* AudioURLCache.swift */,
 				EAADC99C1DA9B7E43E702BDB /* AuthStore.swift */,
 				0520E5E45E68654484B56FB3 /* CacheManagementView.swift */,
@@ -279,6 +284,7 @@
 				680C93617FE59252523B3567 /* NetEaseAPI.swift */,
 				B86C94266C456F24E23AB1D0 /* NetEaseCrypto.swift */,
 				610C10359085CFFFA3E49044 /* NetEaseWebLoginSheet.swift */,
+				7D5E5968F75AB736812E6B78 /* NetworkMonitor.swift */,
 				0C0605B67F998083A79DF15D /* OnboardingView.swift */,
 				694A17D14AA7B9FADCD95FC2 /* PlatformAdapter.swift */,
 				96D777FC5F8A9F728B289BB5 /* PlatformPreferenceStore.swift */,
@@ -423,6 +429,7 @@
 				58F95AEC1754B2D0387997F8 /* AirPlayRoutePicker.swift in Sources */,
 				D0B4F1CE8639583B09042267 /* AppEvents.swift in Sources */,
 				C675D312A18C071A4D733028 /* ArtistHomeSheet.swift in Sources */,
+				1A7BC656A4CE5D6A664FEFA9 /* AudioSignalPathSheet.swift in Sources */,
 				BDBBF045B1D5344A33C8780C /* AudioURLCache.swift in Sources */,
 				5A8ACFC640C376E03890A14C /* AuthStore.swift in Sources */,
 				5DA20D3D1AE3DF62903192AA /* CacheManagementView.swift in Sources */,
@@ -468,6 +475,7 @@
 				6FDFD4350EF3F768762D5227 /* NetEaseAPI.swift in Sources */,
 				B9B1CAB25CDEAD7CF5F9E95C /* NetEaseCrypto.swift in Sources */,
 				C21E23BDE27BE44DF4DC5AA4 /* NetEaseWebLoginSheet.swift in Sources */,
+				0EE2FFE71DEA2E828A97EE2F /* NetworkMonitor.swift in Sources */,
 				F4D49739EE2239C16068B246 /* OnboardingView.swift in Sources */,
 				087FF62FBEE061FF65D82C11 /* PlatformAdapter.swift in Sources */,
 				63FDBF4448810FC614C45115 /* PlatformPreferenceStore.swift in Sources */,
@@ -536,13 +544,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 80;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.18;
+				MARKETING_VERSION = 1.9.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";
@@ -611,13 +619,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 80;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.9.18;
+				MARKETING_VERSION = 1.9.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atmusic.player;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "ATMusic/ATMusic-Bridging-Header.h";

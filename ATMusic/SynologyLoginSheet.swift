@@ -5,9 +5,20 @@ struct SynologyLoginSheet: View {
     @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var synology = SynologyAPI.shared
 
-    @State private var host: String = ""
-    @State private var portStr: String = "5000"
-    @State private var isHTTPS: Bool = false
+    // 局域网 (LAN) 设置
+    @State private var lanHost: String = ""
+    @State private var lanPortStr: String = "5000"
+    @State private var lanHTTPS: Bool = false
+
+    // 公网 (WAN) 设置
+    @State private var wanHost: String = ""
+    @State private var wanPortStr: String = "5000"
+    @State private var wanHTTPS: Bool = false
+
+    // 蜂窝网络转码省流
+    @AppStorage("atmusic.nas.transcodeOnCellular") private var transcodeOnCellular = false
+
+    // 凭证
     @State private var account: String = ""
     @State private var password: String = ""
     @State private var otpCode: String = ""
@@ -24,7 +35,11 @@ struct SynologyLoginSheet: View {
                     VStack(spacing: 20) {
                         headerCard
 
-                        serverConfigCard
+                        lanConfigCard
+
+                        wanConfigCard
+
+                        cellularConfigCard
 
                         accountCard
 
@@ -76,6 +91,14 @@ struct SynologyLoginSheet: View {
                     Text(synology.isLoggedIn ? "已连接并授权" : "未连接")
                         .font(ATMusicFont.appFont(13))
                         .foregroundStyle(synology.isLoggedIn ? Color.green : Color.atmusicComment)
+
+                    if synology.isLoggedIn {
+                        Text("·")
+                            .foregroundStyle(Color.atmusicComment)
+                        Text(synology.isLanActive ? "局域网直连 (\(synology.lanLatencyMs.map { "\($0)ms" } ?? "1ms"))" : "公网访问")
+                            .font(ATMusicFont.appFont(12, .semibold))
+                            .foregroundStyle(synology.isLanActive ? Color.atmusicAmber : Color.blue)
+                    }
                 }
             }
 
@@ -87,18 +110,28 @@ struct SynologyLoginSheet: View {
         }
     }
 
-    private var serverConfigCard: some View {
+    // MARK: - 局域网直连配置 (LAN)
+
+    private var lanConfigCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("服务器网络设置")
-                .font(ATMusicFont.appFont(14, .semibold))
-                .foregroundStyle(Color.atmusicLabel)
+            HStack {
+                Image(systemName: "house.fill")
+                    .foregroundStyle(Color.atmusicAmber)
+                Text("家庭局域网直连 (LAN)")
+                    .font(ATMusicFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Text("千兆无损极速")
+                    .font(ATMusicFont.appFont(11, .medium))
+                    .foregroundStyle(Color.atmusicComment)
+            }
 
             VStack(spacing: 10) {
                 HStack {
-                    Text("地址")
+                    Text("内网 IP")
                         .font(ATMusicFont.appFont(14))
-                        .frame(width: 50, alignment: .leading)
-                    TextField("例如 192.168.1.100 或 nas.me.com", text: $host)
+                        .frame(width: 60, alignment: .leading)
+                    TextField("例如 192.168.1.100 或 DiskStation", text: $lanHost)
                         .font(ATMusicFont.appFont(14))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -109,24 +142,24 @@ struct SynologyLoginSheet: View {
                 HStack {
                     Text("端口")
                         .font(ATMusicFont.appFont(14))
-                        .frame(width: 50, alignment: .leading)
-                    TextField("5000", text: $portStr)
+                        .frame(width: 60, alignment: .leading)
+                    TextField("5000", text: $lanPortStr)
                         .font(ATMusicFont.appFont(14))
                         .keyboardType(.numberPad)
                 }
                 .padding(12)
                 .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
 
-                Toggle(isOn: $isHTTPS) {
-                    Text("启用 HTTPS (SSL)")
+                Toggle(isOn: $lanHTTPS) {
+                    Text("内网启用 HTTPS")
                         .font(ATMusicFont.appFont(14))
                 }
                 .padding(.horizontal, 4)
-                .onChange(of: isHTTPS) { _, enabled in
-                    if enabled && portStr == "5000" {
-                        portStr = "5001"
-                    } else if !enabled && portStr == "5001" {
-                        portStr = "5000"
+                .onChange(of: lanHTTPS) { _, enabled in
+                    if enabled && lanPortStr == "5000" {
+                        lanPortStr = "5001"
+                    } else if !enabled && lanPortStr == "5001" {
+                        lanPortStr = "5000"
                     }
                 }
             }
@@ -137,9 +170,98 @@ struct SynologyLoginSheet: View {
         }
     }
 
+    // MARK: - 外部公网访问配置 (WAN)
+
+    private var wanConfigCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "globe")
+                    .foregroundStyle(Color.blue)
+                Text("外部公网访问 (WAN / DDNS)")
+                    .font(ATMusicFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Text("外出漫游访问")
+                    .font(ATMusicFont.appFont(11, .medium))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+
+            VStack(spacing: 10) {
+                HStack {
+                    Text("公网地址")
+                        .font(ATMusicFont.appFont(14))
+                        .frame(width: 60, alignment: .leading)
+                    TextField("DDNS 域名或公网 IP (选填)", text: $wanHost)
+                        .font(ATMusicFont.appFont(14))
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(12)
+                .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+
+                HStack {
+                    Text("端口")
+                        .font(ATMusicFont.appFont(14))
+                        .frame(width: 60, alignment: .leading)
+                    TextField("5000", text: $wanPortStr)
+                        .font(ATMusicFont.appFont(14))
+                        .keyboardType(.numberPad)
+                }
+                .padding(12)
+                .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+
+                Toggle(isOn: $wanHTTPS) {
+                    Text("公网启用 HTTPS")
+                        .font(ATMusicFont.appFont(14))
+                }
+                .padding(.horizontal, 4)
+                .onChange(of: wanHTTPS) { _, enabled in
+                    if enabled && wanPortStr == "5000" {
+                        wanPortStr = "5001"
+                    } else if !enabled && wanPortStr == "5001" {
+                        wanPortStr = "5000"
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background {
+            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    // MARK: - 移动蜂窝网络优化
+
+    private var cellularConfigCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $transcodeOnCellular) {
+                HStack(spacing: 8) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .foregroundStyle(Color.atmusicAmber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("蜂窝网络下自动转码 (320kbps MP3)")
+                            .font(ATMusicFont.appFont(14, .semibold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text("外出省流模式，Wi-Fi 下始终保持原盘母带直出")
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
+        }
+        .padding(16)
+        .background {
+            ATMusicSurface(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    // MARK: - DSM 账号凭据
+
     private var accountCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("DSM 登录凭据")
+            Text("DSM 账号与安全鉴权")
                 .font(ATMusicFont.appFont(14, .semibold))
                 .foregroundStyle(Color.atmusicLabel)
 
@@ -170,7 +292,7 @@ struct SynologyLoginSheet: View {
                     Text("OTP")
                         .font(ATMusicFont.appFont(14))
                         .frame(width: 50, alignment: .leading)
-                    TextField("双重验证码 (若开启了2FA)", text: $otpCode)
+                    TextField("双重验证码 (若开启了 2FA，未开启请留空)", text: $otpCode)
                         .font(ATMusicFont.appFont(14))
                         .keyboardType(.numberPad)
                 }
@@ -201,7 +323,7 @@ struct SynologyLoginSheet: View {
                         ProgressView()
                             .tint(.white)
                     }
-                    Text(synology.isLoggedIn ? "保存并重新登录" : "登录并连接")
+                    Text(synology.isLoggedIn ? "保存并重新连接" : "登录并连接")
                         .font(ATMusicFont.appFont(15, .bold))
                 }
                 .frame(maxWidth: .infinity)
@@ -209,7 +331,7 @@ struct SynologyLoginSheet: View {
                 .background(Color.atmusicAmber, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .foregroundStyle(.white)
             }
-            .disabled(isLoading || host.isEmpty || account.isEmpty)
+            .disabled(isLoading || (lanHost.isEmpty && wanHost.isEmpty) || account.isEmpty)
             .buttonStyle(GlassPressButtonStyle())
 
             if synology.isLoggedIn {
@@ -233,10 +355,10 @@ struct SynologyLoginSheet: View {
 
     private var instructionsCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("使用说明：")
+            Text("双通道智能路由说明：")
                 .font(ATMusicFont.appFont(12, .semibold))
                 .foregroundStyle(Color.atmusicLabel)
-            Text("1. 请确保群晖 NAS 已经安装并启动了官方 Audio Station 套件。\n2. 如在家庭局域网内，建议填写 NAS 内网 IP（如 192.168.x.x，默认端口 5000）。\n3. 如在外网访问，请填写 DDNS 域名或公网 IP，并确认路由器已转发相应端口。\n4. 登录成功后，即可在「音乐库」中直接浏览和播放 NAS 中的全部歌曲与歌单。")
+            Text("1. 支持同时配置「内网 IP」与「公网 DDNS 域名」。\n2. 在家中连接家庭 Wi-Fi 时，系统优先走局域网千兆通道，低延迟、原盘无损直出。\n3. 外出时系统自动无缝切至公网通道，配合蜂窝转码保障流畅省流播放。\n4. 支持会话自动静默重签，避免长时间播放后令牌过期。")
                 .font(ATMusicFont.appFont(11))
                 .foregroundStyle(Color.atmusicComment)
                 .lineSpacing(3)
@@ -249,23 +371,35 @@ struct SynologyLoginSheet: View {
     }
 
     private func loadCurrentValues() {
-        host = synology.host
-        portStr = "\(synology.port)"
-        isHTTPS = synology.isHTTPS
+        lanHost = synology.lanHost.isEmpty ? synology.host : synology.lanHost
+        lanPortStr = "\(synology.lanPort)"
+        lanHTTPS = synology.lanHTTPS
+
+        wanHost = synology.wanHost
+        wanPortStr = "\(synology.wanPort)"
+        wanHTTPS = synology.wanHTTPS
+
         account = synology.account
         password = synology.savedPassword
     }
 
     private func performLogin() async {
-        guard let p = Int(portStr), p > 0 else {
-            errorMessage = "端口号格式错误"
-            return
-        }
+        let lp = Int(lanPortStr) ?? 5000
+        let wp = Int(wanPortStr) ?? 5000
 
         isLoading = true
         errorMessage = nil
         do {
-            try synology.saveConfiguration(host: host, port: p, isHTTPS: isHTTPS, account: account, password: password)
+            try synology.saveDualConfiguration(
+                lanHost: lanHost,
+                lanPort: lp,
+                lanHTTPS: lanHTTPS,
+                wanHost: wanHost,
+                wanPort: wp,
+                wanHTTPS: wanHTTPS,
+                account: account,
+                password: password
+            )
             try await synology.login(otpCode: otpCode.isEmpty ? nil : otpCode)
             isLoading = false
             ToastCenter.shared.show("群晖 NAS 连接成功！")
