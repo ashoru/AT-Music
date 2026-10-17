@@ -4194,7 +4194,6 @@ struct PlayerSettingsSheet: View {
                     LazyVStack(spacing: 12) {
                         layoutEditorCard
                         coverStyleCard
-                        playingCard
                     }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 34)

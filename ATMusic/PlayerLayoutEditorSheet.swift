@@ -99,6 +99,7 @@ struct PlayerLayoutEditorSheet: View {
                 // 1. 顶栏导航与播放器风格切换
                 topNavigationBar
                 styleSelectorBar
+                buttonStyleSelectorBar
 
                 Divider().overlay(Color.primary.opacity(0.08))
 
@@ -216,6 +217,36 @@ struct PlayerLayoutEditorSheet: View {
             }
         }
         .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    /// 按钮样式选择：下方实时预览渲染的是真实播放器，切换即时可见
+    private var buttonStyleSelectorBar: some View {
+        HStack(spacing: 6) {
+            Text("按钮")
+                .font(ATMusicFont.appFont(12, .medium))
+                .foregroundStyle(Color.atmusicComment)
+                .padding(.leading, 16)
+            ForEach(ATMusicPlayerButtonStyle.allCases) { style in
+                let isSelected = playerButtonStyleRaw == style.rawValue
+                Button {
+                    playerButtonStyleRaw = style.rawValue
+                    ATMusicHaptics.select()
+                } label: {
+                    Text(style.title)
+                        .font(ATMusicFont.appFont(12, isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? Color.white : Color.atmusicLabel)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background(
+                            isSelected ? Color.atmusicAmber : Color.primary.opacity(0.06),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.trailing, 16)
         .padding(.bottom, 8)
     }
 
