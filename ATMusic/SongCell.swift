@@ -84,6 +84,15 @@ struct SongCell: View {
             if showSongVIPBadge, song.isVIP {
                 SongVIPBadgeView()
             }
+            if DownloadManager.shared.isDownloaded(song: song) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+            } else if DownloadManager.shared.isDownloading(song: song) {
+                ProgressView()
+                    .scaleEffect(0.65)
+                    .frame(width: 14, height: 14)
+            }
             SourceBadgeView(source: song.source, compact: true)
             if let favoriteToggle {
                 Button(action: favoriteToggle) {
@@ -118,10 +127,25 @@ struct SongCell: View {
                 Label("添加到歌单", systemImage: "text.badge.plus")
             }
             if downloadFeatureUnlocked {
-                Button {
-                    Task { await downloadSong() }
-                } label: {
-                    Label("下载歌曲", systemImage: "arrow.down.circle")
+                if DownloadManager.shared.isDownloaded(song: song) {
+                    if SynologyAPI.shared.isLoggedIn {
+                        Button {
+                            DownloadManager.shared.startUploadToNAS(song: song)
+                        } label: {
+                            Label("上传到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                        }
+                    }
+                    Button(role: .destructive) {
+                        DownloadManager.shared.removeDownloaded(song: song)
+                    } label: {
+                        Label("从本地移除下载", systemImage: "trash")
+                    }
+                } else {
+                    Button {
+                        downloadSong()
+                    } label: {
+                        Label(song.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
+                    }
                 }
             }
             if !isCurrent {
@@ -148,7 +172,7 @@ struct SongCell: View {
     }
 
     @MainActor
-    private func downloadSong() async {
+    private func downloadSong() {
         let quality: DownloadQuality
         if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
             quality = ThirdPartyAudioQuality.current
@@ -156,17 +180,7 @@ struct SongCell: View {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("开始下载：\(song.name)（\(quality.displayName)）")
-        let result = await DownloadManager.shared.download(song: song, quality: quality)
-        switch result {
-        case .success(let downloaded):
-            if downloaded.downgraded {
-                ToastCenter.shared.show("目标音质不可用，已降级为 \(downloaded.actualQuality.displayName)", duration: 3)
-            }
-            shareFile = ShareFileItem(url: downloaded.url)
-        case .failure(let error):
-            ToastCenter.shared.show("下载失败：\(error.localizedDescription)", duration: 3)
-        }
+        DownloadManager.shared.startDownload(song: song, quality: quality)
     }
 
     var body: some View {

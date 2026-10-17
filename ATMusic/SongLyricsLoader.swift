@@ -25,6 +25,12 @@ enum SongLyricsLoader {
                let raw = try? String(contentsOf: lrcURL, encoding: .utf8) {
                 rawLyrics = raw
             }
+        } else if let localFile = LocalAudioFileManager.shared.file(forSongId: song.identityKey) {
+            let lrcPath = (localFile.relativePath as NSString).deletingPathExtension + ".lrc"
+            if let lrcURL = try? ManagedAudioPath.resolve(lrcPath),
+               let raw = try? String(contentsOf: lrcURL, encoding: .utf8) {
+                rawLyrics = raw
+            }
         } else if song.source == .synology {
             if let raw = try? await SynologyAPI.shared.lyrics(song: song) {
                 rawLyrics = raw
@@ -123,4 +129,40 @@ enum SongLyricsLoader {
         if target.duration > 0, candidate.duration > 0, abs(target.duration - candidate.duration) < 3 { score += 12 }
         return score
     }
+
+    /// 获取原始歌词纯文本（用于保存本地 .lrc 或上传到群晖 NAS 同步）
+    static func rawLyricString(for song: Song) async -> String? {
+        if song.source == .local, let relativePath = song.localRelativePath {
+            let lrcPath = (relativePath as NSString).deletingPathExtension + ".lrc"
+            if let lrcURL = try? ManagedAudioPath.resolve(lrcPath),
+               let raw = try? String(contentsOf: lrcURL, encoding: .utf8) {
+                return raw
+            }
+        }
+        if let localFile = LocalAudioFileManager.shared.file(forSongId: song.identityKey) {
+            let lrcPath = (localFile.relativePath as NSString).deletingPathExtension + ".lrc"
+            if let lrcURL = try? ManagedAudioPath.resolve(lrcPath),
+               let raw = try? String(contentsOf: lrcURL, encoding: .utf8) {
+                return raw
+            }
+        }
+        if song.source == .synology {
+            if let raw = try? await SynologyAPI.shared.lyrics(song: song) {
+                return raw
+            }
+        } else if song.source == .kugou, let hash = song.kugouHash {
+            let raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
+            if !raw.isEmpty { return raw }
+        } else if song.source == .qq, let mid = song.qqMid {
+            if let raw = try? await QQMusicAPI.shared.lyric(songmid: mid) {
+                return raw
+            }
+        } else if song.source == .netease {
+            if let (lrc, _) = try? await NetEaseAPI.shared.lyricWithTranslation(id: song.id) {
+                return lrc
+            }
+        }
+        return await autoMatchedLyrics(for: song)
+    }
+
 }

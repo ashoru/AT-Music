@@ -2060,9 +2060,7 @@ struct AlbumDetailView: View {
     @MainActor
     private func batchDownloadAlbum() {
         guard !sortedTracks.isEmpty else { return }
-        isBatchDownloading = true
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("已将专辑全部 \(sortedTracks.count) 首歌曲加入下载队列")
         let quality: DownloadQuality
         let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
         if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
@@ -2070,15 +2068,13 @@ struct AlbumDetailView: View {
         } else {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
-        Task {
-            for song in sortedTracks {
-                _ = await DownloadManager.shared.download(song: song, quality: quality)
-            }
-            await MainActor.run {
-                isBatchDownloading = false
-                ToastCenter.shared.show("《\(album.name)》专辑下载已就绪")
-            }
-        }
+        DownloadManager.shared.startBatchDownload(songs: sortedTracks, quality: quality)
+    }
+
+    @MainActor
+    private func batchUploadAlbumToNAS() {
+        guard !sortedTracks.isEmpty else { return }
+        DownloadManager.shared.startBatchUploadToNAS(songs: sortedTracks)
     }
 
     private var albumAccentColor: Color {

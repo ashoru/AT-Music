@@ -573,7 +573,19 @@ struct ReferencePlaybackView: View {
             Button("搜索歌词", action: onSearchLyrics)
             Button("添加到歌单", action: onAddToLocalPlaylist)
             if downloadFeatureUnlocked {
-                Button("下载歌曲", action: onDownload)
+                if let song, DownloadManager.shared.isDownloaded(song: song) {
+                    if SynologyAPI.shared.isLoggedIn {
+                        Button("上传到群晖 NAS") {
+                            DownloadManager.shared.startUploadToNAS(song: song)
+                        }
+                    }
+                    Button("从本地移除下载", role: .destructive) {
+                        DownloadManager.shared.removeDownloaded(song: song)
+                    }
+                    Button("重新下载 (更换音质)", action: onDownload)
+                } else {
+                    Button(song?.source == .synology ? "离线下载到本机" : "离线下载歌曲", action: onDownload)
+                }
             }
             Button("播放器设置", action: onPlayerSettings)
         } label: {

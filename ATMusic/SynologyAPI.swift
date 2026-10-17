@@ -1768,6 +1768,78 @@ final class SynologyAPI: ObservableObject {
     }
 
     /// 将本机选图限制到合理尺寸再上传。原图（常见为数 MB 的 HEIC/JPEG）不再阻塞 NAS 写入。
+    // MARK: - 文件与歌曲上传归档 (SYNO.FileStation.Upload)
+
+    /// 将本地文件流式上传至群晖 NAS 指定目录（支持大音频、LRC 歌词与封面，内存安全且附带实时进度）
+    func uploadFileToNAS(
+        localFileURL: URL,
+        destinationFolder: String,
+        filename: String,
+        mimeType: String = "application/octet-stream",
+        onProgress: ((Double, Int64, Int64) -> Void)? = nil
+    ) async throws -> String {
+        guard !sid.isEmpty else { throw SynologyError.unauthenticated }
+        let boundary = "ATMusic-\(UUID().uuidString)"
+        var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
+        components?.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Upload"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "upload"),
+            URLQueryItem(name: "path", value: destinationFolder),
+            URLQueryItem(name: "create_parents", value: "true"),
+            URLQueryItem(name: "overwrite", value: "true"),
+            URLQueryItem(name: "_sid", value: sid)
+        ]
+        guard let url = components?.url else { throw SynologyError.invalidURL("上传地址无效") }
+
+        // 构建临时多部件数据流，避免大体积无损音频常驻内存触发 OOM
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempUploadURL = tempDir.appendingPathComponent("upload_\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: tempUploadURL) }
+
+        let headerData = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n".utf8)
+        let footerData = Data("\r\n--\(boundary)--\r\n".utf8)
+
+        try headerData.write(to: tempUploadURL)
+        guard let sourceHandle = try? FileHandle(forReadingFrom: localFileURL),
+              let destHandle = try? FileHandle(forWritingTo: tempUploadURL) else {
+            throw SynologyError.networkError("无法读取本地源文件")
+        }
+        defer {
+            try? sourceHandle.close()
+            try? destHandle.close()
+        }
+        try destHandle.seekToEnd()
+        while let chunk = try sourceHandle.read(upToCount: 512 * 1024), !chunk.isEmpty {
+            try destHandle.write(contentsOf: chunk)
+        }
+        try destHandle.write(contentsOf: footerData)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("ATMusic/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let delegate = SynologyUploadProgressDelegate(onProgress: onProgress)
+        let (responseData, response) = try await session.upload(for: request, fromFile: tempUploadURL, delegate: delegate)
+
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              (json["success"] as? Bool ?? false) else {
+            let errorText: String
+            if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+               let err = json["error"] as? [String: Any],
+               let code = err["code"] as? Int {
+                errorText = "错误代码 \(code)（请检查 File Station 写入权限或目标目录）"
+            } else {
+                errorText = "HTTP 响应异常或 File Station 权限不足"
+            }
+            throw SynologyError.apiError(-1, "群晖 NAS 上传失败：\(errorText)")
+        }
+
+        return destinationFolder + "/" + filename
+    }
+
     private func optimizedCoverData(_ data: Data) -> Data {
         guard let image = UIImage(data: data) else { return data }
         let maxSide: CGFloat = 1_600
@@ -2036,6 +2108,20 @@ enum SynologyError: LocalizedError {
         case .unauthenticated: return "尚未登录群晖 NAS"
         case .sessionExpired: return "群晖登录已过期，请重新登录"
         case .apiError(_, let msg): return "群晖服务错误: \(msg)"
+        }
+    }
+}
+
+
+final class SynologyUploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let onProgress: ((Double, Int64, Int64) -> Void)?
+    init(onProgress: ((Double, Int64, Int64) -> Void)?) {
+        self.onProgress = onProgress
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        if totalBytesExpectedToSend > 0 {
+            let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+            onProgress?(progress, totalBytesSent, totalBytesExpectedToSend)
         }
     }
 }

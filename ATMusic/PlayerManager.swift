@@ -735,6 +735,11 @@ final class PlayerManager: NSObject, ObservableObject {
             return
         }
 
+        if let localURL = DownloadManager.shared.localAudioURL(for: nextSong) {
+            prepareStandbyPlayer(for: nextSong, url: localURL, isThirdParty: false)
+            return
+        }
+
         if let entry = AudioURLCache.shared.get(songKey: nextSong.identityKey, quality: qualityKey), !entry.isPreview {
             prepareStandbyPlayer(for: nextSong, url: entry.url, isThirdParty: false)
             return
@@ -1052,6 +1057,9 @@ final class PlayerManager: NSObject, ObservableObject {
             ATMusicLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 官方优先=是", level: .info)
             if song.source == .local, let relativePath = song.localRelativePath,
                let localURL = try? ManagedAudioPath.resolve(relativePath) {
+                urlString = localURL.absoluteString
+            } else if let localURL = DownloadManager.shared.localAudioURL(for: song) {
+                ATMusicLogger.shared.log("⚡ 命中本地离线文件，0ms 启动离线播放：\(song.name) -> \(localURL.lastPathComponent)", level: .info)
                 urlString = localURL.absoluteString
             } else if song.source == .synology {
                 urlString = SynologyAPI.shared.songURL(song: song)

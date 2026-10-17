@@ -198,6 +198,24 @@ final class LocalLibraryStore: ObservableObject {
         importedSongs.append(contentsOf: songs.filter { $0.source == .local && seen.insert($0.identityKey).inserted })
     }
 
+    func localSong(for identityKey: String) -> Song? {
+        importedSongs.first { $0.identityKey == identityKey || ($0.localRelativePath != nil && identityKey.contains($0.localRelativePath!)) }
+    }
+
+    @discardableResult
+    func addSongToNamedPlaylist(_ song: Song, name: String = "已下载歌曲") -> Bool {
+        let target: LocalPlaylist
+        if let existing = playlists.first(where: { $0.name == name }) {
+            target = existing
+        } else {
+            target = createPlaylist(name: name)
+        }
+        let before = playlists.first(where: { $0.id == target.id })?.songs.count ?? 0
+        addSong(song, to: target.id)
+        let after = playlists.first(where: { $0.id == target.id })?.songs.count ?? before
+        return after > before
+    }
+
     @discardableResult
     func updateImportedSong(_ song: Song) -> Bool {
         guard song.source == .local,

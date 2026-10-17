@@ -2367,7 +2367,7 @@ struct SynologyAlbumView: View {
         guard !sortedTracks.isEmpty else { return }
         isBatchDownloading = true
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("已将《\(albumName)》全部 \(sortedTracks.count) 首歌曲加入下载队列")
+        ATMusicHaptics.medium()
         let quality: DownloadQuality
         let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
         if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
@@ -2375,15 +2375,7 @@ struct SynologyAlbumView: View {
         } else {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
-        Task {
-            for song in sortedTracks {
-                _ = await DownloadManager.shared.download(song: song, quality: quality)
-            }
-            await MainActor.run {
-                isBatchDownloading = false
-                ToastCenter.shared.show("《\(albumName)》专辑下载已就绪")
-            }
-        }
+        DownloadManager.shared.startBatchDownload(songs: sortedTracks, quality: quality)
     }
 
     /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序

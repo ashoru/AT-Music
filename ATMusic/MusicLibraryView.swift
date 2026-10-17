@@ -475,28 +475,25 @@ struct MusicLibraryHomeView: View {
                 .foregroundStyle(Color.atmusicLabel)
 
             if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: synology.isLoggedIn ? 4 : 3), spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: synology.isLoggedIn ? 5 : 4), spacing: 12) {
                     recentCard
                     localCard
+                    transferCenterCard
                     favPlaylistsCard
                     if synology.isLoggedIn {
                         nasCard
                     }
                 }
                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-            } else if synology.isLoggedIn {
+            } else {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     recentCard
                     localCard
+                    transferCenterCard
                     favPlaylistsCard
-                    nasCard
-                }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-            } else {
-                HStack(spacing: 10) {
-                    recentCard
-                    localCard
-                    favPlaylistsCard
+                    if synology.isLoggedIn {
+                        nasCard
+                    }
                 }
                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
             }
@@ -511,6 +508,19 @@ struct MusicLibraryHomeView: View {
                 title: "最近播放",
                 subtitle: "\(player.history.count) 首",
                 systemImage: "clock.arrow.circlepath",
+                enabled: true
+            )
+        }
+    }
+
+    private var transferCenterCard: some View {
+        NavigationLink {
+            TransferCenterView()
+        } label: {
+            MusicLibraryQuickCard(
+                title: "传输中心",
+                subtitle: DownloadManager.shared.transferCardSubtitle,
+                systemImage: "arrow.up.arrow.down.circle.fill",
                 enabled: true
             )
         }
@@ -1219,6 +1229,17 @@ struct LocalMusicBrowserView: View {
                 }
 
                 Section("浏览") {
+                    NavigationLink {
+                        TransferCenterView()
+                    } label: {
+                        MusicBrowseRow(
+                            coverURL: nil,
+                            title: "传输中心与离线管理",
+                            subtitle: DownloadManager.shared.transferCardSubtitle,
+                            systemImage: "arrow.up.arrow.down.circle"
+                        )
+                    }
+
                     NavigationLink {
                         LocalFileCollectionView(songs: store.importedSongs)
                     } label: {

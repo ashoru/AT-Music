@@ -792,8 +792,22 @@ struct PlayerView: View {
                 showAddToLocalPlaylist = true
             }
             if downloadFeatureUnlocked {
-                Button("下载歌曲") {
-                    showDownloadPicker = true
+                if let song, DownloadManager.shared.isDownloaded(song: song) {
+                    if SynologyAPI.shared.isLoggedIn {
+                        Button("上传到群晖 NAS") {
+                            DownloadManager.shared.startUploadToNAS(song: song)
+                        }
+                    }
+                    Button("从本地移除下载", role: .destructive) {
+                        DownloadManager.shared.removeDownloaded(song: song)
+                    }
+                    Button("重新下载 (更换音质)") {
+                        showDownloadPicker = true
+                    }
+                } else {
+                    Button(song?.source == .synology ? "离线下载到本机" : "离线下载歌曲") {
+                        showDownloadPicker = true
+                    }
                 }
             }
             Button("播放器设置") {
@@ -2551,25 +2565,7 @@ struct PlayerView: View {
         guard let song else { return }
         UserDefaults.standard.set(quality.rawValue, forKey: ThirdPartyAudioQuality.downloadStorageKey)
         ATMusicHaptics.medium()
-        ToastCenter.shared.show("开始下载：\(song.name)（\(quality.displayName)）")
-        let result = await DownloadManager.shared.download(song: song, quality: quality)
-        switch result {
-        case .success(let downloadResult):
-            if downloadResult.downgraded {
-                ToastCenter.shared.show("目标音质不可用，已降级为 \(downloadResult.actualQuality.displayName)", duration: 3)
-            } else {
-                ToastCenter.shared.show("下载完成：\(downloadResult.actualQuality.displayName)", duration: 2)
-            }
-            ATMusicLogger.shared.log(
-                "下载完成，弹出分享：\(song.name)（请求=\(downloadResult.requestedQuality.rawValue) 实际=\(downloadResult.actualQuality.rawValue)\(downloadResult.downgraded ? "，已自动降级" : "")）",
-                level: .info
-            )
-            sharedFileURL = downloadResult.url
-            shareFile = ShareFileItem(url: downloadResult.url)
-        case .failure(let error):
-            ATMusicLogger.shared.log("下载失败：\(song.name) - \(error.localizedDescription)", level: .error)
-            ToastCenter.shared.show("下载失败：\(error.localizedDescription)", duration: 3)
-        }
+        DownloadManager.shared.startDownload(song: song, quality: quality)
     }
 
     /// 分享面板关闭后清理临时下载文件（不占用户存储）
