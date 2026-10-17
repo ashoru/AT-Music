@@ -48,6 +48,23 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.26-build-88-offline-song-delete-and-dedup-fix",
+            version: "1.9.26",
+            title: "彻底根治离线歌曲删除失效与多重重复下载 Bug、全维曲目智能匹配自愈与缓存联动清理",
+            features: [
+                "离线与下载曲目全维度智能比对（isMatchingSong）：打破单一 identityKey 匹配壁垒，支持在线平台 ID、沙盒相对路径、无扩展名 baseName 与归一化标题歌手跨维度智能识别",
+                "多重并发下载去重与就地升级（addOrUpdateImportedSong）：重新下载歌曲时智能覆盖旧实体并自动回收废弃音频原文件，防止重复生成 UUID 幽灵副本",
+                "已下载歌单深度同步与死链清理（cleanDuplicateImportedSongsAndPlaylists）：启动与校验时深度核验「已下载歌曲」歌单，剔除冗余副本与磁盘失效死链",
+                "全场景物理文件彻底清除：联动清理 .flac、.mp3、.m4a、.wav、.ogg、.tmp、.bin 等音频、伴生 .lrc 歌词与高清 .jpg 封面，不留任何磁盘游离残留",
+                "播放内存缓存联动失效（AudioURLCache）：删除离线歌曲时同步清除本地直通路径缓存，彻底消除旧 URL 残留导致的 AVPlayerItem 加载失败",
+                "歌单左滑删除与批量移除原生联动：「已下载歌曲」列表左滑删除直接接管底层受管沙盒移除流水线，传输中心与本地歌单双向即时刷新"
+            ],
+            fixes: [
+                "彻底解决特定歌曲（如 We Don't Talk Anymore）在已下载歌曲与已离线列表中反复出现且无法删除的问题",
+                "解决由于路径扩展名自愈与多重下载导致本地歌曲 ID 不一致、从而导致删除操作静默失效的缺陷"
+            ]
+        ),
+        VersionLog(
             id: "1.9.25-build-87-offline-nas-closed-loop-and-ipad-transfer",
             version: "1.9.25",
             title: "在线流媒体·本地离线受管沙盒·群晖 NAS 双向闭环闭环系统全量落地与 iPad 宽屏深度适配",

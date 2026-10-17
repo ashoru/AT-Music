@@ -8,6 +8,7 @@ struct TransferCenterView: View {
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var synology = SynologyAPI.shared
     @ObservedObject private var archiveStore = NASArchiveStore.shared
+    @ObservedObject private var localStore = LocalLibraryStore.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 

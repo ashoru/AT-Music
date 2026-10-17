@@ -449,21 +449,77 @@ final class LocalAudioFileManager: @unchecked Sendable {
         if let item = fileIndex[id] { try removeLocked(item) }
     }
 
-    /// 删除用户导入的音频副本及其应用内封面、歌词；不会触碰用户原始文件。
+    private func deleteDiskFiles(forBaseName baseName: String, relativePath: String) {
+        var pathsToDelete: [String] = [relativePath]
+        if !baseName.isEmpty {
+            for ext in ["flac", "mp3", "m4a", "wav", "ogg", "tmp", "bin"] {
+                pathsToDelete.append("ATMusicAudio/\(baseName).\(ext)")
+                pathsToDelete.append("ATMusicAudio/\(baseName).\(ext).lrc")
+            }
+            pathsToDelete.append("ATMusicAudio/Artwork/\(baseName).jpg")
+            pathsToDelete.append("ATMusicAudio/\(baseName).lrc")
+            pathsToDelete.append((relativePath as NSString).deletingPathExtension + ".lrc")
+            pathsToDelete.append("Trash/\(baseName).bin")
+            pathsToDelete.append("ATMusicAudio/RecentlyRemoved/\(baseName)")
+        }
+        for p in pathsToDelete {
+            if let url = try? ManagedAudioPath.resolve(p, documents: documents) {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
+    }
+
+    /// 删除用户导入或下载的音频副本及其所有伴生封面、歌词文件与磁盘变体
     func deleteFileAndSupport(relativePath: String) throws {
         lock.lock()
         defer { lock.unlock() }
-        guard let item = fileIndex.values.first(where: { $0.relativePath == relativePath }) else { return }
-        try removeLocked(item)
-        let supportPaths = [
-            "ATMusicAudio/Artwork/\(item.id).jpg",
-            (item.relativePath as NSString).deletingPathExtension + ".lrc"
-        ]
-        for supportPath in supportPaths {
-            if let url = try? ManagedAudioPath.resolve(supportPath, documents: documents) {
-                try? FileManager.default.removeItem(at: url)
-            }
+        let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let matchingItems = fileIndex.values.filter {
+            $0.relativePath == relativePath ||
+            (!baseName.isEmpty && ((($0.relativePath as NSString).lastPathComponent as NSString).deletingPathExtension == baseName || $0.id == baseName))
         }
+        for item in matchingItems {
+            try? removeLocked(item)
+        }
+        deleteDiskFiles(forBaseName: baseName, relativePath: relativePath)
+    }
+
+    /// 根据 songId（如 qq-109295782 或 local-...）删除该曲目在受管索引和磁盘上的所有副本
+    func deleteFiles(forSongId songId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let matches = fileIndex.values.filter { $0.songId == songId }
+        for item in matches {
+            try? removeLocked(item)
+            let base = ((item.relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+            deleteDiskFiles(forBaseName: base, relativePath: item.relativePath)
+        }
+    }
+
+    /// 根据歌名与歌手归一化搜索并彻底清理历史遗留副本
+    func deleteFiles(matchingTitle title: String, artist: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let normTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normTitle.isEmpty else { return }
+        let matches = fileIndex.values.filter {
+            let orig = $0.originalFilename.lowercased()
+            return orig.contains(normTitle)
+        }
+        for item in matches {
+            try? removeLocked(item)
+            let base = ((item.relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+            deleteDiskFiles(forBaseName: base, relativePath: item.relativePath)
+        }
+    }
+
+    /// 查询指定 songId 的所有已登记音频实体
+    func allFiles(forSongId songId: String) -> [ManagedAudioFile] {
+        lock.lock()
+        defer { lock.unlock() }
+        return fileIndex.values.filter { $0.songId == songId && exists($0) }
     }
     func clearPlaybackCacheOnly() throws -> Int {
         lock.lock()

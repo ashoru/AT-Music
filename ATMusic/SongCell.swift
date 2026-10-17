@@ -173,7 +173,6 @@ struct SongCell: View {
         .confirmationDialog("已离线歌曲：\(song.name)", isPresented: $showDownloadedActionSheet, titleVisibility: .visible) {
             Button("从本地移除下载", role: .destructive) {
                 DownloadManager.shared.removeDownloaded(song: song)
-                ToastCenter.shared.show("已从本地移除下载")
             }
             Button("重新下载 (更换音质)") {
                 showDownloadPicker = true
@@ -196,7 +195,7 @@ struct SongCell: View {
         .confirmationDialog("选择离线下载音质", isPresented: $showDownloadPicker, titleVisibility: .visible) {
             ForEach(ThirdPartyAudioQuality.supported(for: song.source)) { quality in
                 Button(quality.displayName) {
-                    DownloadManager.shared.startDownload(song: song, quality: quality)
+                    DownloadManager.shared.startDownload(song: song, quality: quality, forceRedownload: true)
                 }
             }
             Button("取消", role: .cancel) {}

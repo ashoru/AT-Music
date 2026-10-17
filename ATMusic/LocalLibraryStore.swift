@@ -89,6 +89,7 @@ final class LocalLibraryStore: ObservableObject {
             importedSongs = []
         }
         repairLocalArtworksIfNeeded()
+        cleanDuplicateImportedSongsAndPlaylists()
     }
 
     @discardableResult
@@ -180,49 +181,189 @@ final class LocalLibraryStore: ObservableObject {
         return addSongs(songs, to: target.id)
     }
 
+    static func normalizeSongText(_ text: String) -> String {
+        text.lowercased()
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "/", with: "")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+            .replacingOccurrences(of: "（", with: "")
+            .replacingOccurrences(of: "）", with: "")
+            .replacingOccurrences(of: "&", with: "")
+    }
+
+    /// 跨平台曲目智能全维比对：兼容在线平台 ID、本地相对路径、扩展名自愈变更与归一化标题歌手
+    static func isMatchingSong(_ a: Song, _ b: Song) -> Bool {
+        if a.identityKey == b.identityKey { return true }
+
+        if let relA = a.localRelativePath, let relB = b.localRelativePath {
+            if relA == relB { return true }
+            let baseA = ((relA as NSString).lastPathComponent as NSString).deletingPathExtension
+            let baseB = ((relB as NSString).lastPathComponent as NSString).deletingPathExtension
+            if !baseA.isEmpty && baseA == baseB { return true }
+        }
+
+        if let relA = a.localRelativePath {
+            let baseA = ((relA as NSString).lastPathComponent as NSString).deletingPathExtension
+            if !baseA.isEmpty && b.identityKey.contains(baseA) { return true }
+        }
+        if let relB = b.localRelativePath {
+            let baseB = ((relB as NSString).lastPathComponent as NSString).deletingPathExtension
+            if !baseB.isEmpty && a.identityKey.contains(baseB) { return true }
+        }
+
+        if a.source == b.source && a.source != .local && a.id == b.id && a.id != 0 {
+            return true
+        }
+
+        let normNameA = normalizeSongText(a.name)
+        let normNameB = normalizeSongText(b.name)
+        if !normNameA.isEmpty && normNameA == normNameB {
+            if a.id == b.id && a.id != 0 { return true }
+            let normArtA = normalizeSongText(a.artists)
+            let normArtB = normalizeSongText(b.artists)
+            if !normArtA.isEmpty && !normArtB.isEmpty {
+                if normArtA == normArtB || normArtA.contains(normArtB) || normArtB.contains(normArtA) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    func localSongs(matching song: Song) -> [Song] {
+        importedSongs.filter { Self.isMatchingSong($0, song) }
+    }
+
+    func removeSong(playlistID: UUID, song: Song) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let before = playlists[idx].songs.count
+        playlists[idx].songs.removeAll { Self.isMatchingSong($0, song) }
+        if playlists[idx].songs.count != before {
+            save()
+        }
+    }
+
     func removeSong(playlistID: UUID, songIdentity: String) {
         guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
-        playlists[idx].songs.removeAll { $0.identityKey == songIdentity }
+        let targetSong = playlists[idx].songs.first(where: { $0.identityKey == songIdentity })
+        let before = playlists[idx].songs.count
+        playlists[idx].songs.removeAll { song in
+            if song.identityKey == songIdentity { return true }
+            if let targetSong, Self.isMatchingSong(song, targetSong) { return true }
+            if let rel = song.localRelativePath {
+                let base = ((rel as NSString).lastPathComponent as NSString).deletingPathExtension
+                if !base.isEmpty && (songIdentity.contains(base) || base.contains(songIdentity)) { return true }
+            }
+            return false
+        }
+        if playlists[idx].songs.count != before {
+            save()
+        }
     }
 
     @discardableResult
     func removeSongFromAllPlaylists(_ song: Song) -> Int {
         var removed = 0
-        for index in playlists.indices {
-            let before = playlists[index].songs.count
-            playlists[index].songs.removeAll { $0.identityKey == song.identityKey }
-            removed += before - playlists[index].songs.count
+        var updated = playlists
+        var changed = false
+        for index in updated.indices {
+            let before = updated[index].songs.count
+            updated[index].songs.removeAll { Self.isMatchingSong($0, song) }
+            let diff = before - updated[index].songs.count
+            if diff > 0 {
+                removed += diff
+                changed = true
+            }
+        }
+        if changed {
+            playlists = updated
+            save()
         }
         return removed
     }
 
     func addImportedSongs(_ songs: [Song]) {
-        var seen = Set(importedSongs.map(\.identityKey))
-        importedSongs.append(contentsOf: songs.filter { $0.source == .local && seen.insert($0.identityKey).inserted })
+        for song in songs {
+            addOrUpdateImportedSong(song)
+        }
     }
 
     func localSong(for identityKey: String) -> Song? {
-        importedSongs.first { $0.identityKey == identityKey || ($0.localRelativePath != nil && identityKey.contains($0.localRelativePath!)) }
+        if let exact = importedSongs.first(where: { $0.identityKey == identityKey }) {
+            return exact
+        }
+        return importedSongs.first { song in
+            if let rel = song.localRelativePath {
+                let base = ((rel as NSString).lastPathComponent as NSString).deletingPathExtension
+                if !base.isEmpty && identityKey.contains(base) { return true }
+            }
+            return false
+        }
+    }
+
+    /// 下载或导入本地歌曲时无重复入库：若已存在同名同歌手或同实体曲目，自动就地更新并回收旧文件
+    func addOrUpdateImportedSong(_ song: Song) {
+        guard song.source == .local else { return }
+        if let index = importedSongs.firstIndex(where: { Self.isMatchingSong($0, song) }) {
+            let oldRel = importedSongs[index].localRelativePath
+            if let oldRel, oldRel != song.localRelativePath {
+                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: oldRel)
+            }
+            importedSongs[index] = song
+        } else {
+            importedSongs.append(song)
+        }
+
+        var updatedPlaylists = playlists
+        var playlistChanged = false
+        for pIdx in updatedPlaylists.indices {
+            for sIdx in updatedPlaylists[pIdx].songs.indices where Self.isMatchingSong(updatedPlaylists[pIdx].songs[sIdx], song) {
+                updatedPlaylists[pIdx].songs[sIdx] = song
+                playlistChanged = true
+            }
+        }
+        if playlistChanged {
+            playlists = updatedPlaylists
+            save()
+        }
+        saveImportedSongs()
     }
 
     @discardableResult
     func addSongToNamedPlaylist(_ song: Song, name: String = "已下载歌曲") -> Bool {
+        addOrUpdateSongInNamedPlaylist(song, name: name)
+    }
+
+    @discardableResult
+    func addOrUpdateSongInNamedPlaylist(_ song: Song, name: String = "已下载歌曲") -> Bool {
         let target: LocalPlaylist
         if let existing = playlists.first(where: { $0.name == name }) {
             target = existing
         } else {
             target = createPlaylist(name: name)
         }
-        let before = playlists.first(where: { $0.id == target.id })?.songs.count ?? 0
-        addSong(song, to: target.id)
-        let after = playlists.first(where: { $0.id == target.id })?.songs.count ?? before
-        return after > before
+        guard let idx = playlists.firstIndex(where: { $0.id == target.id }) else { return false }
+        if let existingSongIdx = playlists[idx].songs.firstIndex(where: { Self.isMatchingSong($0, song) }) {
+            playlists[idx].songs[existingSongIdx] = song
+            save()
+            return true
+        } else {
+            playlists[idx].songs.append(song)
+            save()
+            return true
+        }
     }
 
     @discardableResult
     func updateImportedSong(_ song: Song) -> Bool {
         guard song.source == .local,
-              let index = importedSongs.firstIndex(where: { $0.identityKey == song.identityKey }) else {
+              let index = importedSongs.firstIndex(where: { Self.isMatchingSong($0, song) }) else {
             return false
         }
 
@@ -232,7 +373,7 @@ final class LocalLibraryStore: ObservableObject {
         var playlistChanged = false
         for playlistIndex in updatedPlaylists.indices {
             for songIndex in updatedPlaylists[playlistIndex].songs.indices
-            where updatedPlaylists[playlistIndex].songs[songIndex].identityKey == song.identityKey {
+            where Self.isMatchingSong(updatedPlaylists[playlistIndex].songs[songIndex], song) {
                 updatedPlaylists[playlistIndex].songs[songIndex] = song
                 playlistChanged = true
             }
@@ -241,11 +382,10 @@ final class LocalLibraryStore: ObservableObject {
             playlists = updatedPlaylists
         }
 
-        // 显式落盘，不只依赖 @Published/didSet 的隐式触发；随后读回确认核心字段。
         saveImportedSongs()
         if playlistChanged { save() }
 
-        guard let persisted = importedSongs.first(where: { $0.identityKey == song.identityKey }) else {
+        guard let persisted = importedSongs.first(where: { Self.isMatchingSong($0, song) }) else {
             return false
         }
         return persisted.name == song.name
@@ -259,17 +399,31 @@ final class LocalLibraryStore: ObservableObject {
     }
 
     @discardableResult
-    func removeImportedSong(_ song: Song) -> Bool {
-        if let relativePath = song.localRelativePath {
-            do {
-                try LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: relativePath)
-            } catch {
-                ATMusicLogger.shared.log("删除本地音频副本失败：\(error.localizedDescription)", level: .error)
-                return false
+    func removeAllMatchingImportedSongs(matching song: Song) -> Int {
+        let before = importedSongs.count
+        let matches = importedSongs.filter { Self.isMatchingSong($0, song) }
+        for match in matches {
+            if let rel = match.localRelativePath {
+                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
             }
         }
-        importedSongs.removeAll { $0.identityKey == song.identityKey }
+        importedSongs.removeAll { Self.isMatchingSong($0, song) }
+        let diff = before - importedSongs.count
+        if diff > 0 {
+            saveImportedSongs()
+        }
+        return diff
+    }
+
+    @discardableResult
+    func removeImportedSong(_ song: Song) -> Bool {
+        if let relativePath = song.localRelativePath {
+            try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: relativePath)
+        }
+        _ = removeAllMatchingImportedSongs(matching: song)
         _ = removeSongFromAllPlaylists(song)
+        saveImportedSongs()
+        save()
         return true
     }
 
@@ -284,8 +438,102 @@ final class LocalLibraryStore: ObservableObject {
         return count
     }
 
+    /// 清理离线库中的冗余重复条目与死链，确保一个音频实体仅保留一份唯一记录
+    func cleanDuplicateImportedSongsAndPlaylists() {
+        var uniqueSongs: [Song] = []
+        var seenKeys = Set<String>()
+        var seenNormalized = Set<String>()
+        var dirty = false
 
-    /// 自愈修复本地离线歌曲路径中的 .tmp 扩展名
+        for song in importedSongs {
+            let normKey = "\(Self.normalizeSongText(song.name))|\(Self.normalizeSongText(song.artists))"
+            if seenKeys.contains(song.identityKey) || seenNormalized.contains(normKey) {
+                if let rel = song.localRelativePath {
+                    try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
+                }
+                dirty = true
+            } else {
+                if let rel = song.localRelativePath,
+                   let url = try? ManagedAudioPath.resolve(rel),
+                   FileManager.default.fileExists(atPath: url.path) {
+                    seenKeys.insert(song.identityKey)
+                    seenNormalized.insert(normKey)
+                    uniqueSongs.append(song)
+                } else if let rel = song.localRelativePath, rel.hasSuffix(".tmp") {
+                    let base = (rel as NSString).deletingPathExtension
+                    var found = false
+                    for ext in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                        let cand = base + "." + ext
+                        if let candURL = try? ManagedAudioPath.resolve(cand), FileManager.default.fileExists(atPath: candURL.path) {
+                            let fixed = song.withLocalRelativePath(cand)
+                            seenKeys.insert(fixed.identityKey)
+                            seenNormalized.insert(normKey)
+                            uniqueSongs.append(fixed)
+                            found = true
+                            dirty = true
+                            break
+                        }
+                    }
+                    if !found {
+                        dirty = true
+                    }
+                } else {
+                    dirty = true
+                }
+            }
+        }
+
+        if dirty {
+            importedSongs = uniqueSongs
+            saveImportedSongs()
+            ATMusicLogger.shared.log("🧹 已清理离线库中的冗余重复曲目与死链，当前有效离线曲目 \(uniqueSongs.count) 首", level: .info)
+        }
+
+        var playlistsChanged = false
+        var nextPlaylists = playlists
+        for pIdx in nextPlaylists.indices {
+            var pSeen = Set<String>()
+            var pSeenNormalized = Set<String>()
+            var pUnique: [Song] = []
+            let isDownloadedList = nextPlaylists[pIdx].name == "已下载歌曲"
+            for s in nextPlaylists[pIdx].songs {
+                let key = s.identityKey
+                let normKey = "\(Self.normalizeSongText(s.name))|\(Self.normalizeSongText(s.artists))"
+                if isDownloadedList {
+                    if pSeen.contains(key) || pSeenNormalized.contains(normKey) {
+                        playlistsChanged = true
+                        continue
+                    }
+                    if let rel = s.localRelativePath,
+                       let url = try? ManagedAudioPath.resolve(rel),
+                       FileManager.default.fileExists(atPath: url.path) {
+                        pSeen.insert(key)
+                        pSeenNormalized.insert(normKey)
+                        pUnique.append(s)
+                    } else {
+                        playlistsChanged = true
+                    }
+                } else {
+                    if !pSeen.contains(key) {
+                        pSeen.insert(key)
+                        pUnique.append(s)
+                    } else {
+                        playlistsChanged = true
+                    }
+                }
+            }
+            if nextPlaylists[pIdx].songs.count != pUnique.count {
+                nextPlaylists[pIdx].songs = pUnique
+                playlistsChanged = true
+            }
+        }
+        if playlistsChanged {
+            playlists = nextPlaylists
+            save()
+        }
+    }
+
+    /// 自愈修复本地离线歌曲路径中的 .tmp 扩展名，并同步校准歌单与执行智能去重
     func repairTmpSongPaths() {
         var updated = false
         var nextSongs = importedSongs
@@ -312,6 +560,31 @@ final class LocalLibraryStore: ObservableObject {
             saveImportedSongs()
             ATMusicLogger.shared.log("🛠️ 本地离线库歌曲路径已自愈校准完成", level: .info)
         }
+
+        var playlistsChanged = false
+        var nextPlaylists = playlists
+        for pIdx in nextPlaylists.indices {
+            for sIdx in nextPlaylists[pIdx].songs.indices {
+                if let rel = nextPlaylists[pIdx].songs[sIdx].localRelativePath, rel.hasSuffix(".tmp") {
+                    let base = (rel as NSString).deletingPathExtension
+                    for ext in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                        let candidate = base + "." + ext
+                        if let url = try? ManagedAudioPath.resolve(candidate), FileManager.default.fileExists(atPath: url.path) {
+                            nextPlaylists[pIdx].songs[sIdx] = nextPlaylists[pIdx].songs[sIdx].withLocalRelativePath(candidate)
+                            playlistsChanged = true
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if playlistsChanged {
+            playlists = nextPlaylists
+            save()
+            ATMusicLogger.shared.log("🛠️ 本地歌单中的离线歌曲路径已同步自愈校准", level: .info)
+        }
+
+        cleanDuplicateImportedSongsAndPlaylists()
     }
 
     private func save() {

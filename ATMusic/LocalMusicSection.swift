@@ -268,13 +268,9 @@ struct LocalMusicSection: View {
                             Label("加入本地歌单", systemImage: "plus.circle")
                         }
                         Button(role: .destructive) {
-                            if store.removeImportedSong(song) {
-                                ToastCenter.shared.show("已删除本地歌曲副本")
-                            } else {
-                                ToastCenter.shared.show("删除失败，歌曲记录已保留")
-                            }
+                            DownloadManager.shared.removeDownloaded(song: song)
                         } label: {
-                            Label("删除本地歌曲副本", systemImage: "trash")
+                            Label("从本地彻底删除", systemImage: "trash")
                         }
                     }
                     Divider().overlay(Color.atmusicComment.opacity(0.12))
@@ -579,7 +575,11 @@ struct LocalPlaylistDetailSheet: View {
                                         .swipeActions(edge: .trailing) {
                                             Button(role: .destructive) {
                                                 ATMusicHaptics.tap()
-                                                store.removeSong(playlistID: playlistID, songIdentity: song.identityKey)
+                                                if playlist.name == "已下载歌曲" {
+                                                    DownloadManager.shared.removeDownloaded(song: song)
+                                                } else {
+                                                    store.removeSong(playlistID: playlistID, songIdentity: song.identityKey)
+                                                }
                                             } label: {
                                                 Label("移除", systemImage: "trash")
                                             }
@@ -819,13 +819,18 @@ struct LocalPlaylistDetailSheet: View {
     private func removeSelectedSongs() {
         guard !selectedSongKeys.isEmpty else { return }
         let count = selectedSongKeys.count
-        selectedSongKeys.forEach { key in
-            store.removeSong(playlistID: playlistID, songIdentity: key)
+        if playlist?.name == "已下载歌曲" {
+            let songsToRemove = (playlist?.songs ?? []).filter { selectedSongKeys.contains($0.identityKey) }
+            DownloadManager.shared.removeDownloaded(songs: songsToRemove)
+        } else {
+            selectedSongKeys.forEach { key in
+                store.removeSong(playlistID: playlistID, songIdentity: key)
+            }
+            ATMusicHaptics.success()
+            ToastCenter.shared.show("已移除 \(count) 首歌曲")
         }
         selectedSongKeys.removeAll()
         multiSelectMode = false
-        ATMusicHaptics.success()
-        ToastCenter.shared.show("已移除 \(count) 首歌曲")
     }
 
     private func addSelectedSongs(to destinationID: UUID) {
@@ -1301,11 +1306,7 @@ struct LocalMusicManagementSheet: View {
             .confirmationDialog("删除本地歌曲？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("删除应用内副本", role: .destructive) {
                     guard let song = pendingDelete else { return }
-                    if store.removeImportedSong(song) {
-                        ToastCenter.shared.show("已删除本地歌曲副本")
-                    } else {
-                        ToastCenter.shared.show("删除失败，歌曲记录已保留")
-                    }
+                    DownloadManager.shared.removeDownloaded(song: song)
                     pendingDelete = nil
                 }
                 Button("取消", role: .cancel) { pendingDelete = nil }
@@ -1315,8 +1316,7 @@ struct LocalMusicManagementSheet: View {
             .confirmationDialog("批量删除本地歌曲？", isPresented: $showBatchDeleteAlert, titleVisibility: .visible) {
                 Button("删除选中的 \(selectedSongKeys.count) 首歌曲副本", role: .destructive) {
                     let songs = selectedSongs
-                    let count = store.removeImportedSongs(songs)
-                    ToastCenter.shared.show("已删除 \(count) 首本地歌曲副本")
+                    DownloadManager.shared.removeDownloaded(songs: songs)
                     isMultiSelecting = false
                     selectedSongKeys.removeAll()
                 }

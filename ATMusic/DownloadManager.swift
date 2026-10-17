@@ -381,11 +381,8 @@ final class DownloadManager: ObservableObject {
            FileManager.default.fileExists(atPath: url.path) {
             return url
         }
-        if let localSong = LocalLibraryStore.shared.importedSongs.first(where: {
-            $0.name.lowercased() == song.name.lowercased() &&
-            $0.artists.lowercased() == song.artists.lowercased() &&
-            $0.localRelativePath != nil
-        }), let path = localSong.localRelativePath {
+        if let localSong = LocalLibraryStore.shared.localSongs(matching: song).first,
+           let path = localSong.localRelativePath {
             if let url = try? ManagedAudioPath.resolve(path), FileManager.default.fileExists(atPath: url.path) {
                 return url
             }
@@ -474,8 +471,8 @@ final class DownloadManager: ObservableObject {
 
     // MARK: - 一键离线下载调度
 
-    func startDownload(song: Song, quality: DownloadQuality? = nil) {
-        if isDownloaded(song: song) {
+    func startDownload(song: Song, quality: DownloadQuality? = nil, forceRedownload: Bool = false) {
+        if !forceRedownload && isDownloaded(song: song) {
             ToastCenter.shared.show("《\(song.name)》已在本地离线库中")
             return
         }
@@ -682,8 +679,8 @@ final class DownloadManager: ObservableObject {
                     trackNumber: song.trackNumber
                 )
 
-                LocalLibraryStore.shared.addImportedSongs([localSong])
-                _ = LocalLibraryStore.shared.addSongToNamedPlaylist(localSong, name: "已下载歌曲")
+                LocalLibraryStore.shared.addOrUpdateImportedSong(localSong)
+                _ = LocalLibraryStore.shared.addOrUpdateSongInNamedPlaylist(localSong, name: "已下载歌曲")
 
                 task.progress = 1.0
                 task.status = .completed
@@ -770,28 +767,78 @@ final class DownloadManager: ObservableObject {
     }
 
     func removeDownloaded(song: Song) {
-        if let localSong = LocalLibraryStore.shared.localSong(for: song.identityKey) {
-            _ = LocalLibraryStore.shared.removeImportedSong(localSong)
-        } else if let file = LocalAudioFileManager.shared.file(forSongId: song.identityKey) {
-            try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: file.relativePath)
-            LocalLibraryStore.shared.importedSongs.removeAll { $0.identityKey == song.identityKey }
+        let matchingLocalSongs = LocalLibraryStore.shared.localSongs(matching: song)
+        for localSong in matchingLocalSongs {
+            LocalLibraryStore.shared.removeImportedSong(localSong)
+        }
+
+        if let rel = song.localRelativePath {
+            try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
+        }
+        for localSong in matchingLocalSongs {
+            if let rel = localSong.localRelativePath {
+                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
+            }
+        }
+
+        try? LocalAudioFileManager.shared.deleteFiles(forSongId: song.identityKey)
+        try? LocalAudioFileManager.shared.deleteFiles(matchingTitle: song.name, artist: song.artists)
+
+        LocalLibraryStore.shared.removeAllMatchingImportedSongs(matching: song)
+        _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(song)
+        for localSong in matchingLocalSongs {
+            _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(localSong)
+        }
+
+        AudioURLCache.shared.remove(songKey: song.identityKey)
+        for localSong in matchingLocalSongs {
+            AudioURLCache.shared.remove(songKey: localSong.identityKey)
+        }
+
+        LocalLibraryStore.shared.cleanDuplicateImportedSongsAndPlaylists()
+
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
         }
         ToastCenter.shared.show("已从本地移除：\(song.name)")
         ATMusicHaptics.medium()
+        ATMusicLogger.shared.log("🗑️ 已从本地彻底移除下载歌曲：\(song.name) - \(song.artists)", level: .info)
     }
 
     func removeDownloaded(songs: [Song]) {
         guard !songs.isEmpty else { return }
         for song in songs {
-            if let localSong = LocalLibraryStore.shared.localSong(for: song.identityKey) {
-                _ = LocalLibraryStore.shared.removeImportedSong(localSong)
-            } else if let file = LocalAudioFileManager.shared.file(forSongId: song.identityKey) {
-                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: file.relativePath)
-                LocalLibraryStore.shared.importedSongs.removeAll { $0.identityKey == song.identityKey }
+            let matchingLocalSongs = LocalLibraryStore.shared.localSongs(matching: song)
+            for localSong in matchingLocalSongs {
+                LocalLibraryStore.shared.removeImportedSong(localSong)
             }
+            if let rel = song.localRelativePath {
+                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
+            }
+            for localSong in matchingLocalSongs {
+                if let rel = localSong.localRelativePath {
+                    try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: rel)
+                }
+            }
+            try? LocalAudioFileManager.shared.deleteFiles(forSongId: song.identityKey)
+            try? LocalAudioFileManager.shared.deleteFiles(matchingTitle: song.name, artist: song.artists)
+            LocalLibraryStore.shared.removeAllMatchingImportedSongs(matching: song)
+            _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(song)
+            for localSong in matchingLocalSongs {
+                _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(localSong)
+            }
+            AudioURLCache.shared.remove(songKey: song.identityKey)
+            for localSong in matchingLocalSongs {
+                AudioURLCache.shared.remove(songKey: localSong.identityKey)
+            }
+        }
+        LocalLibraryStore.shared.cleanDuplicateImportedSongsAndPlaylists()
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
         }
         ToastCenter.shared.show("已从本地移除 \(songs.count) 首歌曲")
         ATMusicHaptics.medium()
+        ATMusicLogger.shared.log("🗑️ 批量移除 \(songs.count) 首本地离线曲目完成", level: .info)
     }
 
     // MARK: - 群晖 NAS 上传归档调度
