@@ -595,6 +595,15 @@ final class DownloadManager: ObservableObject {
         activeDownloads.removeAll { $0.status == .completed || $0.status == .failed("") }
     }
 
+    func cancelAllDownloads() {
+        for task in activeDownloads {
+            task.sessionTask?.cancel()
+        }
+        activeDownloads.removeAll()
+        scheduleDownloadQueue()
+        ToastCenter.shared.show("已清空所有下载任务")
+    }
+
     func removeDownloaded(song: Song) {
         if let localSong = LocalLibraryStore.shared.localSong(for: song.identityKey) {
             _ = LocalLibraryStore.shared.removeImportedSong(localSong)
@@ -603,6 +612,20 @@ final class DownloadManager: ObservableObject {
             LocalLibraryStore.shared.importedSongs.removeAll { $0.identityKey == song.identityKey }
         }
         ToastCenter.shared.show("已从本地移除：\(song.name)")
+        ATMusicHaptics.medium()
+    }
+
+    func removeDownloaded(songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        for song in songs {
+            if let localSong = LocalLibraryStore.shared.localSong(for: song.identityKey) {
+                _ = LocalLibraryStore.shared.removeImportedSong(localSong)
+            } else if let file = LocalAudioFileManager.shared.file(forSongId: song.identityKey) {
+                try? LocalAudioFileManager.shared.deleteFileAndSupport(relativePath: file.relativePath)
+                LocalLibraryStore.shared.importedSongs.removeAll { $0.identityKey == song.identityKey }
+            }
+        }
+        ToastCenter.shared.show("已从本地移除 \(songs.count) 首歌曲")
         ATMusicHaptics.medium()
     }
 
@@ -795,6 +818,31 @@ final class DownloadManager: ObservableObject {
         }
         activeUploads.removeAll { $0.id == id }
         scheduleUploadQueue()
+    }
+
+    func retryAllFailedUploads() {
+        let failed = activeUploads.filter {
+            if case .failed = $0.status { return true }
+            return false
+        }
+        guard !failed.isEmpty else { return }
+        for task in failed {
+            task.status = .waiting
+            task.progress = 0
+            task.uploadedBytes = 0
+            task.speedBytesPerSecond = 0
+        }
+        scheduleUploadQueue()
+        ToastCenter.shared.show("已重新提交 \(failed.count) 个上传任务")
+    }
+
+    func cancelAllUploads() {
+        for task in activeUploads {
+            task.isCancelled = true
+        }
+        activeUploads.removeAll()
+        scheduleUploadQueue()
+        ToastCenter.shared.show("已清空所有上传任务")
     }
 
     func clearFinishedUploads() {

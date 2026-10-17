@@ -1856,6 +1856,14 @@ struct UnifiedFavoritesDetailView: View {
                                     GlassButton(title: "随机播放", systemName: "shuffle") {
                                         player.play(songs: displayedSongs.shuffled(), startAt: 0)
                                     }
+                                    GlassIconButton(systemName: "arrow.down.circle", size: 42, active: false) {
+                                        DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                                    }
+                                    if SynologyAPI.shared.isLoggedIn {
+                                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 42, active: false) {
+                                            DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                                        }
+                                    }
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
@@ -1968,6 +1976,14 @@ struct UnifiedFavoritesDetailView: View {
                         }
                         GlassIconButton(systemName: "shuffle", size: 44, active: false) {
                             player.play(songs: displayedSongs.shuffled(), startAt: 0)
+                        }
+                        GlassIconButton(systemName: "arrow.down.circle", size: 44, active: false) {
+                            DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                        }
+                        if SynologyAPI.shared.isLoggedIn {
+                            GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
+                                DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                            }
                         }
                     }
                 }

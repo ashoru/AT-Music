@@ -14,6 +14,17 @@ struct TransferCenterView: View {
     @State private var offlineFilter: Int = 0 // 0: 单曲, 1: 专辑, 2: 歌手
     @State private var shareFile: ShareFileItem?
 
+    @State private var isMultiSelectingOffline: Bool = false
+    @State private var selectedOfflineIDs: Set<String> = []
+    @State private var showBatchAddToPlaylist: Bool = false
+    @State private var showBatchDeleteAlert: Bool = false
+    @State private var showCancelAllDownloadsAlert: Bool = false
+    @State private var showCancelAllUploadsAlert: Bool = false
+
+    private var selectedOfflineSongs: [Song] {
+        downloadManager.downloadedSongs.filter { selectedOfflineIDs.contains($0.identityKey) }
+    }
+
     private var activeDownloadsCount: Int {
         downloadManager.activeDownloads.filter { $0.status != .completed }.count
     }
@@ -71,10 +82,47 @@ struct TransferCenterView: View {
             }
             .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
             .frame(maxWidth: .infinity)
+
+            if isMultiSelectingOffline && !selectedOfflineIDs.isEmpty && selectedTab == 1 {
+                VStack {
+                    Spacer()
+                    offlineBatchFloatingActionBar
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 28)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
         .navigationBarHidden(true)
         .sheet(item: $shareFile) { item in
             ShareSheet(items: [item.url])
+        }
+        .sheet(isPresented: $showBatchAddToPlaylist) {
+            AddToLocalPlaylistSheet(songs: selectedOfflineSongs)
+                .environmentObject(theme)
+        }
+        .confirmationDialog("批量删除离线歌曲", isPresented: $showBatchDeleteAlert, titleVisibility: .visible) {
+            Button("从本地移除选中的 \(selectedOfflineIDs.count) 首歌曲", role: .destructive) {
+                let songs = selectedOfflineSongs
+                downloadManager.removeDownloaded(songs: songs)
+                isMultiSelectingOffline = false
+                selectedOfflineIDs.removeAll()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删除后将移除本地受管音频副本以释放设备空间，不会影响在线曲库。")
+        }
+        .confirmationDialog("取消所有下载任务？", isPresented: $showCancelAllDownloadsAlert, titleVisibility: .visible) {
+            Button("取消并清空下载队列", role: .destructive) {
+                downloadManager.cancelAllDownloads()
+            }
+            Button("返回", role: .cancel) {}
+        }
+        .confirmationDialog("取消所有上传任务？", isPresented: $showCancelAllUploadsAlert, titleVisibility: .visible) {
+            Button("取消并清空上传队列", role: .destructive) {
+                downloadManager.cancelAllUploads()
+            }
+            Button("返回", role: .cancel) {}
         }
     }
 
@@ -118,11 +166,19 @@ struct TransferCenterView: View {
                 .buttonStyle(.plain)
             } else if selectedTab == 1 && !downloadManager.downloadedSongs.isEmpty {
                 Button {
-                    player.play(songs: downloadManager.downloadedSongs, startAt: 0)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isMultiSelectingOffline.toggle()
+                        if !isMultiSelectingOffline {
+                            selectedOfflineIDs.removeAll()
+                        }
+                    }
                 } label: {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 20))
+                    Text(isMultiSelectingOffline ? "完成" : "多选")
+                        .font(ATMusicFont.appFont(14, .semibold))
                         .foregroundStyle(Color.atmusicAmber)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.atmusicAmber.opacity(0.12), in: Capsule())
                 }
                 .buttonStyle(.plain)
             } else {
@@ -249,6 +305,18 @@ struct TransferCenterView: View {
                         .background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 .buttonStyle(.plain)
+
+                Button {
+                    showCancelAllDownloadsAlert = true
+                } label: {
+                    Text("全部取消")
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.red.opacity(0.85))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.red.opacity(0.08), in: Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(12)
@@ -345,13 +413,162 @@ struct TransferCenterView: View {
 
     // MARK: - 2. 已离线歌曲库视图
 
+    private var offlineBatchControlBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                if selectedOfflineIDs.count == downloadManager.downloadedSongs.count {
+                    selectedOfflineIDs.removeAll()
+                } else {
+                    selectedOfflineIDs = Set(downloadManager.downloadedSongs.map { $0.identityKey })
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: selectedOfflineIDs.count == downloadManager.downloadedSongs.count && !downloadManager.downloadedSongs.isEmpty ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text(selectedOfflineIDs.count == downloadManager.downloadedSongs.count && !downloadManager.downloadedSongs.isEmpty ? "取消全选" : "全选")
+                        .font(ATMusicFont.appFont(13, .medium))
+                        .foregroundStyle(Color.atmusicLabel)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.06), in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Text("已选 \(selectedOfflineIDs.count) 首")
+                .font(ATMusicFont.appFont(13, .semibold))
+                .foregroundStyle(Color.atmusicAmber)
+
+            Spacer()
+
+            Button {
+                withAnimation {
+                    isMultiSelectingOffline = false
+                    selectedOfflineIDs.removeAll()
+                }
+            } label: {
+                Text("退出")
+                    .font(ATMusicFont.appFont(13, .medium))
+                    .foregroundStyle(Color.atmusicComment)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background {
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var offlineBatchFloatingActionBar: some View {
+        HStack(spacing: 0) {
+            Button {
+                let songs = selectedOfflineSongs
+                guard !songs.isEmpty else { return }
+                player.play(songs: songs, startAt: 0)
+                isMultiSelectingOffline = false
+                selectedOfflineIDs.removeAll()
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 15))
+                    Text("播放")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                let songs = selectedOfflineSongs
+                for s in songs.reversed() { player.playNext(s) }
+                ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入下一首播放")
+                isMultiSelectingOffline = false
+                selectedOfflineIDs.removeAll()
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        .font(.system(size: 15))
+                    Text("下一首")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showBatchAddToPlaylist = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 15))
+                    Text("加歌单")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            if synology.isLoggedIn {
+                Button {
+                    let songs = selectedOfflineSongs
+                    downloadManager.startBatchUploadToNAS(songs: songs)
+                    isMultiSelectingOffline = false
+                    selectedOfflineIDs.removeAll()
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "externaldrive.badge.plus")
+                            .font(.system(size: 15))
+                        Text("归档NAS")
+                            .font(ATMusicFont.appFont(10, .medium))
+                    }
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                showBatchDeleteAlert = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15))
+                    Text("删除")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.red)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background {
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: Color.black.opacity(0.18), radius: 16, x: 0, y: 6)
+        }
+    }
+
     private var offlineLibrarySection: some View {
         ScrollView {
             VStack(spacing: 14) {
-                offlineSummaryCard
+                if isMultiSelectingOffline {
+                    offlineBatchControlBar
+                } else {
+                    offlineSummaryCard
 
-                if !downloadManager.downloadedSongs.isEmpty {
-                    offlineFilterPicker
+                    if !downloadManager.downloadedSongs.isEmpty {
+                        offlineFilterPicker
+                    }
                 }
 
                 if downloadManager.downloadedSongs.isEmpty {
@@ -360,11 +577,41 @@ struct TransferCenterView: View {
                         title: "暂无离线歌曲",
                         subtitle: "下载后的歌曲将自动保存在本机受管沙盒，支持无网络离线 0ms 极速秒播"
                     )
-                } else if offlineFilter == 0 {
+                } else if offlineFilter == 0 || isMultiSelectingOffline {
                     // 单曲列表
                     LazyVStack(spacing: 0) {
                         ForEach(downloadManager.downloadedSongs) { song in
-                            SongCell(song: song)
+                            if isMultiSelectingOffline {
+                                let isSelected = selectedOfflineIDs.contains(song.identityKey)
+                                HStack(spacing: 12) {
+                                    Button {
+                                        ATMusicHaptics.select()
+                                        if isSelected {
+                                            selectedOfflineIDs.remove(song.identityKey)
+                                        } else {
+                                            selectedOfflineIDs.insert(song.identityKey)
+                                        }
+                                    } label: {
+                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    SongCell(song: song)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    ATMusicHaptics.select()
+                                    if isSelected {
+                                        selectedOfflineIDs.remove(song.identityKey)
+                                    } else {
+                                        selectedOfflineIDs.insert(song.identityKey)
+                                    }
+                                }
+                            } else {
+                                SongCell(song: song)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -617,11 +864,50 @@ struct TransferCenterView: View {
                 .font(ATMusicFont.appFont(13, .semibold))
                 .foregroundStyle(Color.atmusicLabel)
             Spacer()
-            Button("清空已完成") {
-                downloadManager.clearFinishedUploads()
+
+            HStack(spacing: 8) {
+                let hasFailed = downloadManager.activeUploads.contains {
+                    if case .failed = $0.status { return true }
+                    return false
+                }
+                if hasFailed {
+                    Button {
+                        downloadManager.retryAllFailedUploads()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("重试失败")
+                                .font(ATMusicFont.appFont(12, .semibold))
+                        }
+                        .foregroundStyle(Color.atmusicAmber)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.atmusicAmber.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button("清空已完成") {
+                    downloadManager.clearFinishedUploads()
+                }
+                .font(ATMusicFont.appFont(12))
+                .foregroundStyle(Color.atmusicComment)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.primary.opacity(0.06), in: Capsule())
+                .buttonStyle(.plain)
+
+                Button("全部取消") {
+                    showCancelAllUploadsAlert = true
+                }
+                .font(ATMusicFont.appFont(12))
+                .foregroundStyle(Color.red.opacity(0.85))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.red.opacity(0.08), in: Capsule())
+                .buttonStyle(.plain)
             }
-            .font(ATMusicFont.appFont(12))
-            .foregroundStyle(Color.atmusicComment)
         }
         .padding(.horizontal, 16)
     }

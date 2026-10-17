@@ -27,6 +27,31 @@ struct PlaylistView: View {
     @State private var searchText = ""
     @State private var sortMode: PlaylistSortMode = .original
     @State private var showInfo = false
+    @State private var isBatchDownloading = false
+
+    @MainActor
+    private func batchDownloadPlaylist() {
+        guard !displayedTracks.isEmpty else { return }
+        isBatchDownloading = true
+        ATMusicHaptics.medium()
+        let quality: DownloadQuality
+        let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+        if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+            quality = ThirdPartyAudioQuality.current
+        } else {
+            quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
+        }
+        DownloadManager.shared.startBatchDownload(songs: displayedTracks, quality: quality)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            isBatchDownloading = false
+        }
+    }
+
+    @MainActor
+    private func batchUploadPlaylistToNAS() {
+        guard !displayedTracks.isEmpty else { return }
+        DownloadManager.shared.startBatchUploadToNAS(songs: displayedTracks)
+    }
     @AppStorage("atmusic.homeHeaderHideSort") private var hideSortButton = false
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
 
@@ -212,6 +237,18 @@ struct PlaylistView: View {
                         player.play(songs: displayedTracks.shuffled(), startAt: 0)
                     }
                     .disabled(displayedTracks.isEmpty)
+
+                    GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
+                        batchDownloadPlaylist()
+                    }
+                    .disabled(displayedTracks.isEmpty || isBatchDownloading)
+
+                    if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
+                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
+                            batchUploadPlaylistToNAS()
+                        }
+                        .disabled(displayedTracks.isEmpty)
+                    }
                 }
 
                 playlistSearchRow
@@ -325,6 +362,18 @@ struct PlaylistView: View {
                 }
                 .disabled(displayedTracks.isEmpty)
                 .accessibilityLabel("随机播放")
+
+                GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 42, active: isBatchDownloading) {
+                    batchDownloadPlaylist()
+                }
+                .disabled(displayedTracks.isEmpty || isBatchDownloading)
+
+                if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
+                    GlassIconButton(systemName: "externaldrive.badge.plus", size: 42, active: false) {
+                        batchUploadPlaylistToNAS()
+                    }
+                    .disabled(displayedTracks.isEmpty)
+                }
 
                 Spacer(minLength: 0)
             }

@@ -270,6 +270,17 @@ final class LocalLibraryStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func removeImportedSongs(_ songs: [Song]) -> Int {
+        var count = 0
+        for song in songs {
+            if removeImportedSong(song) {
+                count += 1
+            }
+        }
+        return count
+    }
+
 
     /// 自愈修复本地离线歌曲路径中的 .tmp 扩展名
     func repairTmpSongPaths() {

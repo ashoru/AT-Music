@@ -597,36 +597,138 @@ struct LocalPlaylistDetailSheet: View {
                 }
             }
             }
-            .navigationTitle(playlist?.name ?? "本地歌单")
+            if multiSelectMode && !selectedSongKeys.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 0) {
+                        Button {
+                            let songs = selectedSongs
+                            guard !songs.isEmpty else { return }
+                            player.play(songs: songs, startAt: 0)
+                            multiSelectMode = false
+                            selectedSongKeys.removeAll()
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 15))
+                                Text("播放")
+                                    .font(ATMusicFont.appFont(10, .medium))
+                            }
+                            .foregroundStyle(Color.atmusicLabel)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            let songs = selectedSongs
+                            for s in songs.reversed() { player.playNext(s) }
+                            ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入下一首播放")
+                            multiSelectMode = false
+                            selectedSongKeys.removeAll()
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                                    .font(.system(size: 15))
+                                Text("下一首")
+                                    .font(ATMusicFont.appFont(10, .medium))
+                            }
+                            .foregroundStyle(Color.atmusicLabel)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            showAddSelectedDestination = true
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: "folder.badge.plus")
+                                    .font(.system(size: 15))
+                                Text("加其他歌单")
+                                    .font(ATMusicFont.appFont(10, .medium))
+                            }
+                            .foregroundStyle(Color.atmusicLabel)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!hasOtherPlaylist)
+
+                        if SynologyAPI.shared.isLoggedIn {
+                            Button {
+                                let songs = selectedSongs
+                                DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                multiSelectMode = false
+                                selectedSongKeys.removeAll()
+                            } label: {
+                                VStack(spacing: 3) {
+                                    Image(systemName: "externaldrive.badge.plus")
+                                        .font(.system(size: 15))
+                                    Text("归档NAS")
+                                        .font(ATMusicFont.appFont(10, .medium))
+                                }
+                                .foregroundStyle(Color.atmusicAmber)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button {
+                            removeSelectedSongs()
+                            multiSelectMode = false
+                            selectedSongKeys.removeAll()
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 15))
+                                Text("移除")
+                                    .font(ATMusicFont.appFont(10, .medium))
+                            }
+                            .foregroundStyle(Color.red)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+                    .background {
+                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .shadow(color: Color.black.opacity(0.18), radius: 16, x: 0, y: 6)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            }
+            .navigationTitle(multiSelectMode ? "已选择 \(selectedSongKeys.count) 首" : (playlist?.name ?? "本地歌单"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    if multiSelectMode {
+                        Button(selectedSongKeys.count == visibleSongs.count && !visibleSongs.isEmpty ? "取消全选" : "全选") {
+                            if selectedSongKeys.count == visibleSongs.count {
+                                selectedSongKeys.removeAll()
+                            } else {
+                                selectedSongKeys = Set(visibleSongs.map { $0.element.identityKey })
+                            }
+                        }
+                    } else {
+                        Button("完成") { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button {
-                            multiSelectMode.toggle()
-                            if !multiSelectMode {
-                                selectedSongKeys.removeAll()
-                            }
-                        } label: {
-                            Label(multiSelectMode ? "退出多选" : "多选编辑", systemImage: multiSelectMode ? "xmark.circle" : "checklist")
+                    if multiSelectMode {
+                        Button("完成") {
+                            multiSelectMode = false
+                            selectedSongKeys.removeAll()
                         }
-                        if multiSelectMode {
-                            Button(role: .destructive) {
-                                removeSelectedSongs()
-                            } label: {
-                                Label("移除选中歌曲", systemImage: "trash")
-                            }
-                            .disabled(selectedSongKeys.isEmpty)
+                    } else {
+                        Menu {
                             Button {
-                                showAddSelectedDestination = true
+                                multiSelectMode = true
+                                selectedSongKeys.removeAll()
                             } label: {
-                                Label("添加到其他本地歌单", systemImage: "folder.badge.plus")
+                                Label("多选管理", systemImage: "checklist")
                             }
-                            .disabled(selectedSongKeys.isEmpty || !hasOtherPlaylist)
-                        }
                         Button {
                             if let song = player.currentSong {
                                 store.addSong(song, to: playlistID)
@@ -694,6 +796,11 @@ struct LocalPlaylistDetailSheet: View {
             Text("已选歌曲会复制到目标歌单，当前歌单中的歌曲不会被移除。")
         }
         .modifier(ATMusicSheetModifier(detents: [.medium, .large], dragIndicator: true))
+    }
+
+    private var selectedSongs: [Song] {
+        guard let playlist else { return [] }
+        return playlist.songs.filter { selectedSongKeys.contains($0.identityKey) }
     }
 
     private var hasOtherPlaylist: Bool {
@@ -862,10 +969,18 @@ struct AddToLocalPlaylistSheet: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
 
-    let song: Song
+    let songs: [Song]
     @State private var showCreateField = false
     @State private var newName = ""
     @State private var message: String?
+
+    init(song: Song) {
+        self.songs = [song]
+    }
+
+    init(songs: [Song]) {
+        self.songs = songs
+    }
 
     var body: some View {
         let _ = theme.accent
@@ -875,12 +990,18 @@ struct AddToLocalPlaylistSheet: View {
                     Text("还没有本地歌单，先创建一个吧")
                         .foregroundStyle(Color.atmusicComment)
                 } else {
-                    Section("选择本地歌单") {
+                    Section(songs.count > 1 ? "选择本地歌单（批量加入 \(songs.count) 首）" : "选择本地歌单") {
                         ForEach(store.playlists) { playlist in
                             Button {
-                                store.addSong(song, to: playlist.id)
+                                for s in songs {
+                                    store.addSong(s, to: playlist.id)
+                                }
                                 ATMusicHaptics.success()
-                                ToastCenter.shared.show("已加入「\(playlist.name)」")
+                                if songs.count == 1 {
+                                    ToastCenter.shared.show("已加入「\(playlist.name)」")
+                                } else {
+                                    ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入「\(playlist.name)」")
+                                }
                                 dismiss()
                             } label: {
                                 HStack(spacing: 12) {
@@ -941,7 +1062,7 @@ struct AddToLocalPlaylistSheet: View {
                     }
                 }
             }
-            .navigationTitle("加入本地歌单")
+            .navigationTitle(songs.count > 1 ? "批量加入歌单" : "加入本地歌单")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -951,8 +1072,8 @@ struct AddToLocalPlaylistSheet: View {
         }
         .modifier(ATMusicSheetModifier(detents: [.medium, .large], dragIndicator: true))
         .onAppear {
-            if store.playlists.isEmpty {
-                ToastCenter.shared.show(store.addToDefaultFavorites(song))
+            if store.playlists.isEmpty, let first = songs.first, songs.count == 1 {
+                ToastCenter.shared.show(store.addToDefaultFavorites(first))
                 ATMusicHaptics.success()
                 dismiss()
             }
@@ -963,9 +1084,15 @@ struct AddToLocalPlaylistSheet: View {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let playlist = store.createPlaylist(name: name)
-        store.addSong(song, to: playlist.id)
+        for s in songs {
+            store.addSong(s, to: playlist.id)
+        }
         ATMusicHaptics.success()
-        ToastCenter.shared.show("已创建「\(name)」并加入")
+        if songs.count == 1 {
+            ToastCenter.shared.show("已创建「\(name)」并加入")
+        } else {
+            ToastCenter.shared.show("已创建「\(name)」并加入 \(songs.count) 首歌曲")
+        }
         dismiss()
     }
 }
@@ -975,11 +1102,18 @@ struct AddToLocalPlaylistSheet: View {
 struct LocalMusicManagementSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerManager
+    @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var store = LocalLibraryStore.shared
+    @ObservedObject private var synology = SynologyAPI.shared
     @State private var searchText = ""
     @State private var editingSong: Song?
     @State private var pendingDelete: Song?
     @State private var showDeleteConfirmation = false
+
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var showBatchAddToPlaylist = false
+    @State private var showBatchDeleteAlert = false
 
     private var filteredSongs: [Song] {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -991,87 +1125,166 @@ struct LocalMusicManagementSheet: View {
         }
     }
 
+    private var selectedSongs: [Song] {
+        store.importedSongs.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
     var body: some View {
         NavigationView {
-            List {
-                Section {
-                    if filteredSongs.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 28))
-                                .foregroundStyle(.secondary)
-                            Text(searchText.isEmpty ? "还没有本地歌曲" : "没有匹配的本地歌曲")
-                                .foregroundStyle(.secondary)
-                            Text(searchText.isEmpty ? "点击音乐库右上角的导入按钮添加音频" : "尝试搜索标题、歌手或专辑")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 36)
-                    } else {
-                        ForEach(filteredSongs, id: \.identityKey) { song in
-                            Button {
-                                editingSong = song
-                            } label: {
-                                HStack(spacing: 12) {
-                                    CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(song.name)
-                                            .font(ATMusicFont.appFont(15))
-                                            .foregroundStyle(Color.atmusicLabel)
-                                            .lineLimit(1)
-                                        Text("\(song.artists) · \(song.album)")
-                                            .font(ATMusicFont.appFont(12))
-                                            .foregroundStyle(Color.atmusicComment)
-                                            .lineLimit(1)
-                                        Text(song.formattedDuration)
-                                            .font(ATMusicFont.appFont(11))
-                                            .foregroundStyle(Color.atmusicComment.opacity(0.8))
+            ZStack {
+                List {
+                    Section {
+                        if filteredSongs.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "music.note")
+                                    .font(.system(size: 28))
+                                    .foregroundStyle(.secondary)
+                                Text(searchText.isEmpty ? "还没有本地歌曲" : "没有匹配的本地歌曲")
+                                    .foregroundStyle(.secondary)
+                                Text(searchText.isEmpty ? "点击音乐库右上角的导入按钮添加音频" : "尝试搜索标题、歌手或专辑")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 36)
+                        } else {
+                            ForEach(filteredSongs, id: \.identityKey) { song in
+                                let isSelected = selectedSongKeys.contains(song.identityKey)
+                                if isMultiSelecting {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+                                        CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(song.name)
+                                                .font(ATMusicFont.appFont(15))
+                                                .foregroundStyle(Color.atmusicLabel)
+                                                .lineLimit(1)
+                                            Text("\(song.artists) · \(song.album)")
+                                                .font(ATMusicFont.appFont(12))
+                                                .foregroundStyle(Color.atmusicComment)
+                                                .lineLimit(1)
+                                            Text(song.formattedDuration)
+                                                .font(ATMusicFont.appFont(11))
+                                                .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                                        }
+                                        Spacer(minLength: 8)
                                     }
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.atmusicComment.opacity(0.55))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        ATMusicHaptics.select()
+                                        if isSelected {
+                                            selectedSongKeys.remove(song.identityKey)
+                                        } else {
+                                            selectedSongKeys.insert(song.identityKey)
+                                        }
+                                    }
+                                } else {
+                                    Button {
+                                        editingSong = song
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(song.name)
+                                                    .font(ATMusicFont.appFont(15))
+                                                    .foregroundStyle(Color.atmusicLabel)
+                                                    .lineLimit(1)
+                                                Text("\(song.artists) · \(song.album)")
+                                                    .font(ATMusicFont.appFont(12))
+                                                    .foregroundStyle(Color.atmusicComment)
+                                                    .lineLimit(1)
+                                                Text(song.formattedDuration)
+                                                    .font(ATMusicFont.appFont(11))
+                                                    .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                                            }
+                                            Spacer(minLength: 8)
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(Color.atmusicComment.opacity(0.55))
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        deleteButton(for: song)
+                                    }
+                                    .contextMenu {
+                                        Button {
+                                            editingSong = song
+                                        } label: {
+                                            Label("编辑标签和封面", systemImage: "pencil")
+                                        }
+                                        Button {
+                                            let index = filteredSongs.firstIndex(where: { $0.identityKey == song.identityKey }) ?? 0
+                                            player.play(songs: filteredSongs, startAt: index)
+                                        } label: {
+                                            Label("播放", systemImage: "play.fill")
+                                        }
+                                        if synology.isLoggedIn {
+                                            Button {
+                                                DownloadManager.shared.startUploadToNAS(song: song)
+                                            } label: {
+                                                Label("上传归档到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                            }
+                                        }
+                                        deleteButton(for: song)
+                                    }
                                 }
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                deleteButton(for: song)
-                            }
-                            .contextMenu {
-                                Button {
-                                    editingSong = song
-                                } label: {
-                                    Label("编辑标签和封面", systemImage: "pencil")
-                                }
-                                Button {
-                                    let index = filteredSongs.firstIndex(where: { $0.identityKey == song.identityKey }) ?? 0
-                                    player.play(songs: filteredSongs, startAt: index)
-                                } label: {
-                                    Label("播放", systemImage: "play.fill")
-                                }
-                                deleteButton(for: song)
                             }
                         }
+                    } header: {
+                        HStack {
+                            Text("本地歌曲")
+                            Spacer()
+                            Text("\(store.importedSongs.count) 首")
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("这里管理的是应用内副本。删除后不会影响原始文件，也不会删除平台上的歌曲。")
+                            .padding(.bottom, isMultiSelecting && !selectedSongKeys.isEmpty ? 80 : 0)
                     }
-                } header: {
-                    HStack {
-                        Text("本地歌曲")
+                }
+                .listStyle(.insetGrouped)
+                .searchable(text: $searchText, prompt: "搜索本地歌曲")
+
+                if isMultiSelecting && !selectedSongKeys.isEmpty {
+                    VStack {
                         Spacer()
-                        Text("\(store.importedSongs.count) 首")
-                            .foregroundStyle(.secondary)
+                        batchActionFloatingBar
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                } footer: {
-                    Text("这里管理的是应用内副本。删除后不会影响原始文件，也不会删除平台上的歌曲。")
                 }
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $searchText, prompt: "搜索本地歌曲")
-            .navigationTitle("本地音乐管理")
+            .navigationTitle(isMultiSelecting ? "已选择 \(selectedSongKeys.count) 首" : "本地音乐管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
+                    if isMultiSelecting {
+                        Button(selectedSongKeys.count == filteredSongs.count && !filteredSongs.isEmpty ? "取消全选" : "全选") {
+                            if selectedSongKeys.count == filteredSongs.count {
+                                selectedSongKeys.removeAll()
+                            } else {
+                                selectedSongKeys = Set(filteredSongs.map { $0.identityKey })
+                            }
+                        }
+                    } else {
+                        Button("完成") { dismiss() }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if !store.importedSongs.isEmpty {
+                        Button(isMultiSelecting ? "完成" : "多选") {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                isMultiSelecting.toggle()
+                                if !isMultiSelecting {
+                                    selectedSongKeys.removeAll()
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .sheet(item: $editingSong) { song in
@@ -1080,6 +1293,10 @@ struct LocalMusicManagementSheet: View {
                     if saved { player.replaceSong(updated) }
                     return saved
                 }
+            }
+            .sheet(isPresented: $showBatchAddToPlaylist) {
+                AddToLocalPlaylistSheet(songs: selectedSongs)
+                    .environmentObject(theme)
             }
             .confirmationDialog("删除本地歌曲？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("删除应用内副本", role: .destructive) {
@@ -1095,6 +1312,113 @@ struct LocalMusicManagementSheet: View {
             } message: {
                 Text("原始文件不会被删除，但应用内复制的音频、封面和歌词会移入回收隔离目录。")
             }
+            .confirmationDialog("批量删除本地歌曲？", isPresented: $showBatchDeleteAlert, titleVisibility: .visible) {
+                Button("删除选中的 \(selectedSongKeys.count) 首歌曲副本", role: .destructive) {
+                    let songs = selectedSongs
+                    let count = store.removeImportedSongs(songs)
+                    ToastCenter.shared.show("已删除 \(count) 首本地歌曲副本")
+                    isMultiSelecting = false
+                    selectedSongKeys.removeAll()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("原始文件不会被删除，但应用内复制的音频、封面和歌词会移入回收隔离目录。")
+            }
+        }
+    }
+
+    private var batchActionFloatingBar: some View {
+        HStack(spacing: 0) {
+            Button {
+                let songs = selectedSongs
+                guard !songs.isEmpty else { return }
+                player.play(songs: songs, startAt: 0)
+                isMultiSelecting = false
+                selectedSongKeys.removeAll()
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 15))
+                    Text("播放")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                let songs = selectedSongs
+                for s in songs.reversed() {
+                    player.playNext(s)
+                }
+                ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入下一首播放")
+                isMultiSelecting = false
+                selectedSongKeys.removeAll()
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                        .font(.system(size: 15))
+                    Text("下一首")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showBatchAddToPlaylist = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 15))
+                    Text("加歌单")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            if synology.isLoggedIn {
+                Button {
+                    let songs = selectedSongs
+                    DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                    isMultiSelecting = false
+                    selectedSongKeys.removeAll()
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "externaldrive.badge.plus")
+                            .font(.system(size: 15))
+                        Text("归档NAS")
+                            .font(ATMusicFont.appFont(10, .medium))
+                    }
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                showBatchDeleteAlert = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15))
+                    Text("删除")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.red)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background {
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: Color.black.opacity(0.18), radius: 16, x: 0, y: 6)
         }
     }
 
