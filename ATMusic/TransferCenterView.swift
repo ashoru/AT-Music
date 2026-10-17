@@ -365,32 +365,6 @@ struct TransferCenterView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(downloadManager.downloadedSongs) { song in
                             SongCell(song: song)
-                                .contextMenu {
-                                    Button {
-                                        player.play(songs: [song], startAt: 0)
-                                    } label: {
-                                        Label("立即播放", systemImage: "play.fill")
-                                    }
-                                    if synology.isLoggedIn {
-                                        Button {
-                                            downloadManager.startUploadToNAS(song: song)
-                                        } label: {
-                                            Label("上传归档到群晖 NAS", systemImage: "externaldrive.badge.plus")
-                                        }
-                                    }
-                                    if let url = downloadManager.localAudioURL(for: song) {
-                                        Button {
-                                            shareFile = ShareFileItem(url: url)
-                                        } label: {
-                                            Label("分享 / 导出音频文件", systemImage: "square.and.arrow.up")
-                                        }
-                                    }
-                                    Button(role: .destructive) {
-                                        downloadManager.removeDownloaded(song: song)
-                                    } label: {
-                                        Label("从本地移除下载", systemImage: "trash")
-                                    }
-                                }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -684,14 +658,27 @@ struct TransferCenterView: View {
                 }
             }
 
-            Button {
-                downloadManager.cancelUpload(id: task.id)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.atmusicComment.opacity(0.7))
+            HStack(spacing: 10) {
+                if case .failed = task.status {
+                    Button {
+                        downloadManager.retryUpload(id: task.id)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    downloadManager.cancelUpload(id: task.id)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(12)
         .background {

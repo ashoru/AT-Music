@@ -135,6 +135,13 @@ struct SongCell: View {
                             Label("上传到群晖 NAS", systemImage: "externaldrive.badge.plus")
                         }
                     }
+                    if let url = DownloadManager.shared.localAudioURL(for: song) {
+                        Button {
+                            shareFile = ShareFileItem(url: url)
+                        } label: {
+                            Label("分享 / 导出音频文件", systemImage: "square.and.arrow.up")
+                        }
+                    }
                     Button(role: .destructive) {
                         DownloadManager.shared.removeDownloaded(song: song)
                     } label: {

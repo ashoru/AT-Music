@@ -270,6 +270,36 @@ final class LocalLibraryStore: ObservableObject {
         return true
     }
 
+
+    /// 自愈修复本地离线歌曲路径中的 .tmp 扩展名
+    func repairTmpSongPaths() {
+        var updated = false
+        var nextSongs = importedSongs
+        for i in 0..<nextSongs.count {
+            if let rel = nextSongs[i].localRelativePath, rel.hasSuffix(".tmp") {
+                if let file = LocalAudioFileManager.shared.file(forSongId: nextSongs[i].identityKey) {
+                    nextSongs[i] = nextSongs[i].withLocalRelativePath(file.relativePath)
+                    updated = true
+                } else {
+                    let base = (rel as NSString).deletingPathExtension
+                    for ext in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                        let candidate = base + "." + ext
+                        if let url = try? ManagedAudioPath.resolve(candidate), FileManager.default.fileExists(atPath: url.path) {
+                            nextSongs[i] = nextSongs[i].withLocalRelativePath(candidate)
+                            updated = true
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if updated {
+            importedSongs = nextSongs
+            saveImportedSongs()
+            ATMusicLogger.shared.log("🛠️ 本地离线库歌曲路径已自愈校准完成", level: .info)
+        }
+    }
+
     private func save() {
         if let data = try? JSONEncoder().encode(playlists) {
             defaults.set(data, forKey: key)

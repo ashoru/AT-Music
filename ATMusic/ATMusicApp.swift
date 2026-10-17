@@ -41,6 +41,8 @@ struct ATMusicApp: App {
         HighRefreshKeeper.registerDefaults()
         // 预初始化第三方音源存储：无用户导入源时自动注入内置洛雪音源，开箱即用恢复 VIP 第三方兜底
         _ = UnblockSourceStore.shared
+        // 预初始化受管离线库与自愈巡检：自动将历史遗留的 .tmp 文件转正并恢复 0ms 离线秒播
+        _ = LocalAudioFileManager.shared
         UserDefaults.standard.register(defaults: [
             "atmusic.uiStyle": ATMusicUIStyle.nativeClean.rawValue,
             "atmusic.reference18LayoutMigrated": true,

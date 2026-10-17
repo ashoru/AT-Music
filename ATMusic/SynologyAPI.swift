@@ -109,6 +109,7 @@ final class SynologyAPI: ObservableObject {
     private var storedPassword: String = ""
     private var configurationGeneration = UUID()
     private let session: URLSession
+    private let uploadSession: URLSession
     /// 搜索索引缓存：首次搜索建立，后续输入关键词只在内存中匹配，不再反复分页请求 NAS。
     private(set) var librarySongsCache: [Song] = []
     private var librarySongsCacheUpdatedAt = Date.distantPast
@@ -150,6 +151,11 @@ final class SynologyAPI: ObservableObject {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         session = URLSession(configuration: config)
+
+        let uploadConfig = URLSessionConfiguration.default
+        uploadConfig.timeoutIntervalForRequest = 180
+        uploadConfig.timeoutIntervalForResource = 3600
+        uploadSession = URLSession(configuration: uploadConfig)
 
         host = defaults.string(forKey: hostKey) ?? ""
         port = defaults.integer(forKey: portKey) == 0 ? 5000 : defaults.integer(forKey: portKey)
@@ -1779,15 +1785,12 @@ final class SynologyAPI: ObservableObject {
         onProgress: ((Double, Int64, Int64) -> Void)? = nil
     ) async throws -> String {
         guard !sid.isEmpty else { throw SynologyError.unauthenticated }
-        let boundary = "ATMusic-\(UUID().uuidString)"
+        let boundary = "ATMusicUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
         components?.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Upload"),
             URLQueryItem(name: "version", value: "2"),
             URLQueryItem(name: "method", value: "upload"),
-            URLQueryItem(name: "path", value: destinationFolder),
-            URLQueryItem(name: "create_parents", value: "true"),
-            URLQueryItem(name: "overwrite", value: "true"),
             URLQueryItem(name: "_sid", value: sid)
         ]
         guard let url = components?.url else { throw SynologyError.invalidURL("上传地址无效") }
@@ -1797,7 +1800,19 @@ final class SynologyAPI: ObservableObject {
         let tempUploadURL = tempDir.appendingPathComponent("upload_\(UUID().uuidString).tmp")
         defer { try? FileManager.default.removeItem(at: tempUploadURL) }
 
-        let headerData = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n".utf8)
+        var headerData = Data()
+        func addFormField(name: String, value: String) {
+            headerData.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+
+        addFormField(name: "api", value: "SYNO.FileStation.Upload")
+        addFormField(name: "version", value: "2")
+        addFormField(name: "method", value: "upload")
+        addFormField(name: "path", value: destinationFolder)
+        addFormField(name: "create_parents", value: "true")
+        addFormField(name: "overwrite", value: "true")
+
+        headerData.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: \(mimeType)\r\n\r\n".utf8))
         let footerData = Data("\r\n--\(boundary)--\r\n".utf8)
 
         try headerData.write(to: tempUploadURL)
@@ -1805,36 +1820,55 @@ final class SynologyAPI: ObservableObject {
               let destHandle = try? FileHandle(forWritingTo: tempUploadURL) else {
             throw SynologyError.networkError("无法读取本地源文件")
         }
-        defer {
-            try? sourceHandle.close()
-            try? destHandle.close()
-        }
         try destHandle.seekToEnd()
         while let chunk = try sourceHandle.read(upToCount: 512 * 1024), !chunk.isEmpty {
             try destHandle.write(contentsOf: chunk)
         }
         try destHandle.write(contentsOf: footerData)
+        try? destHandle.synchronize()
+        try? destHandle.close()
+        try? sourceHandle.close()
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 300
         request.setValue("ATMusic/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let delegate = SynologyUploadProgressDelegate(onProgress: onProgress)
-        let (responseData, response) = try await session.upload(for: request, fromFile: tempUploadURL, delegate: delegate)
+        let (responseData, response) = try await uploadSession.upload(for: request, fromFile: tempUploadURL, delegate: delegate)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-              (json["success"] as? Bool ?? false) else {
-            let errorText: String
-            if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-               let err = json["error"] as? [String: Any],
-               let code = err["code"] as? Int {
-                errorText = "错误代码 \(code)（请检查 File Station 写入权限或目标目录）"
-            } else {
-                errorText = "HTTP 响应异常或 File Station 权限不足"
+              let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw SynologyError.apiError(-1, "群晖 NAS 上传网络异常 (HTTP \(status))")
+        }
+
+        if let success = json["success"] as? Bool, !success {
+            let errorDict = json["error"] as? [String: Any]
+            let code = errorDict?["code"] as? Int ?? -1
+            if (code == 105 || code == 106 || code == 119) {
+                if await trySilentReauth() {
+                    return try await uploadFileToNAS(
+                        localFileURL: localFileURL,
+                        destinationFolder: destinationFolder,
+                        filename: filename,
+                        mimeType: mimeType,
+                        onProgress: onProgress
+                    )
+                }
+                await MainActor.run { self.isLoggedIn = false }
+                throw SynologyError.sessionExpired
             }
-            throw SynologyError.apiError(-1, "群晖 NAS 上传失败：\(errorText)")
+            let errorText: String
+            switch code {
+            case 400: errorText = "请求参数无效 (400)"
+            case 408: errorText = "目标目录不存在或未创建成功 (408)"
+            case 414: errorText = "文件大小超出系统限制 (414)"
+            case 418: errorText = "没有向该目录写入的权限 (418)"
+            default: errorText = "错误代码 \(code)（请检查 File Station 写入权限与存储空间）"
+            }
+            throw SynologyError.apiError(code, "群晖 NAS 上传失败：\(errorText)")
         }
 
         return destinationFolder + "/" + filename

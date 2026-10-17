@@ -2273,6 +2273,12 @@ struct AlbumDetailView: View {
                             batchDownloadAlbum()
                         }
                         .disabled(isBatchDownloading)
+
+                        if SynologyAPI.shared.isLoggedIn && album.source != .synology {
+                            GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
+                                batchUploadAlbumToNAS()
+                            }
+                        }
                     }
                 }
 
@@ -2415,6 +2421,12 @@ struct AlbumDetailView: View {
                         batchDownloadAlbum()
                     }
                     .disabled(isBatchDownloading)
+
+                    if SynologyAPI.shared.isLoggedIn && album.source != .synology {
+                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
+                            batchUploadAlbumToNAS()
+                        }
+                    }
                 }
             }
         }

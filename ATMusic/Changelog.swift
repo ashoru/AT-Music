@@ -48,6 +48,25 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.21-build-83-fix-offline-playback-and-nas-streaming-upload",
+            version: "1.9.21",
+            title: "修复离线歌曲播放、重构群晖 NAS 单轨流式上传与全专一键云端归档",
+            features: [
+                "音频格式智能嗅探器（AudioFormatDetector）：通过文件头权威 Magic Bytes 毫秒级精准推断 flac/mp3/m4a/wav/ogg/ape 真实容器，杜绝 AVPlayer -11828 格式无法识别错误",
+                "历史遗留沙盒 .tmp 文件全自动无感自愈：App 启动或曲库加载时自动巡检历史遗留的 .tmp 文件并改名为正规格式扩展名，同时校准本地数据库记录，无需用户重新下载即可恢复 0ms 离线免流秒播",
+                "群晖 NAS 上传单轨串行调度与智能防雪崩：队列上传节流，将并发数收敛为单轨稳定流式上传，消除并发抢占导致的家庭宽带上行拥塞与批量超时；为上传任务分配专属 300 秒连接超时与独立会话",
+                "严格规范群晖 File Station 多部件表单：完整封装 api、version、method、path、create_parents、overwrite 表单字段，并在上传发起前安全关闭本地临时流，杜绝 NAS 写入权限拒绝或 400/408 错误",
+                "会话过期静默无感自动续签：遇到群晖 NAS 105/106/119 错误时自动使用钥匙串凭证静默重新登录并无缝重试，彻底杜绝长时间后台上传或令牌过期导致的失败中断",
+                "失败任务一键重试与全专归档入口：传输中心上传列表为失败任务增加一键重试按钮，专辑详情页（iPhone/iPad）顶部增加「全专归档至 NAS」快捷入口",
+                "歌曲上下文菜单补充音频导出分享：已离线歌曲菜单增加「分享 / 导出音频文件」选项，支持随时调用系统共享面板导出原文件"
+            ],
+            fixes: [
+                "彻底修复下载歌曲点击播放提示 AVFoundationErrorDomain -11828（文件格式不支持）导致无法出声的缺陷",
+                "彻底修复批量上传歌曲至群晖 NAS 提示「请求超时」或「写入失败」的缺陷",
+                "修复传输中心已离线歌曲列表右键菜单层叠冲突的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.20-build-82-transfer-center-offline-ingestion-and-nas-archive",
             version: "1.9.20",
             title: "一键离线下载与受管沙盒入库、全功能传输中心、群晖 NAS 离线双向融合与云端归档",

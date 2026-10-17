@@ -181,11 +181,12 @@ final class DownloadSessionCoordinator: NSObject, URLSessionDownloadDelegate, @u
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let taskID = downloadTask.taskDescription, let uuid = UUID(uuidString: taskID) else { return }
-        let tempStaging = FileManager.default.temporaryDirectory.appendingPathComponent("stage_\(UUID().uuidString).tmp")
+        let ext = AudioFormatDetector.detectExtension(fileURL: location, fallback: "mp3")
+        let tempStaging = FileManager.default.temporaryDirectory.appendingPathComponent("stage_\(UUID().uuidString).\(ext)")
         try? FileManager.default.copyItem(at: location, to: tempStaging)
         let response = downloadTask.response
         Task { @MainActor [weak self] in
-            self?.manager?.handleDownloadFinished(id: uuid, stagingURL: tempStaging, response: response)
+            self?.manager?.handleDownloadFinished(id: uuid, stagingURL: tempStaging, response: response, detectedExtension: ext)
         }
     }
 
@@ -208,7 +209,7 @@ final class DownloadManager: ObservableObject {
     @Published var isPaused: Bool = false
 
     private let maxConcurrentDownloads = 3
-    private let maxConcurrentUploads = 2
+    private let maxConcurrentUploads = 1
     private let sessionDelegate = DownloadSessionCoordinator()
     private lazy var downloadSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -289,7 +290,25 @@ final class DownloadManager: ObservableObject {
     nonisolated func localAudioURL(for song: Song) -> URL? {
         if song.source == .local, let relativePath = song.localRelativePath {
             if let url = try? ManagedAudioPath.resolve(relativePath), FileManager.default.fileExists(atPath: url.path) {
+                if relativePath.hasSuffix(".tmp") {
+                    let base = (relativePath as NSString).deletingPathExtension
+                    for candidateExt in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                        let candidateRel = base + "." + candidateExt
+                        if let candURL = try? ManagedAudioPath.resolve(candidateRel), FileManager.default.fileExists(atPath: candURL.path) {
+                            return candURL
+                        }
+                    }
+                }
                 return url
+            }
+            if relativePath.hasSuffix(".tmp") {
+                let base = (relativePath as NSString).deletingPathExtension
+                for candidateExt in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                    let candidateRel = base + "." + candidateExt
+                    if let candURL = try? ManagedAudioPath.resolve(candidateRel), FileManager.default.fileExists(atPath: candURL.path) {
+                        return candURL
+                    }
+                }
             }
         }
         if let file = LocalAudioFileManager.shared.file(forSongId: song.identityKey),
@@ -301,10 +320,19 @@ final class DownloadManager: ObservableObject {
             $0.name.lowercased() == song.name.lowercased() &&
             $0.artists.lowercased() == song.artists.lowercased() &&
             $0.localRelativePath != nil
-        }), let path = localSong.localRelativePath,
-           let url = try? ManagedAudioPath.resolve(path),
-           FileManager.default.fileExists(atPath: url.path) {
-            return url
+        }), let path = localSong.localRelativePath {
+            if let url = try? ManagedAudioPath.resolve(path), FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+            if path.hasSuffix(".tmp") {
+                let base = (path as NSString).deletingPathExtension
+                for candidateExt in ["flac", "mp3", "m4a", "wav", "ogg"] {
+                    let candidateRel = base + "." + candidateExt
+                    if let candURL = try? ManagedAudioPath.resolve(candidateRel), FileManager.default.fileExists(atPath: candURL.path) {
+                        return candURL
+                    }
+                }
+            }
         }
         return nil
     }
@@ -425,7 +453,7 @@ final class DownloadManager: ObservableObject {
         }
     }
 
-    func handleDownloadFinished(id: UUID, stagingURL: URL, response: URLResponse?) {
+    func handleDownloadFinished(id: UUID, stagingURL: URL, response: URLResponse?, detectedExtension: String? = nil) {
         guard let task = activeDownloads.first(where: { $0.id == id }) else {
             try? FileManager.default.removeItem(at: stagingURL)
             return
@@ -452,7 +480,8 @@ final class DownloadManager: ObservableObject {
                     sourceTempURL: stagingURL,
                     songId: song.identityKey,
                     originalFilename: safeName,
-                    kind: .userDownloaded
+                    kind: .userDownloaded,
+                    explicitExtension: detectedExtension
                 )
                 task.localRelativePath = record.relativePath
 
@@ -608,9 +637,22 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        let root = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
         for song in songs {
-            startUploadToNAS(song: song, customFolder: customFolder)
+            let folder: String
+            if let custom = customFolder, !custom.isEmpty {
+                folder = custom
+            } else {
+                let cleanArtist = song.artists.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanAlbum = song.album.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+                folder = "\(root)/\(cleanArtist.isEmpty ? "未知歌手" : cleanArtist)/\(cleanAlbum.isEmpty ? "单曲" : cleanAlbum)"
+            }
+            let item = UploadTaskItem(song: song, destinationFolder: folder)
+            activeUploads.append(item)
         }
+        ATMusicHaptics.medium()
+        ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入群晖 NAS 上传队列")
+        scheduleUploadQueue()
     }
 
     private func scheduleUploadQueue() {
@@ -620,9 +662,10 @@ final class DownloadManager: ObservableObject {
         guard runningCount < maxConcurrentUploads else { return }
 
         let availableSlots = maxConcurrentUploads - runningCount
-        let waitingTasks = activeUploads.filter { $0.status == .waiting }.prefix(availableSlots)
+        let waitingTasks = Array(activeUploads.filter { $0.status == .waiting }.prefix(availableSlots))
 
         for task in waitingTasks {
+            task.status = .uploadingAudio
             executeUploadTask(task)
         }
     }
@@ -654,14 +697,19 @@ final class DownloadManager: ObservableObject {
 
             let trackPrefix = song.trackNumber > 0 ? String(format: "%02d - ", song.trackNumber) : ""
             let safeTitle = song.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-            let ext = localAudioURL.pathExtension.isEmpty ? "flac" : localAudioURL.pathExtension
+            var ext = localAudioURL.pathExtension.lowercased()
+            if ext.isEmpty || ext == "tmp" {
+                ext = AudioFormatDetector.detectExtension(fileURL: localAudioURL, fallback: "flac")
+            }
             let destFilename = "\(trackPrefix)\(safeTitle).\(ext)"
+            let mimeType = AudioFormatDetector.mimeType(forExtension: ext)
 
             do {
                 let nasPath = try await SynologyAPI.shared.uploadFileToNAS(
                     localFileURL: localAudioURL,
                     destinationFolder: task.destinationFolder,
                     filename: destFilename,
+                    mimeType: mimeType,
                     onProgress: { progress, sent, total in
                         task.progress = progress
                         task.uploadedBytes = sent
@@ -730,6 +778,15 @@ final class DownloadManager: ObservableObject {
 
             scheduleUploadQueue()
         }
+    }
+
+    func retryUpload(id: UUID) {
+        guard let task = activeUploads.first(where: { $0.id == id }) else { return }
+        task.status = .waiting
+        task.progress = 0
+        task.uploadedBytes = 0
+        task.speedBytesPerSecond = 0
+        scheduleUploadQueue()
     }
 
     func cancelUpload(id: UUID) {

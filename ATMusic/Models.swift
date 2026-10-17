@@ -326,6 +326,35 @@ struct Song: Identifiable, Hashable, Codable {
         self.fee = fee
     }
 
+    func withLocalRelativePath(_ path: String?) -> Song {
+        Song(
+            id: id,
+            name: name,
+            artists: artists,
+            album: album,
+            coverURL: coverURL,
+            duration: duration,
+            source: source,
+            qqMid: qqMid,
+            qqMediaMid: qqMediaMid,
+            kugouHash: kugouHash,
+            kugouAlbumAudioId: kugouAlbumAudioId,
+            kugouAlbumId: kugouAlbumId,
+            kugouQualityHashes: kugouQualityHashes,
+            synologyId: synologyId,
+            synologyServerScope: synologyServerScope,
+            synologyPath: synologyPath,
+            localRelativePath: path,
+            albumArtist: albumArtist,
+            genre: genre,
+            year: year,
+            comment: comment,
+            discNumber: discNumber,
+            trackNumber: trackNumber,
+            fee: fee
+        )
+    }
+
     init?(json: [String: Any]) {
         guard let id = json["id"] as? Int else { return nil }
         self.id = id
