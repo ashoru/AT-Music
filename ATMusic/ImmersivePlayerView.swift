@@ -182,6 +182,7 @@ struct ImmersivePlayerView: View {
     @State private var showArtistHome = false
     @State private var pickedArtistName: String = ""
     @State private var selectedAlbum: Album?
+    @State private var showSignalPath = false
     @State private var isDraggingSlider = false
     @State private var sliderDragSeconds: Double = 0
 
@@ -416,6 +417,12 @@ struct ImmersivePlayerView: View {
                     .environmentObject(theme)
             }
         }
+        .sheet(isPresented: $showSignalPath) {
+            AudioSignalPathSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
     }
 
     // MARK: - 智能倒计时隐藏控制栏
@@ -481,10 +488,13 @@ struct ImmersivePlayerView: View {
                         hideControls = false
                     }
                 } label: {
-                    Text(song?.name ?? "未在播放")
-                        .font(ATMusicFont.appFont(15, .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(song?.name ?? "未在播放")
+                            .font(ATMusicFont.appFont(15, .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        AudioQualityCapsule(song: song)
+                    }
                 }
                 .buttonStyle(.plain)
 
@@ -531,6 +541,7 @@ struct ImmersivePlayerView: View {
     // 右上角 Apple Music 更多操作菜单
     private var moreOptionsMenu: some View {
         Menu {
+            Button("音频信号通路") { showSignalPath = true }
             Button("定时关闭", action: onSleepTimer)
             Button("歌曲信息", action: onSongInfo)
             Button("搜索歌词", action: onSearchLyrics)
@@ -677,22 +688,26 @@ struct ImmersivePlayerView: View {
     private var songInfoAndActions: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                // 歌名 + VIP 标签
+                // 歌名 + VIP 标签 + 音频质量胶囊
                 HStack(spacing: 6) {
                     Text(song?.name ?? "未在播放")
                         .font(ATMusicFont.appFont(21, .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
 
-                    Text("VIP")
-                        .font(ATMusicFont.appFont(10, .bold))
-                        .foregroundStyle(.white.opacity(0.88))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(
-                            Color.white.opacity(0.18),
-                            in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        )
+                    if song?.isVIP == true {
+                        Text("VIP")
+                            .font(ATMusicFont.appFont(10, .bold))
+                            .foregroundStyle(.white.opacity(0.88))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(
+                                Color.white.opacity(0.18),
+                                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            )
+                    }
+
+                    AudioQualityCapsule(song: song)
                 }
 
                 // 歌手与专辑（点击弹小框分别链接歌手与专辑页）

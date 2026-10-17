@@ -278,6 +278,8 @@ struct AudioSignalPathSheet: View {
 // MARK: - 音质与信号链路微标胶囊
 
 struct AudioQualityCapsule: View {
+    @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var player: PlayerManager
     let song: Song?
     @State private var showSignalPath = false
 
@@ -295,32 +297,36 @@ struct AudioQualityCapsule: View {
     }
 
     var body: some View {
-        Button {
-            ATMusicHaptics.tap()
-            showSignalPath = true
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: isNAS ? "waveform.path.ecg" : "sparkles")
-                    .font(.system(size: 8, weight: .bold))
-                Text(labelText)
-                    .font(ATMusicFont.appFont(9, .bold))
+        if song != nil {
+            Button {
+                ATMusicHaptics.tap()
+                showSignalPath = true
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: isNAS ? "waveform.path.ecg" : "sparkles")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(labelText)
+                        .font(ATMusicFont.appFont(9, .bold))
+                }
+                .padding(.horizontal, 6)
+                .frame(height: 16)
+                .background(
+                    Capsule()
+                        .fill(isNAS ? Color.atmusicAmber.opacity(0.18) : Color.white.opacity(0.18))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(isNAS ? Color.atmusicAmber.opacity(0.4) : Color.white.opacity(0.3), lineWidth: 0.8)
+                )
+                .foregroundStyle(isNAS ? Color.atmusicAmber : Color.white)
             }
-            .padding(.horizontal, 6)
-            .frame(height: 16)
-            .background(
-                Capsule()
-                    .fill(isNAS ? Color.atmusicAmber.opacity(0.18) : Color.white.opacity(0.18))
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder(isNAS ? Color.atmusicAmber.opacity(0.4) : Color.white.opacity(0.3), lineWidth: 0.8)
-            )
-            .foregroundStyle(isNAS ? Color.atmusicAmber : Color.white)
-        }
-        .buttonStyle(.plain)
-        .sheet(isPresented: $showSignalPath) {
-            AudioSignalPathSheet(song: song)
-                .presentationDetents([.medium, .large])
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showSignalPath) {
+                AudioSignalPathSheet(song: song)
+                    .presentationDetents([.medium, .large])
+                    .environmentObject(theme)
+                    .environmentObject(player)
+            }
         }
     }
 }

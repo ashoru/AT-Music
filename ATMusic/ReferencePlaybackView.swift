@@ -65,6 +65,7 @@ struct ReferencePlaybackView: View {
     @State private var showArtistHome = false
     @State private var pickedArtistName: String = ""
     @State private var selectedAlbum: Album?
+    @State private var showSignalPath = false
     @State private var resumeTask: Task<Void, Never>?
     @State private var coverDominantColor: RGBColor?
 
@@ -122,6 +123,12 @@ struct ReferencePlaybackView: View {
                     .environmentObject(player)
                     .environmentObject(theme)
             }
+        }
+        .sheet(isPresented: $showSignalPath) {
+            AudioSignalPathSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .environmentObject(player)
+                .environmentObject(theme)
         }
     }
 
@@ -209,6 +216,7 @@ struct ReferencePlaybackView: View {
                     if let source = song?.source {
                         SourceBadgeView(source: source, compact: true)
                     }
+                    AudioQualityCapsule(song: song)
                 }
                 .frame(maxWidth: .infinity)
                 subtitleMenu(font: ATMusicFont.appFont(13.5, .medium), color: .white.opacity(0.68))
@@ -245,8 +253,11 @@ struct ReferencePlaybackView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
-            if let source = song?.source {
-                SourceBadgeView(source: source, compact: true)
+            HStack(spacing: 7) {
+                if let source = song?.source {
+                    SourceBadgeView(source: source, compact: true)
+                }
+                AudioQualityCapsule(song: song)
             }
             subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68))
                 .lineLimit(1)
@@ -425,6 +436,7 @@ struct ReferencePlaybackView: View {
                     if let source = song?.source {
                         SourceBadgeView(source: source, compact: true)
                     }
+                    AudioQualityCapsule(song: song)
                 }
                 subtitleMenu(font: ATMusicFont.appFont(12, .medium), color: .white.opacity(0.68), alignment: .leading)
                     .lineLimit(1)
@@ -555,6 +567,7 @@ struct ReferencePlaybackView: View {
 
     private var songActionsMenu: some View {
         Menu {
+            Button("音频信号通路") { showSignalPath = true }
             Button("定时关闭", action: onSleepTimer)
             Button("歌曲信息", action: onSongInfo)
             Button("搜索歌词", action: onSearchLyrics)

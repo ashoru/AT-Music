@@ -48,6 +48,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.19-build-81-relevance-ranking-and-universal-signal-path",
+            version: "1.9.19",
+            title: "全样式播放器音频信号通路胶囊全覆盖、严格相关度排序与同分 NAS 优先、群晖专辑一键离线与直读保底",
+            features: [
+                "音频信号通路胶囊全场景覆盖：全面接入 iPhone 默认 Apple Music 播放器、沉浸式播放器及各样式菜单，触控音质微标直达 4 级发烧信号看板",
+                "严格相关度优先的流式搜索排序：重构搜索打分逻辑，单曲、歌手、专辑首先严格按搜索词匹配度排序，同等匹配度时私有 NAS 母带优先排在前面，解决无条件置顶造成的低相关曲目排前面问题",
+                "群晖 NAS 专辑页全场景一键离线下载：在 SynologyAlbumView（iPhone 与 iPad 宽屏）中完整接通一键离线下载与防截断紧凑按键排版",
+                "群晖 NAS 专辑直读容错与简繁互转增强：强化原生 WebAPI 专辑曲目直读，消除本地简繁体差异导致的空列表问题，首屏秒级显示"
+            ],
+            fixes: [
+                "修复 iPhone 默认 Apple Music 播放器样式及沉浸式样式下未显示音频信号通路胶囊的问题",
+                "修复聚合搜索将低相关度 NAS 曲目无条件推至顶部的排序缺陷",
+                "修复群晖 NAS 专辑详情页缺失一键离线下载以及偶尔打开显示未找到歌曲的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.19-build-80-nas-audiophile-and-smooth-streaming-suite",
             version: "1.9.19",
             title: "群晖 NAS 发烧级双通道智能路由、Bit-Perfect 原盘无损直出、静默自动重鉴权、流式搜索即刻出结果与全局原生排版",

@@ -1062,7 +1062,7 @@ final class SynologyAPI: ObservableObject {
             URLQueryItem(name: "version", value: "3"),
             URLQueryItem(name: "method", value: "list"),
             URLQueryItem(name: "album", value: trimmedAlbum),
-            URLQueryItem(name: "sort_by", value: "track"),
+            URLQueryItem(name: "sort_by", value: "title"),
             URLQueryItem(name: "sort_direction", value: "ASC"),
             URLQueryItem(name: "library", value: "all"),
             URLQueryItem(name: "limit", value: "1000"),
@@ -1074,7 +1074,36 @@ final class SynologyAPI: ObservableObject {
            !songsArray.isEmpty {
             let songs = songsArray.compactMap { self.parseSong($0) }
             if !songs.isEmpty {
-                return filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+                let filtered = filterAndSortAlbumSongs(songs, albumName: trimmedAlbum, artistName: trimmedArtist)
+                return filtered.isEmpty ? sortAlbumSongs(songs) : filtered
+            }
+        }
+
+        // 尝试 1b：简繁互转重试（解决 DSM 标签简繁不一致导致的查询未命中）
+        let hantAlbum = trimmedAlbum.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? trimmedAlbum
+        let hansAlbum = trimmedAlbum.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? trimmedAlbum
+        let altAlbum = (hantAlbum != trimmedAlbum) ? hantAlbum : (hansAlbum != trimmedAlbum ? hansAlbum : "")
+        if !altAlbum.isEmpty {
+            let altQuery: [URLQueryItem] = [
+                URLQueryItem(name: "api", value: "SYNO.AudioStation.Song"),
+                URLQueryItem(name: "version", value: "3"),
+                URLQueryItem(name: "method", value: "list"),
+                URLQueryItem(name: "album", value: altAlbum),
+                URLQueryItem(name: "sort_by", value: "title"),
+                URLQueryItem(name: "sort_direction", value: "ASC"),
+                URLQueryItem(name: "library", value: "all"),
+                URLQueryItem(name: "limit", value: "1000"),
+                URLQueryItem(name: "additional", value: "song_tag,song_audio")
+            ]
+            if let json = try? await get("/webapi/AudioStation/song.cgi", query: altQuery, authenticated: true),
+               let data = json["data"] as? [String: Any],
+               let songsArray = data["songs"] as? [[String: Any]],
+               !songsArray.isEmpty {
+                let songs = songsArray.compactMap { self.parseSong($0) }
+                if !songs.isEmpty {
+                    let filtered = filterAndSortAlbumSongs(songs, albumName: altAlbum, artistName: trimmedArtist)
+                    return filtered.isEmpty ? sortAlbumSongs(songs) : filtered
+                }
             }
         }
 
@@ -1230,25 +1259,31 @@ final class SynologyAPI: ObservableObject {
     func filterAndSortAlbumSongs(_ songs: [Song], albumName: String, artistName: String) -> [Song] {
         let trimmedAlbum = albumName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedArtist = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normQueryAlbum = SongIdentityNormalizer.exactMetadata(trimmedAlbum)
+        let normQueryArtist = SongIdentityNormalizer.exactMetadata(trimmedArtist)
 
         let albumMatches = songs.filter { song in
             guard song.source == .synology else { return false }
             let songAlbum = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
-            return songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
+            let normSongAlbum = SongIdentityNormalizer.exactMetadata(songAlbum)
+            return normSongAlbum == normQueryAlbum ||
+                   normSongAlbum.contains(normQueryAlbum) ||
+                   normQueryAlbum.contains(normSongAlbum) ||
+                   songAlbum.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame ||
                    songAlbum.localizedStandardContains(trimmedAlbum) ||
                    trimmedAlbum.localizedStandardContains(songAlbum)
         }
         guard !albumMatches.isEmpty else { return [] }
 
-        if !trimmedArtist.isEmpty {
+        if !normQueryArtist.isEmpty {
             let artistMatches = albumMatches.filter { song in
-                let songArtist = song.artists.trimmingCharacters(in: .whitespacesAndNewlines)
-                let albumArtist = (song.albumArtist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                return songArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
-                       trimmedArtist.localizedCaseInsensitiveContains(songArtist) ||
-                       albumArtist.localizedCaseInsensitiveContains(trimmedArtist) ||
-                       trimmedArtist.localizedCaseInsensitiveContains(albumArtist) ||
-                       song.album.localizedCaseInsensitiveCompare(trimmedAlbum) == .orderedSame
+                let normSongArtist = SongIdentityNormalizer.exactMetadata(song.artists)
+                let normAlbumArtist = SongIdentityNormalizer.exactMetadata(song.albumArtist ?? "")
+                return normSongArtist.contains(normQueryArtist) ||
+                       normQueryArtist.contains(normSongArtist) ||
+                       normAlbumArtist.contains(normQueryArtist) ||
+                       normQueryArtist.contains(normAlbumArtist) ||
+                       SongIdentityNormalizer.exactMetadata(song.album) == normQueryAlbum
             }
             return sortAlbumSongs(artistMatches.isEmpty ? albumMatches : artistMatches)
         }

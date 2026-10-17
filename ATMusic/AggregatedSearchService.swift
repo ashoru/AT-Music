@@ -107,16 +107,12 @@ final class AggregatedSearchService: @unchecked Sendable {
             else { result.failedProviders.append(partial.provider) }
         }
 
-        // 先按相关性与原始位次聚合排序
-        let rankedSongs = Self.uniqueSongs(Self.rankSongs(
+        // 严格按照匹配相关度评分排序，同等匹配度时 NAS 优先排在前面
+        result.songs = Self.uniqueSongs(Self.rankSongs(
             partials.flatMap { partial in
                 partial.songs.enumerated().map { (song: $0.element, backendRank: $0.offset) }
             }, keyword: keyword
         ))
-        // 私有群晖 NAS 原盘高解析母带无缝插队置顶，在线流媒体紧随其后
-        let nasSongs = rankedSongs.filter { $0.source == .synology }
-        let otherSongs = rankedSongs.filter { $0.source != .synology }
-        result.songs = nasSongs + otherSongs
 
         result.artists = Self.uniqueArtists(Self.rankArtists(
             partials.flatMap { partial in
@@ -124,14 +120,11 @@ final class AggregatedSearchService: @unchecked Sendable {
             }, keyword: keyword
         ))
 
-        let rankedAlbums = Self.uniqueAlbums(Self.rankAlbums(
+        result.albums = Self.uniqueAlbums(Self.rankAlbums(
             partials.flatMap { partial in
                 partial.albums.enumerated().map { (album: $0.element, backendRank: $0.offset) }
             }, keyword: keyword
         ))
-        let nasAlbums = rankedAlbums.filter { $0.source == .synology }
-        let otherAlbums = rankedAlbums.filter { $0.source != .synology }
-        result.albums = nasAlbums + otherAlbums
         result.playlists = Self.uniquePlaylists(Self.rankPlaylists(
             partials.flatMap { partial in
                 partial.playlists.enumerated().map { (playlist: $0.element, backendRank: $0.offset) }
@@ -144,6 +137,15 @@ final class AggregatedSearchService: @unchecked Sendable {
         candidates.sorted {
             let lhs = SearchResultRelevance.score(keyword: keyword, primary: $0.song.name, secondary: [$0.song.artists, $0.song.album])
             let rhs = SearchResultRelevance.score(keyword: keyword, primary: $1.song.name, secondary: [$1.song.artists, $1.song.album])
+            if lhs != rhs {
+                return lhs < rhs
+            }
+            // 同样匹配度时，私有 NAS 排在前面
+            let lIsNas = $0.song.source == .synology
+            let rIsNas = $1.song.source == .synology
+            if lIsNas != rIsNas {
+                return lIsNas
+            }
             return relevanceOrder(lhs: lhs, rhs: rhs, leftRank: $0.backendRank, rightRank: $1.backendRank, leftName: $0.song.name, rightName: $1.song.name)
         }.map(\.song)
     }
@@ -152,6 +154,14 @@ final class AggregatedSearchService: @unchecked Sendable {
         candidates.sorted {
             let lhs = SearchResultRelevance.score(keyword: keyword, primary: $0.artist.name)
             let rhs = SearchResultRelevance.score(keyword: keyword, primary: $1.artist.name)
+            if lhs != rhs {
+                return lhs < rhs
+            }
+            let lIsNas = $0.artist.source == .synology
+            let rIsNas = $1.artist.source == .synology
+            if lIsNas != rIsNas {
+                return lIsNas
+            }
             return relevanceOrder(lhs: lhs, rhs: rhs, leftRank: $0.backendRank, rightRank: $1.backendRank, leftName: $0.artist.name, rightName: $1.artist.name)
         }.map(\.artist)
     }
@@ -160,6 +170,15 @@ final class AggregatedSearchService: @unchecked Sendable {
         candidates.sorted {
             let lhs = SearchResultRelevance.score(keyword: keyword, primary: $0.album.name, secondary: [$0.album.artistName])
             let rhs = SearchResultRelevance.score(keyword: keyword, primary: $1.album.name, secondary: [$1.album.artistName])
+            if lhs != rhs {
+                return lhs < rhs
+            }
+            // 同样匹配度时，私有 NAS 专辑排在前面
+            let lIsNas = $0.album.source == .synology
+            let rIsNas = $1.album.source == .synology
+            if lIsNas != rIsNas {
+                return lIsNas
+            }
             return relevanceOrder(lhs: lhs, rhs: rhs, leftRank: $0.backendRank, rightRank: $1.backendRank, leftName: $0.album.name, rightName: $1.album.name)
         }.map(\.album)
     }

@@ -32,6 +32,7 @@ struct PlayerView: View {
     @State private var showLocalMetadataEditor = false
     @State private var showLyricSearch = false
     @State private var selectedAlbum: Album?
+    @State private var showSignalPath = false
     @State private var showNativeMoreActions = false
     @State private var showMoreSettingsHint = false
     @AppStorage("atmusic.playerMoreSettingsHintSeen") private var playerMoreSettingsHintSeen = false
@@ -735,6 +736,12 @@ struct PlayerView: View {
                     .environmentObject(theme)
             }
         }
+        .sheet(isPresented: $showSignalPath) {
+            AudioSignalPathSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
         .sheet(isPresented: $showArtistHome) {
             if !pickedArtistName.isEmpty {
                 AllSourcesArtistHomeSheet(
@@ -1206,6 +1213,7 @@ struct PlayerView: View {
             .buttonStyle(.plain)
 
             Menu {
+                Button("音频信号通路") { showSignalPath = true }
                 Button("定时关闭") { showSleepTimer = true }
                 Button("搜索歌词") { showLyricSearch = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
@@ -1694,6 +1702,7 @@ struct PlayerView: View {
                 .buttonStyle(.plain)
 
                 Menu {
+                    Button("音频信号通路") { showSignalPath = true }
                     Button("定时关闭") { showSleepTimer = true }
                     Button("搜索歌词") { showLyricSearch = true }
                     Button("歌曲信息") { openSongInfo() }

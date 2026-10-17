@@ -2406,16 +2406,16 @@ struct AlbumDetailView: View {
             }
 
             if !sortedTracks.isEmpty {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                         player.play(songs: sortedTracks, startAt: 0)
                     }
                     if discGroups.count > 1 {
-                        GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                        GlassIconButton(systemName: "arrow.triangle.swap", size: 44, active: false) {
                             player.play(songs: sortedTracks, startAt: 0)
                         }
                     }
-                    GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: "arrow.down.circle") {
+                    GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle") {
                         batchDownloadAlbum()
                     }
                     .disabled(isBatchDownloading)

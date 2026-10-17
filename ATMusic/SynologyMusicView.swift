@@ -2360,6 +2360,31 @@ struct SynologyAlbumView: View {
     @State private var tracks: [Song] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isBatchDownloading = false
+
+    @MainActor
+    private func batchDownloadAlbum() {
+        guard !sortedTracks.isEmpty else { return }
+        isBatchDownloading = true
+        ATMusicHaptics.medium()
+        ToastCenter.shared.show("已将《\(albumName)》全部 \(sortedTracks.count) 首歌曲加入下载队列")
+        let quality: DownloadQuality
+        let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+        if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+            quality = ThirdPartyAudioQuality.current
+        } else {
+            quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
+        }
+        Task {
+            for song in sortedTracks {
+                _ = await DownloadManager.shared.download(song: song, quality: quality)
+            }
+            await MainActor.run {
+                isBatchDownloading = false
+                ToastCenter.shared.show("《\(albumName)》专辑下载已就绪")
+            }
+        }
+    }
 
     /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序
     private var sortedTracks: [Song] {
@@ -2420,15 +2445,19 @@ struct SynologyAlbumView: View {
                                 GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                                     player.play(songs: sortedTracks, startAt: 0)
                                 }
-                                GlassButton(title: "随机播放", systemName: "shuffle") {
+                                GlassIconButton(systemName: "shuffle", size: 44, active: false) {
                                     guard !sortedTracks.isEmpty else { return }
                                     player.play(songs: sortedTracks.shuffled(), startAt: 0)
                                 }
                                 if discGroups.count > 1 {
-                                    GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                                    GlassIconButton(systemName: "arrow.triangle.swap", size: 44, active: false) {
                                         player.play(songs: sortedTracks, startAt: 0)
                                     }
                                 }
+                                GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle") {
+                                    batchDownloadAlbum()
+                                }
+                                .disabled(isBatchDownloading)
                             }
                             .padding(.horizontal, 16)
                         }
@@ -2716,10 +2745,14 @@ struct SynologyAlbumView: View {
                             player.play(songs: sortedTracks.shuffled(), startAt: 0)
                         }
                         if discGroups.count > 1 {
-                            GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
+                            GlassIconButton(systemName: "arrow.triangle.swap", size: 44, active: false) {
                                 player.play(songs: sortedTracks, startAt: 0)
                             }
                         }
+                        GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
+                            batchDownloadAlbum()
+                        }
+                        .disabled(isBatchDownloading)
                     }
                 }
 
@@ -2810,6 +2843,12 @@ struct SynologyAlbumView: View {
                 isLoading = false
                 errorMessage = nil
             }
+        } else if !initialSongs.isEmpty {
+            await MainActor.run {
+                tracks = initialSongs
+                isLoading = false
+                errorMessage = nil
+            }
         }
         // 优先使用专为 NAS 专辑打造的原生直读接口（自带严格双键保序与快速回包）
         let direct = await synology.albumSongs(albumName: albumName, artistName: artistName)
@@ -2823,7 +2862,7 @@ struct SynologyAlbumView: View {
         }
 
         // 若直读未命中，尝试利用搜索接口服务端匹配兜底
-        let remote = try? await synology.searchAllVariants(keyword: albumName, limit: 200)
+        let remote = try? await synology.searchAllVariants(keyword: albumName, limit: 300)
         var matches = matchingSongs(in: remote?.songs ?? [])
         if matches.isEmpty {
             let normalizedAlbum = normalize(albumName)
@@ -2849,27 +2888,49 @@ struct SynologyAlbumView: View {
             return
         }
 
+        // 全库兜底查询
+        if let library = try? await synology.librarySongs(forceRefresh: false) {
+            let libMatches = matchingSongs(in: library)
+            if !libMatches.isEmpty {
+                await MainActor.run {
+                    tracks = libMatches
+                    isLoading = false
+                    errorMessage = nil
+                }
+                return
+            }
+        }
+
         await MainActor.run {
             isLoading = false
             if tracks.isEmpty {
-                errorMessage = "未找到专辑歌曲"
+                if !initialSongs.isEmpty {
+                    tracks = initialSongs
+                    errorMessage = nil
+                } else {
+                    errorMessage = "未找到专辑歌曲"
+                }
             }
         }
     }
 
     private func matchingSongs(in songs: [Song]) -> [Song] {
-        let normalizedAlbum = normalize(albumName)
-        let normalizedArtist = normalize(artistName)
-        guard !normalizedAlbum.isEmpty else { return [] }
+        let normQueryAlbum = SongIdentityNormalizer.exactMetadata(albumName)
+        let normQueryArtist = SongIdentityNormalizer.exactMetadata(artistName)
+        guard !normQueryAlbum.isEmpty else { return [] }
         let albumMatches = songs.filter {
-            let n = normalize($0.album)
-            return n == normalizedAlbum || n.contains(normalizedAlbum) || normalizedAlbum.contains(n)
+            let n = SongIdentityNormalizer.exactMetadata($0.album)
+            return n == normQueryAlbum || n.contains(normQueryAlbum) || normQueryAlbum.contains(n)
         }
         guard !albumMatches.isEmpty else { return [] }
-        guard !normalizedArtist.isEmpty else { return albumMatches }
+        guard !normQueryArtist.isEmpty else { return albumMatches }
         let artistMatches = albumMatches.filter {
-            let actualArtist = normalize($0.artists)
-            return actualArtist.contains(normalizedArtist) || normalizedArtist.contains(actualArtist)
+            let actualArtist = SongIdentityNormalizer.exactMetadata($0.artists)
+            let actualAlbumArtist = SongIdentityNormalizer.exactMetadata($0.albumArtist ?? "")
+            return actualArtist.contains(normQueryArtist) ||
+                   normQueryArtist.contains(actualArtist) ||
+                   actualAlbumArtist.contains(normQueryArtist) ||
+                   normQueryArtist.contains(actualAlbumArtist)
         }
         return artistMatches.isEmpty ? albumMatches : artistMatches
     }

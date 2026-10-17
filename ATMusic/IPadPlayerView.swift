@@ -34,6 +34,7 @@ struct IPadPlayerView: View {
     @State private var pickedArtistName = ""
     @State private var selectedAlbum: Album?
     @State private var showArtistHome = false
+    @State private var showSignalPath = false
 
     enum RightPaneMode: String, CaseIterable, Identifiable {
         case lyrics = "实时歌词"
@@ -130,6 +131,12 @@ struct IPadPlayerView: View {
                     .environmentObject(theme)
             }
         }
+        .sheet(isPresented: $showSignalPath) {
+            AudioSignalPathSheet(song: song)
+                .presentationDetents([.medium, .large])
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
     }
 
     // MARK: - 顶栏
@@ -199,6 +206,11 @@ struct IPadPlayerView: View {
                 }
                 Button(action: onComments) {
                     Label("查看歌曲评论", systemImage: "text.bubble")
+                }
+                Button {
+                    showSignalPath = true
+                } label: {
+                    Label("音频信号通路", systemImage: "waveform.path.ecg")
                 }
                 Divider()
                 Button(action: onPlayerSettings) {
