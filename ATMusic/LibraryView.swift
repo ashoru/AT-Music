@@ -548,93 +548,6 @@ struct LibraryView: View {
         "暂无歌单"
     }
 
-    private var playlistsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "我的歌单", trailing: auth.isLoggedIn ? "新建" : nil) {
-                if auth.isLoggedIn {
-                    ATMusicHaptics.tap()
-                    newPlaylistName = ""
-                    showCreatePlaylist = true
-                }
-            }
-            if !auth.isLoggedIn {
-                EmptyStateView(icon: "music.note.list", text: "登录网易云音乐后即可查看你的歌单")
-            } else if auth.playlists.isEmpty {
-                createPlaylistCard
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(orderedNeteasePlaylists) { playlist in
-                        Button {
-                            openRoute(LibraryRoute.playlist(playlist))
-                        } label: {
-                            HStack(spacing: 12) {
-                                CoverImage(url: playlist.coverURL, size: 56, cornerRadius: 12)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(playlist.name)
-                                        .font(ATMusicFont.appFont(15, .medium))
-                                        .foregroundStyle(Color.atmusicLabel)
-                                        .lineLimit(1)
-                                    Text(atmusicSongCountText(playlist.trackCount))
-                                        .font(ATMusicFont.appFont(12))
-                                        .foregroundStyle(Color.atmusicComment)
-                                }
-                                Spacer(minLength: 8)
-                                if !isNativeClean { SourceBadgeView(source: playlist.source, compact: true) }
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                ATMusicHaptics.tap()
-                                requestDelete(playlist)
-                            } label: {
-                                Label("删除歌单", systemImage: "trash")
-                            }
-                        }
-                        Divider().overlay(Color.atmusicComment.opacity(0.12))
-                    }
-                    // 新建歌单行
-                    Button {
-                        ATMusicHaptics.tap()
-                        newPlaylistName = ""
-                        showCreatePlaylist = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(style: StrokeStyle(lineWidth: 1.2, dash: [5, 3]))
-                                    .foregroundStyle(Color.atmusicComment.opacity(0.45))
-                                    .frame(width: 56, height: 56)
-                                Image(systemName: "plus")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundStyle(Color.atmusicComment)
-                            }
-                            Text("新建歌单")
-                                .font(ATMusicFont.appFont(15, .medium))
-                                .foregroundStyle(Color.atmusicComment)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.vertical, 6)
-                .background {
-                                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .atmusicCardShadow(radius: 9, y: 3)
-            }
-        }
-    }
 
     private var createPlaylistCard: some View {
         Button {
@@ -746,32 +659,6 @@ struct LibraryView: View {
         }
     }
 
-    private func refreshCurrentSource(force: Bool) async {
-        switch source {
-        case .netease:
-            await auth.loadLibrary(force: force)
-        case .qq:
-            await loadQQPlaylists(force: force)
-        case .kugou:
-            await loadKugouPlaylists(force: force)
-        case .synology:
-            break
-        }
-    }
-
-    /// QQ 模式整体内容：用户歌单（创建 + 收藏同步）
-    private var qqSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            qqPlaylistsSection
-        }
-    }
-
-    /// 酷狗模式整体内容：只保留同步歌单
-    private var kugouSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            kugouPlaylistsSection
-        }
-    }
 
     private var qqPlaylistsSection: some View {
         VStack(alignment: .leading, spacing: 12) {

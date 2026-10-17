@@ -517,71 +517,6 @@ struct SearchView: View {
         referenceSearchField
     }
 
-    private var standardSearchField: some View {
-        HStack(spacing: 10) {
-            searchScopeMenu
-            // UIKit 输入框：回车/点搜索时先 unmarkText 强制提交拼音，再读取最新文本，
-            // 根治 SwiftUI TextField 在中文组字中 onSubmit 后输入消失、搜索无结果的问题
-            SearchTextField(
-                text: $keyword,
-                controller: searchController,
-                placeholder: atmusicLocalized("搜索歌曲、歌手、专辑", "Search songs, artists, or albums"),
-                textColor: UIColor.atmusicLabel,
-                onSubmit: { text in
-                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    runImmediateSearch(trimmed, updateKeyword: true)
-                }
-            )
-            .frame(height: 32)
-            .frame(maxWidth: .infinity)
-            ZStack {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Color.atmusicAmber)
-                    .opacity(searching ? 1 : 0)
-            }
-            .frame(width: 20, height: 22)
-            .animation(nil, value: searching)
-            ZStack {
-                Button {
-                    keyword = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.85))
-                }
-                .buttonStyle(.plain)
-                .opacity(keyword.isEmpty ? 0 : 1)
-                .disabled(keyword.isEmpty)
-            }
-            .frame(width: 20, height: 22)
-            Button {
-                // 先提交拼音再读取，避免组字中读到旧值或输入被清空
-                let text = searchController.commit()
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                runImmediateSearch(trimmed, updateKeyword: true)
-            } label: {
-            Text(keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "搜索" : keyword)
-                    .font(ATMusicFont.appFont(13, .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 6)
-                    .background { ATMusicGlass(shape: Capsule()) }
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.9))
-            .frame(width: 54, height: 30)
-        }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 6)
-        .background {
-            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .atmusicCardShadow(radius: 4, y: 2)
-        .frame(maxWidth: .infinity)
-    }
 
     /// 复刻 1.8.1 的简洁搜索框：视觉上只保留放大镜和输入区；聚合/单平台
     /// 选择仍可由放大镜按钮打开，因此 NAS 与多平台能力不会消失。
@@ -836,23 +771,6 @@ struct SearchView: View {
 
     // MARK: - 热搜（排名卡片）
 
-    private var hotSection: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                SearchHistorySection { word in
-                    searchController.dismissKeyboard()
-                    runImmediateSearch(word, updateKeyword: true)
-                }
-                ForEach(aggregateSearch ? searchProviders : [provider]) { source in
-                    hotProviderSection(source)
-                }
-                Spacer().frame(height: 130)
-            }
-            .padding(.horizontal, 20)
-        }
-        .atmusicScrollIndicatorsHidden()
-        .atmusicScrollDismissesKeyboard()
-    }
 
     /// 参考 1.8.1 搜索空态：说明图标、引导文案、双列热门词与历史搜索。
     private var referenceSearchLanding: some View {
@@ -1102,32 +1020,6 @@ struct SearchView: View {
         }
     }
 
-    private func playlistResultRow(_ playlist: Playlist) -> some View {
-        HStack(spacing: 12) {
-            CoverImage(url: playlist.coverURL, size: 52, cornerRadius: 10)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(playlist.name)
-                    .font(ATMusicFont.appFont(15, .medium))
-                    .foregroundStyle(Color.atmusicLabel)
-                    .lineLimit(1)
-                Text("\(playlist.trackCount) 首")
-                    .font(ATMusicFont.appFont(12))
-                    .foregroundStyle(Color.atmusicComment)
-            }
-            Spacer()
-            SourceBadgeView(source: playlist.source, compact: true)
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(Color.atmusicComment)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background {
-            if !isNativeClean {
-                ATMusicSurface(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-        }
-    }
 
     /// 1.8 的聚合结果页：一次搜索同时给出四类结果，按内容分区而不是按音源分组。
     /// 每一行保留来源徽标，点歌手/专辑/歌单仍进入对应详情页。
@@ -1763,13 +1655,6 @@ struct SearchView: View {
         runImmediateSearch(trimmed)
     }
 
-    /// 点击歌手 / 专辑：以其名称搜索歌曲
-    private func searchBy(_ name: String) {
-        ATMusicHaptics.tap()
-        searchController.dismissKeyboard()
-        resultType = .song
-        runImmediateSearch(name, updateKeyword: true)
-    }
 
     /// 并发加载各平台热搜。NAS 没有公共热搜接口，直接标记为不可用，不能把空数组当成“还在加载”。
     private func loadAllHotWords() async {
@@ -1861,28 +1746,6 @@ struct SearchView: View {
         return existing
     }
 
-    private func fetchAllSearchResults(provider: SearchProvider, keyword: String) async throws -> (songs: [Song], artists: [Artist], albums: [Album]) {
-        switch provider {
-        case .netease:
-            async let songs = NetEaseAPI.shared.search(keyword: keyword, limit: 40)
-            async let artists = NetEaseAPI.shared.searchArtists(keyword: keyword)
-            async let albums = NetEaseAPI.shared.searchAlbums(keyword: keyword)
-            return try await (songs, artists, albums)
-        case .qq:
-            async let songs = QQMusicAPI.shared.searchSongs(keyword: keyword)
-            async let artists = QQMusicAPI.shared.searchArtists(keyword: keyword)
-            async let albums = QQMusicAPI.shared.searchAlbums(keyword: keyword)
-            return try await (songs, artists, albums)
-        case .kugou:
-            async let songs = KugouMusicAPI.shared.searchSongs(keyword: keyword, limit: 40)
-            async let artists = KugouMusicAPI.shared.searchArtists(keyword: keyword)
-            async let albums = KugouMusicAPI.shared.searchAlbums(keyword: keyword)
-            return try await (songs, artists, albums)
-        case .synology:
-            let result = try await SynologyAPI.shared.searchAllVariants(keyword: keyword, limit: 200)
-            return (result.songs, result.artists, result.albums)
-        }
-    }
 
     /// 搜索页只请求当前选中的分类。之前每次输入都会同时请求歌曲、歌手、专辑三套接口，
     /// 结果页实际上只显示其中一类，造成了明显的网络和 UI 重建开销。

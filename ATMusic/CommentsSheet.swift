@@ -13,12 +13,6 @@ func atmusicRelativeTime(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
-private func atmusicCommentCountText(songName: String, platform: String? = nil, count: Int) -> String {
-    if let platform {
-        return String(format: NSLocalizedString("《%@》 · %@ %d 条评论", comment: ""), songName, NSLocalizedString(platform, comment: ""), count)
-    }
-    return String(format: NSLocalizedString("《%@》 · 共 %d 条评论", comment: ""), songName, count)
-}
 
 // MARK: - 评论区
 

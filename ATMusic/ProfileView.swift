@@ -889,8 +889,6 @@ struct ProfileView: View {
     }
 
 
-
-
     /// 壁纸格子：点击应用为当前背景；使用中的壁纸显示主题色边框+勾选；右上角删除
     private func wallpaperCell(path: String) -> some View {
         let isActive = path == theme.backgroundImagePath
@@ -941,21 +939,6 @@ struct ProfileView: View {
         }
     }
 
-    /// 功能宫格：常用功能统一整合排版
-    private var featuresGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "我的功能")
-            VStack(spacing: 12) {
-                featureCell(icon: "clock.arrow.circlepath", title: "播放历史", subtitle: String(format: NSLocalizedString("最近播放 %d 首", comment: ""), player.history.count)) {
-                    showHistory = true
-                }
-                featureCell(icon: hasVisibleAccountLogin ? "checkmark.seal.fill" : "globe", title: isEnglish ? "Accounts and Sign-in" : "账号与登录", subtitle: hasVisibleAccountLogin ? accountStatusLine : (isEnglish ? "Sign in to \(displayPlatformSummary)" : "登录 \(platformPrefs.summaryText)")) {
-                    ATMusicHaptics.tap()
-                    showAccountHub = true
-                }
-            }
-        }
-    }
 
     private func featureCell(icon: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
         Button {
@@ -1019,133 +1002,6 @@ struct ProfileView: View {
         updateShareFileURL = nil
     }
 
-    /// 更新地址 + 检查更新（GitHub 项目，可点击交互）
-    private var updateLinkCard: some View {
-        VStack(spacing: 0) {
-            Button {
-                ATMusicHaptics.tap()
-                if let url = URL(string: "https://github.com/ashoru/AT-Music") {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.atmusicHighlight)
-                        .frame(width: 26)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("更新地址")
-                            .font(ATMusicFont.appFont(14, .semibold))
-                            .foregroundStyle(Color.atmusicLabel)
-                        Text("GitHub：ashoru/AT-Music")
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment)
-                }
-                .padding(16)
-            }
-            .buttonStyle(.plain)
-
-            Divider()
-                .overlay(Color.atmusicComment.opacity(0.16))
-                .padding(.horizontal, 16)
-
-            Button {
-                ATMusicHaptics.tap()
-                guard !checkingUpdate else { return }
-                checkingUpdate = true
-                Task {
-                    let result = await UpdateChecker.checkNow()
-                    await MainActor.run {
-                        checkingUpdate = false
-                        updateResult = result
-                        if case .update(let info) = result {
-                            pendingUpdateInfo = info
-                            if let assetURL = info.assetURL {
-                                startAutoDownload(info: info, assetURL: assetURL)
-                            } else {
-                                showUpdateResult = true
-                            }
-                        } else {
-                            showUpdateResult = true
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Group {
-                        if checkingUpdate {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(Color.atmusicHighlight)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 15))
-                                .foregroundStyle(Color.atmusicHighlight)
-                        }
-                    }
-                    .frame(width: 26)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(checkingUpdate ? "正在检查…" : "检查更新")
-                            .font(ATMusicFont.appFont(14, .semibold))
-                            .foregroundStyle(Color.atmusicLabel)
-                    }
-                    Spacer()
-                }
-                .padding(16)
-            }
-            .buttonStyle(.plain)
-            .disabled(checkingUpdate)
-        }
-        .background {
-            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .atmusicCardShadow(radius: 9, y: 3)
-    }
-
-    /// 我的页底部交流群入口
-    private var communityCard: some View {
-        Button {
-            ATMusicHaptics.tap()
-            if let url = URL(string: "https://t.me/+k8oYhsIU4sgzOTM1") {
-                UIApplication.shared.open(url)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.atmusicHighlight)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("交流群")
-                        .font(ATMusicFont.appFont(isNativeClean ? 15 : 14, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                    if !isNativeClean {
-                        Text("点击跳转 Telegram")
-                            .font(ATMusicFont.appFont(11))
-                            .foregroundStyle(Color.atmusicComment)
-                    }
-                }
-                Spacer()
-                Image(systemName: "arrow.up.forward.app")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.atmusicComment)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: isNativeClean ? 54 : 72)
-            .background {
-                ATMusicSurface(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-        }
-        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-        .atmusicCardShadow(radius: 9, y: 3)
-    }
 
     private var profileVersionFooter: some View {
         Text(appVersionText)
@@ -2498,13 +2354,6 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    /// 主题相关设置统一归组，避免平台和排行榜外观选项散落在设置页。
-    private var themeSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            appearanceSection
-            platformSection
-        }
-    }
 
     /// 校验扩展名并安装字体（asCopy 返回的 URL 已在沙盒内，可直接读取）
     private func installFont(from url: URL) {
@@ -3018,138 +2867,6 @@ struct SettingsView: View {
         .buttonStyle(GlassPressButtonStyle(scale: 0.98))
     }
 
-    private var playbackSection: some View {
-        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
-            Button {
-                ATMusicHaptics.select()
-                withAnimation {
-                    playbackExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("播放与音质")
-                            .font(ATMusicFont.appFont(15))
-                            .foregroundStyle(Color.atmusicLabel)
-                        if !isNativeClean {
-                            Text(atmusicLocalized("优先音质、混音模式与播放行为", "Priority quality, audio mixing and playback behavior"))
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: playbackExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: isNativeClean ? 51 : 47)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-
-            if playbackExpanded {
-                VStack(spacing: 14) {
-                    playbackQualitySection
-
-                    Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                    Toggle(isOn: $autoResumeLastPlayback) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "play.square.stack.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.atmusicAmber)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(atmusicLocalized("启动时自动播放上次歌曲", "Auto-play the last song on launch"))
-                                    .font(ATMusicFont.appFont(15))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                Text(atmusicLocalized("打开软件后自动恢复上次未播放完的歌曲", "Automatically resume the last unfinished song when the app starts."))
-                                    .font(ATMusicFont.appFont(11))
-                                    .foregroundStyle(Color.atmusicComment)
-                            }
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .tint(Color.atmusicAmber)
-
-                    Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                    Toggle(isOn: $mixesWithOthers) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.atmusicAmber)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("与其他音频同时播放")
-                                    .font(ATMusicFont.appFont(15))
-                                    .foregroundStyle(Color.atmusicLabel)
-                                Text("允许后台伴奏或游戏音效同时发声")
-                                    .font(ATMusicFont.appFont(11))
-                                    .foregroundStyle(Color.atmusicComment)
-                            }
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .tint(Color.atmusicAmber)
-                    .onChange(of: mixesWithOthers) { _, value in
-                        PlayerManager.applyAudioMixPreference(value)
-                    }
-
-                    Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                    HStack(spacing: 12) {
-                        Image(systemName: "gauge.with.dots.needle.67percent")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.atmusicAmber)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("自适应刷新率")
-                                .font(ATMusicFont.appFont(15))
-                                .foregroundStyle(Color.atmusicLabel)
-                            Text("由 iOS 自动在流畅度、功耗和温度之间调节刷新率")
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 17))
-                            .foregroundStyle(Color.atmusicAmber)
-                    }
-
-                    Divider().overlay(Color.atmusicComment.opacity(0.15))
-
-                    Toggle(isOn: $hapticsEnabled) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "iphone.radiowaves.left.and.right")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.atmusicAmber)
-                                .frame(width: 28)
-                            Text(atmusicLocalized("触感反馈", "Haptic Feedback"))
-                                .font(ATMusicFont.appFont(15))
-                                .foregroundStyle(Color.atmusicLabel)
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .tint(Color.atmusicAmber)
-                }
-                .padding(16)
-                .background {
-                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                }
-                .atmusicCardShadow(radius: 9, y: 3)
-                .transition(.opacity)
-            }
-        }
-    }
 
     private var thirdPartySourceSection: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -3282,90 +2999,7 @@ struct SettingsView: View {
         }
     }
 
-    private var cacheStorageSection: some View {
-        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
-            Button {
-                ATMusicHaptics.select()
-                withAnimation {
-                    cacheStorageExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "internaldrive.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(atmusicLocalized("存储与缓存", "Storage & Cache"))
-                            .font(ATMusicFont.appFont(15))
-                            .foregroundStyle(Color.atmusicLabel)
-                        if !isNativeClean {
-                            Text(atmusicLocalized("已占用 \(musicCacheUsageText) · 可按需清理", "Used \(musicCacheUsageText) · Clean as needed"))
-                                .font(ATMusicFont.appFont(11))
-                                .foregroundStyle(Color.atmusicComment)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: cacheStorageExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: isNativeClean ? 51 : 47)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.98))
 
-            if cacheStorageExpanded {
-                VStack(spacing: 14) {
-                    musicCacheSection
-                }
-                .padding(16)
-                .background {
-                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                }
-                .atmusicCardShadow(radius: 9, y: 3)
-                .transition(.opacity)
-            }
-        }
-    }
-
-    /// 更新日志入口
-    private var changelogSection: some View {
-        VStack(alignment: .leading, spacing: isNativeClean ? 0 : 10) {
-            Button {
-                ATMusicHaptics.tap()
-                showChangelog = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 14))
-                        .foregroundStyle(settingsIconColor)
-                        .frame(width: 28)
-                    Text("更新日志")
-                        .font(ATMusicFont.appFont(15))
-                        .foregroundStyle(Color.atmusicLabel)
-                    Spacer()
-                    Text("v\(ChangelogStore.currentVersion)")
-                        .font(ATMusicFont.appFont(12))
-                        .foregroundStyle(Color.atmusicComment)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.6))
-                }
-                .padding(.horizontal, isNativeClean ? 14 : 16)
-                .frame(minHeight: isNativeClean ? 51 : 49)
-                .background {
-                    if !isNativeClean { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
-                }
-            }
-            .buttonStyle(.plain)
-            .atmusicCardShadow(radius: isNativeClean ? 0 : 8, y: isNativeClean ? 0 : 3)
-        }
-    }
     private var backupSection: some View {
         VStack(alignment: .leading, spacing: isNativeClean ? 0 : 12) {
             Button {

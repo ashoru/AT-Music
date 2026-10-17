@@ -1346,9 +1346,6 @@ final class SynologyAPI: ObservableObject {
         return TagEditorSnapshot(file: file, lyrics: Self.stringValue(loaded["lyrics"]))
     }
 
-    private func loadTagEditorFile(path: String) async throws -> [String: Any] {
-        try await loadTagEditorSnapshot(path: path).file
-    }
 
     private func tagEditorPayload(path: String, song: Song, patch: SynologyTagPatch, lyricsOverride: String? = nil) async throws -> [String: Any] {
         let snapshot = try await loadTagEditorSnapshot(path: path)

@@ -439,23 +439,7 @@ struct DiscoverView: View {
 
     /// 每日推荐封面右下角播放状态：当前播放中显示动态指示器，暂停显示暂停，其余显示播放
     @ViewBuilder
-    private func dailyPlayStateBadge(for song: Song) -> some View {
-        let isCurrent = player.currentSong?.identityKey == song.identityKey
-        ZStack {
-            if isCurrent && player.isPlaying {
-                NowPlayingIndicator()
-                    .frame(width: 24, height: 24)
-                    .background(.black.opacity(0.45), in: Circle())
-            } else {
-                Image(systemName: isCurrent ? "pause.fill" : "play.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 24, height: 24)
-                    .background(.black.opacity(0.45), in: Circle())
-            }
-        }
-        .padding(7)
-    }
+
 
     /// 网易云排行榜：全部榜单保留，热歌榜置顶
     private var neteaseTopLists: [TopList] {

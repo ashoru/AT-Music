@@ -20,6 +20,8 @@ struct SongCell: View {
     var trackNumber: Int? = nil
     /// 副标题覆盖；nil 时按默认规则显示艺人/专辑
     var subtitleText: String? = nil
+    /// 收藏列表模式：非 nil 时尾部显示红心按钮（替代时长），点击切换收藏
+    var favoriteToggle: (() -> Void)? = nil
     var onTap: (() -> Void)?
 
     @State private var showAddToPlaylist = false
@@ -83,10 +85,20 @@ struct SongCell: View {
                 SongVIPBadgeView()
             }
             SourceBadgeView(source: song.source, compact: true)
-            Text(song.formattedDuration)
-                .font(ATMusicFont.appFont(12, .regular, .monospaced))
-                .foregroundStyle(Color.atmusicComment)
+            if let favoriteToggle {
+                Button(action: favoriteToggle) {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.red)
+                        .font(.system(size: 16))
+                }
+                .buttonStyle(.plain)
                 .frame(minWidth: 42, alignment: .trailing)
+            } else {
+                Text(song.formattedDuration)
+                    .font(ATMusicFont.appFont(12, .regular, .monospaced))
+                    .foregroundStyle(Color.atmusicComment)
+                    .frame(minWidth: 42, alignment: .trailing)
+            }
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: rowMinHeight)

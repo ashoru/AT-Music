@@ -247,6 +247,17 @@ enum ATMusicPlayerButtonStyle: String, CaseIterable, Identifiable {
         case .appleMusic: return "深色圆形底座，图标更大更集中"
         }
     }
+
+    /// 各播放器样式独立的按钮风格存储 key（Apple Music 风格天生无圆圈，不需要）
+    static func storageKey(for playerStyle: ATMusicCoverPlayerStyle) -> String {
+        "atmusic.playerButtonStyle.\(playerStyle.rawValue)"
+    }
+
+    /// 读取某播放器样式的按钮风格
+    static func current(for playerStyle: ATMusicCoverPlayerStyle) -> ATMusicPlayerButtonStyle {
+        let raw = UserDefaults.standard.string(forKey: storageKey(for: playerStyle))
+        return ATMusicPlayerButtonStyle(rawValue: raw ?? "") ?? .appleMusic
+    }
 }
 
 // MARK: - 播放器浮尘样式

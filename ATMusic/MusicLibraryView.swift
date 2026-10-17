@@ -1843,32 +1843,20 @@ struct UnifiedFavoritesDetailView: View {
 
                         Section {
                             ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                HStack(spacing: 0) {
-                                    SongCell(
-                                        song: song,
-                                        playbackContext: displayedSongs,
-                                        playbackIndex: index,
-                                        subtitleText: "\(song.artists) · \(song.album)",
-                                        onTap: {
-                                            player.play(songs: displayedSongs, startAt: index)
-                                        }
-                                    )
-                                    Button {
+                                SongCell(
+                                    song: song,
+                                    playbackContext: displayedSongs,
+                                    playbackIndex: index,
+                                    subtitleText: "\(song.artists) · \(song.album)",
+                                    favoriteToggle: {
                                         Task {
                                             await favorites.toggleFavorite(song)
                                         }
-                                    } label: {
-                                        Image(systemName: "heart.fill")
-                                            .foregroundStyle(.red)
-                                            .font(.system(size: 16))
+                                    },
+                                    onTap: {
+                                        player.play(songs: displayedSongs, startAt: index)
                                     }
-                                    .buttonStyle(.plain)
-                                    .padding(.trailing, 4)
-                                }
-                                // SongCell 包在 HStack 里时它内部的 listRow 样式不生效，移到行上
-                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
+                                )
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
                                         Task {
@@ -1985,7 +1973,12 @@ struct UnifiedFavoritesDetailView: View {
                                 song: song,
                                 glassRow: true,
                                 playbackContext: displayedSongs,
-                                playbackIndex: index
+                                playbackIndex: index,
+                                favoriteToggle: {
+                                    Task {
+                                        await favorites.toggleFavorite(song)
+                                    }
+                                }
                             ) {
                                 player.play(songs: displayedSongs, startAt: index)
                             }

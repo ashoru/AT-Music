@@ -16,7 +16,10 @@ struct PlayerLayoutEditorSheet: View {
 
     // 播放器风格与外观
     @AppStorage("atmusic.coverPlayerStyle") private var coverPlayerStyleRaw = ATMusicCoverPlayerStyle.appleMusic.rawValue
-    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
+    // 按钮样式按播放器样式独立设置（经典/唱片/沉浸式各记各的；Apple Music 风格天生无圆圈）
+    @AppStorage("atmusic.playerButtonStyle.classic") private var classicButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
+    @AppStorage("atmusic.playerButtonStyle.vinyl") private var vinylButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
+    @AppStorage("atmusic.playerButtonStyle.immersive") private var immersiveButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.appleMusic.showLyricPreview") private var showLyricPreview = true
     @AppStorage("atmusic.appleMusic.showVolume") private var showVolume = false
     @AppStorage("atmusic.appleMusic.syncWallpaper") private var syncWallpaper = false
@@ -54,6 +57,16 @@ struct PlayerLayoutEditorSheet: View {
 
     private var activeLegacyStyle: ATMusicCoverPlayerStyle {
         activeStyle == .vinyl ? .vinyl : (activeStyle == .immersive ? .immersive : .classic)
+    }
+
+    /// 当前选中播放器样式的按钮风格（读写各自独立的 key）
+    private var activeButtonStyleRaw: Binding<String> {
+        switch activeStyle {
+        case .immersive: return $immersiveButtonStyleRaw
+        case .vinyl: return $vinylButtonStyleRaw
+        case .classic: return $classicButtonStyleRaw
+        case .appleMusic: return .constant(ATMusicPlayerButtonStyle.appleMusic.rawValue)
+        }
     }
 
     private var selectedEntry: Binding<PlayerLayoutEntry> {
@@ -221,34 +234,40 @@ struct PlayerLayoutEditorSheet: View {
     }
 
     /// 按钮样式选择：下方实时预览渲染的是真实播放器，切换即时可见
+    /// 按钮样式选择：作用于当前选中的播放器样式（Apple Music 风格天生无圆圈，不显示）
+    @ViewBuilder
     private var buttonStyleSelectorBar: some View {
-        HStack(spacing: 6) {
-            Text("按钮")
-                .font(ATMusicFont.appFont(12, .medium))
-                .foregroundStyle(Color.atmusicComment)
-                .padding(.leading, 16)
-            ForEach(ATMusicPlayerButtonStyle.allCases) { style in
-                let isSelected = playerButtonStyleRaw == style.rawValue
-                Button {
-                    playerButtonStyleRaw = style.rawValue
-                    ATMusicHaptics.select()
-                } label: {
-                    Text(style.title)
-                        .font(ATMusicFont.appFont(12, isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? Color.white : Color.atmusicLabel)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .background(
-                            isSelected ? Color.atmusicAmber : Color.primary.opacity(0.06),
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        )
+        if activeStyle != .appleMusic {
+            HStack(spacing: 6) {
+                Text("\(activeStyle.title)按钮")
+                    .font(ATMusicFont.appFont(12, .medium))
+                    .foregroundStyle(Color.atmusicComment)
+                    .padding(.leading, 16)
+                    .layoutPriority(1)
+                ForEach(ATMusicPlayerButtonStyle.allCases) { style in
+                    let isSelected = activeButtonStyleRaw.wrappedValue == style.rawValue
+                    Button {
+                        activeButtonStyleRaw.wrappedValue = style.rawValue
+                        ATMusicHaptics.select()
+                    } label: {
+                        Text(style.title)
+                            .font(ATMusicFont.appFont(12, isSelected ? .semibold : .medium))
+                            .foregroundStyle(isSelected ? Color.white : Color.atmusicLabel)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 32)
+                            .background(
+                                isSelected ? Color.atmusicAmber : Color.primary.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.trailing, 16)
+            .padding(.bottom, 8)
         }
-        .padding(.trailing, 16)
-        .padding(.bottom, 8)
     }
+
 
     // MARK: - 【上半区：吸顶固定微缩实时真机预览】
 
@@ -921,15 +940,6 @@ struct PlayerLayoutEditorSheet: View {
         }
     }
 
-    private func colorBinding(for hex: Binding<String>, fallback: Color) -> Binding<Color> {
-        Binding(
-            get: {
-                if hex.wrappedValue.hasPrefix("#"), let c = Color(hex: hex.wrappedValue) { return c }
-                return fallback
-            },
-            set: { hex.wrappedValue = $0.hexString }
-        )
-    }
 
     // MARK: - Tab 3: 预设与重置
 

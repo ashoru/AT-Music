@@ -148,7 +148,7 @@ struct ImmersivePlayerView: View {
     @EnvironmentObject private var auth: AuthStore
 
     // 全局外观配置
-    @AppStorage("atmusic.playerButtonStyle") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
+    @AppStorage("atmusic.playerButtonStyle.immersive") private var playerButtonStyleRaw = ATMusicPlayerButtonStyle.appleMusic.rawValue
     @AppStorage("atmusic.playerPrimaryButtonColorHex") private var playerPrimaryButtonColorHex = ""
     @AppStorage("atmusic.playerMainIconColorHex") private var playerMainIconColorHex = ""
     @AppStorage("atmusic.playerSecondaryIconColorHex") private var playerSecondaryIconColorHex = ""
