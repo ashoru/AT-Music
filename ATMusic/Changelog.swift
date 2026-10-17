@@ -46,7 +46,24 @@ enum ChangelogStore {
 
     static var latest: VersionLog? { logs.first }
 
-    static let logs: [VersionLog] = [
+        static let logs: [VersionLog] = [
+        VersionLog(
+            id: "1.9.25-build-87-offline-nas-closed-loop-and-ipad-transfer",
+            version: "1.9.25",
+            title: "在线流媒体·本地离线受管沙盒·群晖 NAS 双向闭环闭环系统全量落地与 iPad 宽屏深度适配",
+            features: [
+                "在线与本地受管沙盒免感知存储：下载目录启用 isExcludedFromBackup 防云空间污染，下载歌曲即刻自动注册入库，实现任意页面点歌 0ms 本地免流秒播",
+                "单曲行与播放器操作区 4 状态无感切换：支持未下载、排队等待、微光环形进度圈（点击即时暂停/恢复）与已下载沉稳徽标（点击呼出全功能操作弹窗）",
+                "群晖 NAS 双向传输与最近归档历史：传输中心全新升级 NAS 局域网千兆/公网穿透状态看板、目标路径展示与全量最近归档历史记录沉淀与管理",
+                "已离线曲库四维度聚合：支持按【单曲】、【专辑】、【歌手】、【来源平台】四种维度即时切换与一键播放全部",
+                "iPad 侧边栏常驻与大屏适配：NavigationSplitView 资料库侧边栏常驻「传输中心」与动态实时角标，宽屏开阔布局尽享大屏优势",
+                "离线与传输设置：支持仅 Wi-Fi 下传输保护、局域网极速并发数与外网并发数动态调优、歌手/专辑分目录归档、低电量与 2GB 磁盘警戒线自动保护"
+            ],
+            fixes: [
+                "解决部分场景下离线音频占用 iCloud 备份空间的问题",
+                "解决离线与群晖归档任务缺乏进度控制与状态交互的问题"
+            ]
+        ),
         VersionLog(
             id: "1.9.24-build-86-cover-art-resolution-and-nas-sync",
             version: "1.9.24",

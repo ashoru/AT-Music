@@ -67,6 +67,17 @@ enum ManagedAudioPath {
     static var documents: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
+
+    /// 确保受管离线音频目录存在并排除在 iCloud 备份之外，防止音频文件占用用户云存储空间
+    static func ensureExcludedFromBackup() {
+        var root = documents.appendingPathComponent("ATMusicAudio", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: root.path) {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? root.setResourceValues(values)
+    }
     static func resolve(_ relativePath: String, documents: URL = documents) throws -> URL {
         guard !relativePath.hasPrefix("/"), relativePath.hasPrefix("ATMusicAudio/"),
               !relativePath.split(separator: "/").contains("..") else { throw LibraryStorageError.invalidPath }
@@ -234,6 +245,7 @@ final class LocalAudioFileManager: @unchecked Sendable {
                 try file.write(fileIndex)
             }
         } catch { loadFailed = true }
+        ManagedAudioPath.ensureExcludedFromBackup()
         repairTmpFilesIfNeeded()
     }
 

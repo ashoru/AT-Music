@@ -14,6 +14,7 @@ struct IPadRootView: View {
     @EnvironmentObject private var favorites: FavoritesStore
     @Environment(\.colorScheme) private var colorScheme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showTransferCenter = false
 
     init(
         selection: Binding<RootTab>,
@@ -34,6 +35,14 @@ struct IPadRootView: View {
             detailContent
         }
         .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $showTransferCenter) {
+            ATMusicNavigationStack {
+                TransferCenterView()
+            }
+            .environmentObject(player)
+            .environmentObject(theme)
+            .environmentObject(auth)
+        }
     }
 
     // MARK: - 侧边栏列表
@@ -49,6 +58,7 @@ struct IPadRootView: View {
                 Section("资料库") {
                     sidebarButton(.library)
                     sidebarButton(.profile)
+                    sidebarTransferCenterButton
                 }
 
                 Section("音频输出") {
@@ -71,6 +81,29 @@ struct IPadRootView: View {
                 sidebarMiniPlayer(song: song)
             }
         }
+    }
+
+    private var sidebarTransferCenterButton: some View {
+        Button {
+            showTransferCenter = true
+        } label: {
+            HStack {
+                Label("传输中心", systemImage: "arrow.up.arrow.down.circle")
+                Spacer()
+                let activeCount = DownloadManager.shared.activeDownloads.filter { $0.status != .completed }.count +
+                                  DownloadManager.shared.activeUploads.filter { $0.status != .completed }.count
+                if activeCount > 0 {
+                    Text("\(activeCount)")
+                        .font(ATMusicFont.appFont(11, .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.atmusicAmber, in: Capsule())
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
     }
 
     private func sidebarButton(_ tab: RootTab) -> some View {

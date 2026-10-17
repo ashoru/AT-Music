@@ -7,6 +7,7 @@ struct TransferCenterView: View {
     @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var synology = SynologyAPI.shared
+    @ObservedObject private var archiveStore = NASArchiveStore.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
@@ -42,6 +43,15 @@ struct TransferCenterView: View {
             (name, songs.first?.artists ?? "未知歌手", songs.first?.coverURL, songs)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var offlineSources: [(source: SongSource, count: Int, songs: [Song])] {
+        let grouped = Dictionary(grouping: downloadManager.downloadedSongs) { $0.source }
+        let order: [SongSource] = [.netease, .qq, .kugou, .synology, .local]
+        return order.compactMap { src in
+            guard let songs = grouped[src], !songs.isEmpty else { return nil }
+            return (src, songs.count, songs)
+        }
     }
 
     private var offlineArtists: [(name: String, coverURL: URL?, songs: [Song])] {
@@ -650,6 +660,47 @@ struct TransferCenterView: View {
                         }
                     }
                     .padding(.horizontal, 16)
+                } else if offlineFilter == 3 {
+                    // 按来源平台聚合
+                    LazyVStack(spacing: 12) {
+                        ForEach(offlineSources, id: \.source) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 10) {
+                                    SourceBadgeView(source: group.source, compact: false)
+                                    Text("\(group.count) 首已离线歌曲")
+                                        .font(ATMusicFont.appFont(12))
+                                        .foregroundStyle(Color.atmusicComment)
+                                    Spacer()
+                                    Button {
+                                        player.play(songs: group.songs, startAt: 0)
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "play.circle.fill")
+                                            Text("播放全部")
+                                        }
+                                        .font(ATMusicFont.appFont(12, .semibold))
+                                        .foregroundStyle(Color.atmusicAmber)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(Color.atmusicAmber.opacity(0.12), in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.horizontal, 4)
+
+                                LazyVStack(spacing: 0) {
+                                    ForEach(group.songs) { song in
+                                        SongCell(song: song)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background {
+                                ATMusicGlass(shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
                 } else {
                     // 按歌手聚合
                     LazyVStack(spacing: 10) {
@@ -772,6 +823,7 @@ struct TransferCenterView: View {
             filterButton(title: "单曲", index: 0)
             filterButton(title: "专辑", index: 1)
             filterButton(title: "歌手", index: 2)
+            filterButton(title: "来源平台", index: 3)
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -823,24 +875,116 @@ struct TransferCenterView: View {
                     }
                     .padding(.horizontal, 16)
                 }
+
+                archivedHistorySection
             }
             .padding(.top, 8)
             .padding(.bottom, 140)
         }
     }
 
+    private var archivedHistorySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                    Text("历史归档记录（\(archiveStore.recentRecords.count) 首）")
+                        .font(ATMusicFont.appFont(13, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                }
+                Spacer()
+                if !archiveStore.recentRecords.isEmpty {
+                    Button("清空记录") {
+                        archiveStore.clearHistory()
+                        ATMusicHaptics.tap()
+                    }
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+
+            if archiveStore.recentRecords.isEmpty {
+                HStack {
+                    Spacer()
+                    Text("暂无归档历史记录")
+                        .font(ATMusicFont.appFont(12))
+                        .foregroundStyle(Color.atmusicComment)
+                        .padding(.vertical, 16)
+                    Spacer()
+                }
+                .background {
+                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .padding(.horizontal, 16)
+            } else {
+                LazyVStack(spacing: 8) {
+                    ForEach(archiveStore.recentRecords) { record in
+                        HStack(spacing: 12) {
+                            CoverImage(url: record.coverURL, size: 40, cornerRadius: 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(record.songName)
+                                    .font(ATMusicFont.appFont(13, .semibold))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                    .lineLimit(1)
+                                Text("\(record.artistName) · \(record.albumName)")
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                                    .lineLimit(1)
+                                Text(record.nasPath)
+                                    .font(ATMusicFont.appFont(9, .regular, .monospaced))
+                                    .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Text(record.formattedDate)
+                                .font(ATMusicFont.appFont(10, .regular, .monospaced))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                        }
+                        .padding(10)
+                        .background {
+                            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
     private var nasStatusCard: some View {
-        HStack(spacing: 12) {
+        let uploadRoot = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
+        let isHierarchy = UserDefaults.standard.object(forKey: "atmusic.nas.uploadHierarchy") as? Bool ?? true
+        let destSummary = isHierarchy ? "\(uploadRoot)/{歌手}/{专辑}/" : "\(uploadRoot)/"
+        return HStack(spacing: 12) {
             Image(systemName: synology.isLoggedIn ? "externaldrive.badge.checkmark" : "externaldrive.trianglebadge.exclamationmark")
                 .font(.system(size: 28))
                 .foregroundStyle(synology.isLoggedIn ? Color.atmusicSage : Color.orange)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(synology.isLoggedIn ? "群晖 NAS · 已连接" : "群晖 NAS · 未登录")
-                    .font(ATMusicFont.appFont(15, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
+                HStack(spacing: 6) {
+                    Text(synology.isLoggedIn ? "群晖 NAS · 已连接" : "群晖 NAS · 未登录")
+                        .font(ATMusicFont.appFont(15, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    if synology.isLoggedIn {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(synology.isLanActive ? Color.green : Color.yellow)
+                                .frame(width: 7, height: 7)
+                            Text(synology.isLanActive ? "局域网高速直连" : "公网安全穿透")
+                                .font(ATMusicFont.appFont(10, .semibold))
+                                .foregroundStyle(synology.isLanActive ? Color.green : Color.yellow)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.06)))
+                    }
+                }
                 if synology.isLoggedIn {
-                    Text("\(synology.isLanActive ? "局域网高速直连" : "公网连接") · 归档目录：/music/ATMusic")
+                    Text("目标保存路径：\(destSummary)")
                         .font(ATMusicFont.appFont(11))
                         .foregroundStyle(Color.atmusicComment)
                 } else {

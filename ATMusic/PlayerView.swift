@@ -28,6 +28,7 @@ struct PlayerView: View {
     @State private var showAddToPlaylist = false
     @State private var showComments = false
     @State private var showDownloadPicker = false
+    @State private var showDownloadedActionDialog = false
     @State private var showSynologyMetadataEditor = false
     @State private var showLocalMetadataEditor = false
     @State private var showLyricSearch = false
@@ -421,7 +422,7 @@ struct PlayerView: View {
                         showAddToLocalPlaylist = true
                     },
                     onDownload: {
-                        showDownloadPicker = true
+                        handlePlayerDownloadTap()
                     },
                     onPlayerSettings: {
                         openPlayerSettings()
@@ -455,7 +456,7 @@ struct PlayerView: View {
                         showAddToLocalPlaylist = true
                     },
                     onDownload: {
-                        showDownloadPicker = true
+                        handlePlayerDownloadTap()
                     }
                 )
             } else if coverPlayerStyle == .appleMusic {
@@ -758,6 +759,39 @@ struct PlayerView: View {
                     pickedArtistName = name
                     ATMusicHaptics.tap()
                     showArtistHome = true
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("已离线歌曲：\(song?.name ?? "")", isPresented: $showDownloadedActionDialog, titleVisibility: .visible) {
+            Button("从本地移除下载", role: .destructive) {
+                if let song {
+                    DownloadManager.shared.removeDownloaded(song: song)
+                    ToastCenter.shared.show("已从本地移除下载")
+                }
+            }
+            Button("重新下载 (更换音质)") {
+                showDownloadPicker = true
+            }
+            if let song, SynologyAPI.shared.isLoggedIn, song.source != .synology {
+                Button("上传到群晖 NAS") {
+                    DownloadManager.shared.startUploadToNAS(song: song)
+                }
+            }
+            Button("查看本地音频参数") {
+                if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
+                    let ext = url.pathExtension.uppercased()
+                    var sizeStr = "未知大小"
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                       let size = attrs[.size] as? NSNumber {
+                        sizeStr = ByteCountFormatter.string(fromByteCount: size.int64Value, countStyle: .file)
+                    }
+                    ToastCenter.shared.show("本地音轨：\(ext) · \(sizeStr)")
+                }
+            }
+            if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
+                Button("隔空投送 / 导出") {
+                    shareFile = ShareFileItem(url: url)
                 }
             }
             Button("取消", role: .cancel) {}
@@ -2560,6 +2594,27 @@ struct PlayerView: View {
     }
 
     // MARK: - 下载
+
+    private func handlePlayerDownloadTap() {
+        guard let song else { return }
+        if DownloadManager.shared.isDownloaded(song: song) {
+            showDownloadedActionDialog = true
+            ATMusicHaptics.tap()
+        } else if DownloadManager.shared.isDownloading(song: song) {
+            let task = DownloadManager.shared.activeDownloads.first(where: { $0.song.identityKey == song.identityKey })
+            if let task {
+                ATMusicHaptics.tap()
+                if task.status == .downloading {
+                    DownloadManager.shared.pauseDownload(id: task.id)
+                } else if task.status == .paused {
+                    DownloadManager.shared.resumeDownload(id: task.id)
+                }
+            }
+        } else {
+            showDownloadPicker = true
+            ATMusicHaptics.tap()
+        }
+    }
 
     private func downloadCurrent(_ quality: DownloadQuality) async {
         guard let song else { return }

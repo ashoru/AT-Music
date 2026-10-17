@@ -26,6 +26,8 @@ struct SongCell: View {
 
     @State private var showAddToPlaylist = false
     @State private var shareFile: ShareFileItem?
+    @State private var showDownloadedActionSheet = false
+    @State private var showDownloadPicker = false
 
     private var isCurrent: Bool {
         player.currentSong?.identityKey == song.identityKey
@@ -84,15 +86,7 @@ struct SongCell: View {
             if showSongVIPBadge, song.isVIP {
                 SongVIPBadgeView()
             }
-            if DownloadManager.shared.isDownloaded(song: song) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.atmusicAmber)
-            } else if DownloadManager.shared.isDownloading(song: song) {
-                ProgressView()
-                    .scaleEffect(0.65)
-                    .frame(width: 14, height: 14)
-            }
+            downloadIndicatorView
             SourceBadgeView(source: song.source, compact: true)
             if let favoriteToggle {
                 Button(action: favoriteToggle) {
@@ -175,6 +169,108 @@ struct SongCell: View {
         }
         .sheet(item: $shareFile) { item in
             ShareSheet(items: [item.url])
+        }
+        .confirmationDialog("已离线歌曲：\(song.name)", isPresented: $showDownloadedActionSheet, titleVisibility: .visible) {
+            Button("从本地移除下载", role: .destructive) {
+                DownloadManager.shared.removeDownloaded(song: song)
+                ToastCenter.shared.show("已从本地移除下载")
+            }
+            Button("重新下载 (更换音质)") {
+                showDownloadPicker = true
+            }
+            if SynologyAPI.shared.isLoggedIn && song.source != .synology {
+                Button("上传到群晖 NAS") {
+                    DownloadManager.shared.startUploadToNAS(song: song)
+                }
+            }
+            Button("查看本地音频参数") {
+                showAudioParameters()
+            }
+            if let url = DownloadManager.shared.localAudioURL(for: song) {
+                Button("隔空投送 / 导出") {
+                    shareFile = ShareFileItem(url: url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("选择离线下载音质", isPresented: $showDownloadPicker, titleVisibility: .visible) {
+            ForEach(ThirdPartyAudioQuality.supported(for: song.source)) { quality in
+                Button(quality.displayName) {
+                    DownloadManager.shared.startDownload(song: song, quality: quality)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private var downloadIndicatorView: some View {
+        if DownloadManager.shared.isDownloaded(song: song) {
+            Button {
+                showDownloadedActionSheet = true
+                ATMusicHaptics.tap()
+            } label: {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+            }
+            .buttonStyle(.plain)
+        } else if DownloadManager.shared.isDownloading(song: song) {
+            let task = DownloadManager.shared.activeDownloads.first(where: { $0.song.identityKey == song.identityKey })
+            if let task, task.status == .downloading {
+                Button {
+                    DownloadManager.shared.pauseDownload(id: task.id)
+                    ATMusicHaptics.select()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 1.5)
+                            .frame(width: 15, height: 15)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(max(0.08, task.progress)))
+                            .stroke(Color.atmusicAmber, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                            .frame(width: 15, height: 15)
+                            .rotationEffect(.degrees(-90))
+                        Image(systemName: "pause.fill")
+                            .font(.system(size: 5, weight: .bold))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                }
+                .buttonStyle(.plain)
+            } else if let task, task.status == .paused {
+                Button {
+                    DownloadManager.shared.resumeDownload(id: task.id)
+                    ATMusicHaptics.select()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.atmusicAmber.opacity(0.35), lineWidth: 1.5)
+                            .frame(width: 15, height: 15)
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 5, weight: .bold))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                }
+                .buttonStyle(.plain)
+            } else {
+                Image(systemName: "clock.arrow.2.circlepath")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+        }
+    }
+
+    private func showAudioParameters() {
+        if let url = DownloadManager.shared.localAudioURL(for: song) {
+            let ext = url.pathExtension.uppercased()
+            var sizeStr = "未知大小"
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? NSNumber {
+                sizeStr = ByteCountFormatter.string(fromByteCount: size.int64Value, countStyle: .file)
+            }
+            ToastCenter.shared.show("本地音轨：\(ext) · \(sizeStr)")
+        } else {
+            ToastCenter.shared.show("未找到本地音轨文件")
         }
     }
 

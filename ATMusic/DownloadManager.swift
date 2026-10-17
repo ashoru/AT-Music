@@ -209,8 +209,61 @@ final class DownloadManager: ObservableObject {
     @Published var activeUploads: [UploadTaskItem] = []
     @Published var isPaused: Bool = false
 
-    private let maxConcurrentDownloads = 3
-    private let maxConcurrentUploads = 1
+    private var effectiveDownloadConcurrency: Int {
+        if SynologyAPI.shared.isLanActive {
+            let lan = UserDefaults.standard.integer(forKey: "atmusic.download.lanConcurrency")
+            return (2...5).contains(lan) ? lan : 5
+        } else {
+            let wan = UserDefaults.standard.integer(forKey: "atmusic.download.wanConcurrency")
+            return (1...3).contains(wan) ? wan : 2
+        }
+    }
+
+    private var effectiveUploadConcurrency: Int {
+        SynologyAPI.shared.isLanActive ? 2 : 1
+    }
+
+    // MARK: - 资源与网络保护策略检查
+
+    /// 检查是否允许开始传输任务（流量保护、低电量与磁盘保护）
+    func canStartTransfer(isUpload: Bool = false) -> (allowed: Bool, reason: String?) {
+        let defaults = UserDefaults.standard
+
+        // 1. 磁盘空间保护（仅针对下载）
+        if !isUpload {
+            let diskGuard = defaults.object(forKey: "atmusic.download.diskGuard") as? Bool ?? true
+            if diskGuard {
+                if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+                   let free = attrs[.systemFreeSize] as? NSNumber,
+                   free.int64Value < 2 * 1024 * 1024 * 1024 {
+                    return (false, "设备剩余可用存储空间不足 2GB，已暂停下载以保护系统稳定")
+                }
+            }
+        }
+
+        // 2. Wi-Fi 保护
+        let wifiOnly = defaults.object(forKey: "atmusic.download.wifiOnly") as? Bool ?? true
+        if wifiOnly {
+            if NetworkMonitor.shared.isCellular && !NetworkMonitor.shared.isWiFi {
+                return (false, "已开启「仅在 Wi-Fi 下传输」，当前处于移动蜂窝网络")
+            }
+        }
+
+        // 3. 低电量保护
+        let pauseOnLowBattery = defaults.object(forKey: "atmusic.download.pauseOnLowBattery") as? Bool ?? true
+        if pauseOnLowBattery {
+            if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                return (false, "当前处于低电量模式，已暂停后台传输以节省电量")
+            }
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            let level = UIDevice.current.batteryLevel
+            if level >= 0 && level <= 0.20 && UIDevice.current.batteryState == .unplugged {
+                return (false, "设备电量低于 20%，已暂停后台传输以保护续航")
+            }
+        }
+
+        return (true, nil)
+    }
     private let sessionDelegate = DownloadSessionCoordinator()
     private lazy var downloadSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -431,6 +484,12 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        let policy = canStartTransfer(isUpload: false)
+        if !policy.allowed {
+            ToastCenter.shared.show(policy.reason ?? "当前环境不允许下载")
+            return
+        }
+
         let targetQuality: DownloadQuality
         if let quality {
             targetQuality = quality
@@ -453,6 +512,12 @@ final class DownloadManager: ObservableObject {
         let notDownloaded = songs.filter { !isDownloaded(song: $0) }
         let alreadyDownloading = notDownloaded.filter { isDownloading(song: $0) }
         let toDownload = notDownloaded.filter { !isDownloading(song: $0) }
+
+        let policy = canStartTransfer(isUpload: false)
+        if !policy.allowed {
+            ToastCenter.shared.show(policy.reason ?? "当前环境不允许下载")
+            return
+        }
 
         if toDownload.isEmpty {
             if notDownloaded.isEmpty {
@@ -489,9 +554,9 @@ final class DownloadManager: ObservableObject {
     private func scheduleDownloadQueue() {
         guard !isPaused else { return }
         let runningCount = activeDownloads.filter { $0.status == .downloading || $0.status == .resolving || $0.status == .finishing }.count
-        guard runningCount < maxConcurrentDownloads else { return }
+        guard runningCount < effectiveDownloadConcurrency else { return }
 
-        let availableSlots = maxConcurrentDownloads - runningCount
+        let availableSlots = effectiveDownloadConcurrency - runningCount
         let waitingTasks = activeDownloads.filter { $0.status == .waiting }.prefix(availableSlots)
 
         for task in waitingTasks {
@@ -752,14 +817,23 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        let policy = canStartTransfer(isUpload: true)
+        if !policy.allowed {
+            ToastCenter.shared.show(policy.reason ?? "当前环境不允许上传")
+            return
+        }
+
+        let isHierarchy = UserDefaults.standard.object(forKey: "atmusic.nas.uploadHierarchy") as? Bool ?? true
+        let root = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
         let folder: String
         if let custom = customFolder, !custom.isEmpty {
             folder = custom
-        } else {
-            let root = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
+        } else if isHierarchy {
             let cleanArtist = song.artists.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
             let cleanAlbum = song.album.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
             folder = "\(root)/\(cleanArtist.isEmpty ? "未知歌手" : cleanArtist)/\(cleanAlbum.isEmpty ? "单曲" : cleanAlbum)"
+        } else {
+            folder = root
         }
 
         let item = UploadTaskItem(song: song, destinationFolder: folder)
@@ -796,15 +870,24 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        let policy = canStartTransfer(isUpload: true)
+        if !policy.allowed {
+            ToastCenter.shared.show(policy.reason ?? "当前环境不允许上传")
+            return
+        }
+
+        let isHierarchy = UserDefaults.standard.object(forKey: "atmusic.nas.uploadHierarchy") as? Bool ?? true
         let root = UserDefaults.standard.string(forKey: "atmusic.nas.uploadRoot") ?? "/music/ATMusic"
         for song in toUpload {
             let folder: String
             if let custom = customFolder, !custom.isEmpty {
                 folder = custom
-            } else {
+            } else if isHierarchy {
                 let cleanArtist = song.artists.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
                 let cleanAlbum = song.album.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
                 folder = "\(root)/\(cleanArtist.isEmpty ? "未知歌手" : cleanArtist)/\(cleanAlbum.isEmpty ? "单曲" : cleanAlbum)"
+            } else {
+                folder = root
             }
             let item = UploadTaskItem(song: song, destinationFolder: folder)
             activeUploads.append(item)
@@ -824,9 +907,9 @@ final class DownloadManager: ObservableObject {
         let runningCount = activeUploads.filter {
             $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags
         }.count
-        guard runningCount < maxConcurrentUploads else { return }
+        guard runningCount < effectiveUploadConcurrency else { return }
 
-        let availableSlots = maxConcurrentUploads - runningCount
+        let availableSlots = effectiveUploadConcurrency - runningCount
         let waitingTasks = Array(activeUploads.filter { $0.status == .waiting }.prefix(availableSlots))
 
         for task in waitingTasks {
@@ -860,13 +943,21 @@ final class DownloadManager: ObservableObject {
             var lastUploaded: Int64 = 0
             var lastDate = Date()
 
+            let isHierarchy = UserDefaults.standard.object(forKey: "atmusic.nas.uploadHierarchy") as? Bool ?? true
             let trackPrefix = song.trackNumber > 0 ? String(format: "%02d - ", song.trackNumber) : ""
             let safeTitle = song.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             var ext = localAudioURL.pathExtension.lowercased()
             if ext.isEmpty || ext == "tmp" {
                 ext = AudioFormatDetector.detectExtension(fileURL: localAudioURL, fallback: "flac")
             }
-            let destFilename = "\(trackPrefix)\(safeTitle).\(ext)"
+            let destFilename: String
+            if isHierarchy {
+                destFilename = "\(trackPrefix)\(safeTitle).\(ext)"
+            } else {
+                let cleanArtist = song.artists.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanAlbum = song.album.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+                destFilename = "\(cleanArtist.isEmpty ? "未知歌手" : cleanArtist) - \(cleanAlbum.isEmpty ? "单曲" : cleanAlbum) - \(trackPrefix)\(safeTitle).\(ext)"
+            }
             let mimeType = AudioFormatDetector.mimeType(forExtension: ext)
 
             do {

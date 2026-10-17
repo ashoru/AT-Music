@@ -453,7 +453,7 @@ struct ReferencePlaybackView: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 0)
-            HStack(spacing: 0) {
+            HStack(spacing: 4) {
                 let liked = favorites.isSongLiked(song)
                 compactActionButton(
                     icon: liked ? "heart.fill" : "heart",
@@ -461,6 +461,7 @@ struct ReferencePlaybackView: View {
                 ) {
                     onFavorite()
                 }
+                playerDownloadActionButton
                 songActionsMenu
             }
         }
@@ -573,6 +574,59 @@ struct ReferencePlaybackView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(GlassPressButtonStyle())
+    }
+
+    @ViewBuilder
+    private var playerDownloadActionButton: some View {
+        if let song {
+            let isDownloaded = DownloadManager.shared.isDownloaded(song: song)
+            let isDownloading = DownloadManager.shared.isDownloading(song: song)
+            if isDownloaded {
+                compactActionButton(
+                    icon: "arrow.down.circle.fill",
+                    active: true
+                ) {
+                    onDownload()
+                }
+            } else if isDownloading {
+                let task = DownloadManager.shared.activeDownloads.first(where: { $0.song.identityKey == song.identityKey })
+                Button {
+                    ATMusicHaptics.tap()
+                    if let task {
+                        if task.status == .downloading {
+                            DownloadManager.shared.pauseDownload(id: task.id)
+                        } else if task.status == .paused {
+                            DownloadManager.shared.resumeDownload(id: task.id)
+                        }
+                    }
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.18), lineWidth: 2)
+                            .frame(width: 28, height: 28)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(max(0.08, task?.progress ?? 0)))
+                            .stroke(Color.atmusicAmber, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .frame(width: 28, height: 28)
+                            .rotationEffect(.degrees(-90))
+                        Image(systemName: task?.status == .paused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.atmusicAmber)
+                    }
+                    .frame(width: 38, height: 38)
+                    .background(ATMusicGlass(shape: Circle()))
+                    .contentShape(Circle())
+                }
+                .buttonStyle(GlassPressButtonStyle())
+            } else {
+                compactActionButton(
+                    icon: "arrow.down.circle",
+                    active: false
+                ) {
+                    onDownload()
+                }
+            }
+        }
     }
 
     private var songActionsMenu: some View {

@@ -1348,6 +1348,14 @@ struct SettingsView: View {
     @AppStorage(MusicCacheManager.prefetchEnabledKey) private var prefetchNextSong = true
     @AppStorage(MusicCacheManager.limitMBKey) private var musicCacheLimitMB = MusicCacheManager.defaultLimitMB
     @ObservedObject private var musicCache = MusicCacheManager.shared
+    @AppStorage("atmusic.download.wifiOnly") private var downloadWifiOnly = true
+    @AppStorage("atmusic.download.lanConcurrency") private var lanConcurrency = 5
+    @AppStorage("atmusic.download.wanConcurrency") private var wanConcurrency = 2
+    @AppStorage(ThirdPartyAudioQuality.downloadStorageKey) private var downloadQualityRaw = ThirdPartyAudioQuality.kb320.rawValue
+    @AppStorage("atmusic.nas.uploadRoot") private var nasUploadRoot = "/music/ATMusic"
+    @AppStorage("atmusic.nas.uploadHierarchy") private var nasUploadHierarchy = true
+    @AppStorage("atmusic.download.pauseOnLowBattery") private var pauseOnLowBattery = true
+    @AppStorage("atmusic.download.diskGuard") private var diskGuardEnabled = true
     @AppStorage("atmusic.labelColorHex") private var labelColorHex = ""
     @AppStorage("atmusic.pauseHomeRendering") private var homeRenderingPaused = false
     @AppStorage("atmusic.homeHideUsername") private var homeHideUsername = false
@@ -1548,6 +1556,174 @@ struct SettingsView: View {
                 .font(ATMusicFont.appFont(13, .semibold))
             }
             .disabled(musicCache.usageBytes == 0)
+        }
+    }
+
+    // MARK: - 离线下载与 NAS 传输设置
+    private var transferAndOfflineSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 9) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("离线下载与 NAS 传输")
+                            .font(ATMusicFont.appFont(14, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                        Text("双向传输")
+                            .font(ATMusicFont.appFont(10, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.atmusicAmber.opacity(0.12)))
+                    }
+                    Text("控制离线下载品质、群晖 NAS 归档目录与网络流量保护")
+                        .font(ATMusicFont.appFont(10))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+
+            Toggle(isOn: $downloadWifiOnly) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("仅在 Wi-Fi 下下载与上传")
+                        .font(ATMusicFont.appFont(14))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("开启后移动蜂窝网络下自动拦截并暂停传输，保护数据流量")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
+
+            HStack {
+                Text("默认离线下载音质")
+                    .font(ATMusicFont.appFont(14))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Menu {
+                    ForEach([ThirdPartyAudioQuality.kb128, .kb320, .flac, .hires], id: \.self) { q in
+                        Button {
+                            downloadQualityRaw = q.rawValue
+                            ATMusicHaptics.select()
+                        } label: {
+                            if downloadQualityRaw == q.rawValue {
+                                Label(q.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(q.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        let cur = ThirdPartyAudioQuality(sourceValue: downloadQualityRaw) ?? .kb320
+                        Text(cur.displayName)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                }
+            }
+
+            HStack {
+                Text("局域网极速并发数")
+                    .font(ATMusicFont.appFont(14))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Menu {
+                    ForEach(2...5, id: \.self) { n in
+                        Button("\(n) 任务并行") {
+                            lanConcurrency = n
+                            ATMusicHaptics.select()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("\(lanConcurrency) 任务")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                }
+            }
+
+            HStack {
+                Text("外网传输并发数")
+                    .font(ATMusicFont.appFont(14))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Menu {
+                    ForEach(1...3, id: \.self) { n in
+                        Button("\(n) 任务并行") {
+                            wanConcurrency = n
+                            ATMusicHaptics.select()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("\(wanConcurrency) 任务")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(ATMusicFont.appFont(12, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("NAS 上传存储根目录")
+                    .font(ATMusicFont.appFont(14))
+                    .foregroundStyle(Color.atmusicLabel)
+                TextField("/music/ATMusic", text: $nasUploadRoot)
+                    .font(ATMusicFont.appFont(12, .regular, .monospaced))
+                    .padding(8)
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            Toggle(isOn: $nasUploadHierarchy) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("按「歌手/专辑」分目录归档")
+                        .font(ATMusicFont.appFont(14))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("开启时生成 /歌手/专辑/曲目.flac；关闭时平铺到根目录")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
+
+            Toggle(isOn: $pauseOnLowBattery) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("低电量模式自动暂停传输")
+                        .font(ATMusicFont.appFont(14))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("系统处于低电量模式或电量 < 20% 时暂停以保护续航")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
+
+            Toggle(isOn: $diskGuardEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("磁盘空间警戒线保护 (2GB)")
+                        .font(ATMusicFont.appFont(14))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("剩余空间低于 2GB 时拒绝并暂停新下载，保护系统稳定")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(Color.atmusicAmber)
         }
     }
 
@@ -1966,6 +2142,10 @@ struct SettingsView: View {
         ) {
             VStack(spacing: 12) {
                 musicCacheSection
+
+                settingsCardDivider
+
+                transferAndOfflineSection
 
                 settingsCardDivider
 
