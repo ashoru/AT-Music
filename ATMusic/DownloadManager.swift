@@ -52,6 +52,7 @@ enum TransferDownloadStatus: Equatable {
 
 enum TransferUploadStatus: Equatable {
     case waiting
+    case downloading
     case uploadingAudio
     case uploadingSupportFiles
     case syncingTags
@@ -158,6 +159,7 @@ final class UploadTaskItem: Identifiable, ObservableObject {
     var statusDescription: String {
         switch status {
         case .waiting: return "等待上传至 NAS..."
+        case .downloading: return "正在拉取高品质音频..."
         case .uploadingAudio: return "正在上传音频 \(Int(progress * 100))%"
         case .uploadingSupportFiles: return "正在同步歌词与封面..."
         case .syncingTags: return "正在写入 NAS 媒体标签..."
@@ -344,7 +346,7 @@ final class DownloadManager: ObservableObject {
     func isUploading(song: Song) -> Bool {
         activeUploads.contains {
             $0.song.identityKey == song.identityKey &&
-            ($0.status == .waiting || $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags)
+            ($0.status == .waiting || $0.status == .downloading || $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags)
         }
     }
 
@@ -952,7 +954,7 @@ final class DownloadManager: ObservableObject {
 
     private func scheduleUploadQueue() {
         let runningCount = activeUploads.filter {
-            $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags
+            $0.status == .downloading || $0.status == .uploadingAudio || $0.status == .uploadingSupportFiles || $0.status == .syncingTags
         }.count
         guard runningCount < effectiveUploadConcurrency else { return }
 
@@ -960,22 +962,132 @@ final class DownloadManager: ObservableObject {
         let waitingTasks = Array(activeUploads.filter { $0.status == .waiting }.prefix(availableSlots))
 
         for task in waitingTasks {
-            task.status = .uploadingAudio
+            let song = task.song
+            if localAudioURL(for: song) != nil {
+                task.status = .uploadingAudio
+            } else {
+                task.status = .downloading
+            }
             executeUploadTask(task)
         }
+    }
+
+    /// 确保歌曲具备受管本地音频文件（若未下载则静默下载入库受管沙盒，严格根据文件 Magic Bytes 校验格式并持久化元数据）
+    func ensureLocalManagedAudio(song: Song, quality: DownloadQuality = .lossless) async -> Result<URL, Error> {
+        if let existing = localAudioURL(for: song), FileManager.default.fileExists(atPath: existing.path) {
+            return .success(existing)
+        }
+
+        let chain = quality.fallbackChain
+        var lastError: Error = NetEaseError.unknown("无法解析音频地址（可能为 VIP 限制或音源无版权）")
+
+        for current in chain {
+            if Task.isCancelled { return .failure(CancellationError()) }
+            guard let resolved = await resolveURL(song: song, quality: current) else {
+                continue
+            }
+
+            let tempStagingURL: URL
+            let response: URLResponse
+            do {
+                let request = downloadRequest(for: resolved.url, song: song)
+                let (downloaded, downloadResp) = try await URLSession.shared.download(for: request)
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(at: downloaded)
+                    return .failure(CancellationError())
+                }
+                response = downloadResp
+                if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                    lastError = NetEaseError.unknown("下载失败 (HTTP \(http.statusCode))")
+                    try? FileManager.default.removeItem(at: downloaded)
+                    continue
+                }
+                guard isUsableAudioFile(at: downloaded, response: response, song: song) else {
+                    lastError = NetEaseError.unknown("返回内容不是有效音频（防盗链或损坏）")
+                    try? FileManager.default.removeItem(at: downloaded)
+                    continue
+                }
+                tempStagingURL = downloaded
+            } catch {
+                lastError = error
+                continue
+            }
+
+            let safeName = "\(song.name) - \(song.artists)"
+                .replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+
+            // 核心修复：通过文件 Magic Bytes 检测真实音频容器，绝对杜绝把 flac/mp3 误当 ogg 或误命名的错误
+            let detectedExt = AudioFormatDetector.detectExtension(fileURL: tempStagingURL, fallback: "mp3")
+
+            do {
+                let record = try LocalAudioFileManager.shared.registerFile(
+                    sourceTempURL: tempStagingURL,
+                    songId: song.identityKey,
+                    originalFilename: safeName,
+                    kind: .userDownloaded,
+                    explicitExtension: detectedExt
+                )
+                try? FileManager.default.removeItem(at: tempStagingURL)
+
+                // 伴生异步持久化歌词
+                if let rawLyrics = await SongLyricsLoader.rawLyricString(for: song),
+                   let lrcData = rawLyrics.data(using: .utf8), !lrcData.isEmpty {
+                    let localLRCPath = (record.relativePath as NSString).deletingPathExtension + ".lrc"
+                    _ = try? LocalAudioFileManager.shared.writeSupportData(lrcData, relativePath: localLRCPath)
+                }
+
+                // 伴生异步持久化封面
+                var localCoverURL: URL? = nil
+                let localCoverPath = "ATMusicAudio/Artwork/\(record.id).jpg"
+                if let coverData = await fetchOrExtractCoverData(for: song, stagingURL: tempStagingURL), !coverData.isEmpty {
+                    localCoverURL = try? LocalAudioFileManager.shared.writeSupportData(coverData, relativePath: localCoverPath)
+                    if let localCoverURL, let img = UIImage(data: coverData) {
+                        ATMusicRemoteCoverCache.store(img, for: localCoverURL)
+                    }
+                }
+
+                let localSong = Song(
+                    id: song.id,
+                    name: song.name,
+                    artists: song.artists,
+                    album: song.album,
+                    coverURL: localCoverURL ?? song.coverURL,
+                    duration: song.duration,
+                    source: .local,
+                    localRelativePath: record.relativePath,
+                    albumArtist: song.albumArtist,
+                    genre: song.genre,
+                    year: song.year,
+                    comment: song.comment,
+                    discNumber: song.discNumber,
+                    trackNumber: song.trackNumber
+                )
+
+                LocalLibraryStore.shared.addOrUpdateImportedSong(localSong)
+                _ = LocalLibraryStore.shared.addOrUpdateSongInNamedPlaylist(localSong, name: "已下载歌曲")
+
+                let targetURL = try LocalAudioFileManager.shared.url(for: record)
+                return .success(targetURL)
+            } catch {
+                try? FileManager.default.removeItem(at: tempStagingURL)
+                lastError = error
+            }
+        }
+
+        return .failure(lastError)
     }
 
     private func executeUploadTask(_ task: UploadTaskItem) {
         Task {
             let song = task.song
-            // 1. 获取本地文件
+            // 1. 获取本地文件（若未下载则先静默下载入库受管沙盒，严格按 Magic Bytes 校验格式）
             var localURL = localAudioURL(for: song)
             if localURL == nil {
-                // 如果尚未下载，先静默下载
-                task.status = .waiting
-                let result = await download(song: song, quality: .lossless)
+                task.status = .downloading
+                let result = await ensureLocalManagedAudio(song: song, quality: .lossless)
                 if case .success(let downloaded) = result {
-                    localURL = downloaded.url
+                    localURL = downloaded
                 }
             }
 
@@ -993,9 +1105,12 @@ final class DownloadManager: ObservableObject {
             let isHierarchy = UserDefaults.standard.object(forKey: "atmusic.nas.uploadHierarchy") as? Bool ?? true
             let trackPrefix = song.trackNumber > 0 ? String(format: "%02d - ", song.trackNumber) : ""
             let safeTitle = song.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-            var ext = localAudioURL.pathExtension.lowercased()
+            var ext = AudioFormatDetector.detectExtension(fileURL: localAudioURL, fallback: "")
+            if ext.isEmpty {
+                ext = localAudioURL.pathExtension.lowercased()
+            }
             if ext.isEmpty || ext == "tmp" {
-                ext = AudioFormatDetector.detectExtension(fileURL: localAudioURL, fallback: "flac")
+                ext = "flac"
             }
             let destFilename: String
             if isHierarchy {
@@ -1236,7 +1351,8 @@ final class DownloadManager: ObservableObject {
                 .replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-")
             let actualQuality = resolved.actualQuality
-            let ext = fileExtension(for: resolved.url, response: response, quality: actualQuality)
+            let magicExt = AudioFormatDetector.detectExtension(fileURL: tempURL, fallback: "")
+            let ext = !magicExt.isEmpty ? magicExt : fileExtension(for: resolved.url, response: response, quality: actualQuality)
             let baseName = uniqueFilename ? "\(UUID().uuidString)-\(safeName)" : safeName
             let dest = dir.appendingPathComponent("\(baseName).\(ext)")
             try? FileManager.default.removeItem(at: dest)
@@ -1372,19 +1488,18 @@ final class DownloadManager: ObservableObject {
     }
 
     private func fileExtension(for url: URL, response: URLResponse, quality: DownloadQuality) -> String {
+        let knownExtensions = Set(["mp3", "m4a", "flac", "aac", "wav"])
+        let urlExtension = url.pathExtension.lowercased()
+        if knownExtensions.contains(urlExtension) {
+            return urlExtension
+        }
         if let mimeType = response.mimeType?.lowercased() {
             if mimeType.contains("flac") { return "flac" }
             if mimeType.contains("mpeg") || mimeType.contains("mp3") { return "mp3" }
             if mimeType.contains("mp4") || mimeType.contains("m4a") { return "m4a" }
             if mimeType.contains("aac") { return "aac" }
-            if mimeType.contains("ogg") { return "ogg" }
             if mimeType.contains("wav") { return "wav" }
-        }
-
-        let knownExtensions = Set(["mp3", "m4a", "flac", "aac", "ogg", "wav"])
-        let urlExtension = url.pathExtension.lowercased()
-        if knownExtensions.contains(urlExtension) {
-            return urlExtension
+            if mimeType.contains("ogg") { return "ogg" }
         }
         if let suggestedFilename = response.suggestedFilename,
            let responseExtension = suggestedFilename.split(separator: ".").last.map({ String($0).lowercased() }),

@@ -2193,7 +2193,28 @@ struct AlbumDetailView: View {
             .navigationTitle(album.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            batchDownloadAlbum()
+                        } label: {
+                            Label(isBatchDownloading ? "正在加入下载..." : "下载全专歌曲", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(sortedTracks.isEmpty || isBatchDownloading)
+
+                        if SynologyAPI.shared.isLoggedIn && album.source != .synology {
+                            Button {
+                                batchUploadAlbumToNAS()
+                            } label: {
+                                Label(isBatchUploading ? "正在加入归档..." : "全专归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            }
+                            .disabled(sortedTracks.isEmpty || isBatchUploading)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("更多操作")
+
                     Button {
                         dismiss()
                     } label: {
@@ -2277,16 +2298,6 @@ struct AlbumDetailView: View {
                         if discGroups.count > 1 {
                             GlassButton(title: "顺序播放", systemName: "arrow.triangle.swap") {
                                 player.play(songs: sortedTracks, startAt: 0)
-                            }
-                        }
-                        GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
-                            batchDownloadAlbum()
-                        }
-                        .disabled(isBatchDownloading)
-
-                        if SynologyAPI.shared.isLoggedIn && album.source != .synology {
-                            GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
-                                batchUploadAlbumToNAS()
                             }
                         }
                     }
@@ -2422,19 +2433,13 @@ struct AlbumDetailView: View {
                     GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                         player.play(songs: sortedTracks, startAt: 0)
                     }
+                    GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                        guard !sortedTracks.isEmpty else { return }
+                        player.play(songs: sortedTracks.shuffled(), startAt: 0)
+                    }
                     if discGroups.count > 1 {
                         GlassIconButton(systemName: "arrow.triangle.swap", size: 44, active: false) {
                             player.play(songs: sortedTracks, startAt: 0)
-                        }
-                    }
-                    GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle") {
-                        batchDownloadAlbum()
-                    }
-                    .disabled(isBatchDownloading)
-
-                    if SynologyAPI.shared.isLoggedIn && album.source != .synology {
-                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
-                            batchUploadAlbumToNAS()
                         }
                     }
                 }

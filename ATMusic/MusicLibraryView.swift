@@ -1856,14 +1856,6 @@ struct UnifiedFavoritesDetailView: View {
                                     GlassButton(title: "随机播放", systemName: "shuffle") {
                                         player.play(songs: displayedSongs.shuffled(), startAt: 0)
                                     }
-                                    GlassIconButton(systemName: "arrow.down.circle", size: 42, active: false) {
-                                        DownloadManager.shared.startBatchDownload(songs: displayedSongs)
-                                    }
-                                    if SynologyAPI.shared.isLoggedIn {
-                                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 42, active: false) {
-                                            DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
-                                        }
-                                    }
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
@@ -1913,6 +1905,30 @@ struct UnifiedFavoritesDetailView: View {
         }
         .navigationTitle("我喜欢的音乐")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                    } label: {
+                        Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(displayedSongs.isEmpty)
+
+                    if SynologyAPI.shared.isLoggedIn {
+                        Button {
+                            DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                        } label: {
+                            Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                        }
+                        .disabled(displayedSongs.isEmpty)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("更多操作")
+            }
+        }
     }
 
     private var iPadFavoritesLayout: some View {
@@ -1976,14 +1992,6 @@ struct UnifiedFavoritesDetailView: View {
                         }
                         GlassIconButton(systemName: "shuffle", size: 44, active: false) {
                             player.play(songs: displayedSongs.shuffled(), startAt: 0)
-                        }
-                        GlassIconButton(systemName: "arrow.down.circle", size: 44, active: false) {
-                            DownloadManager.shared.startBatchDownload(songs: displayedSongs)
-                        }
-                        if SynologyAPI.shared.isLoggedIn {
-                            GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
-                                DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
-                            }
                         }
                     }
                 }

@@ -436,9 +436,12 @@ final class SynologyAPI: ObservableObject {
 
         let transcodeCellular = UserDefaults.standard.bool(forKey: "atmusic.nas.transcodeOnCellular")
         let isCellular = NetworkMonitor.shared.isCellular
+        let path = song.synologyPath ?? ""
+        let ext = ((path as NSString).pathExtension).lowercased()
+        let unsupportedAppleFormats: Set<String> = ["ogg", "ape", "wma"]
 
-        if transcodeCellular && isCellular {
-            // 蜂窝移动网络下按用户要求自动转码为 320kbps MP3 省流
+        if (transcodeCellular && isCellular) || unsupportedAppleFormats.contains(ext) {
+            // 蜂窝移动网络下按用户要求自动转码，或原文件为 iOS 无法原生硬解的格式（如 ogg, ape, wma）时自动请求 NAS 转码为 320kbps MP3
             var url = URLComponents(string: baseURL + "/webapi/AudioStation/stream.cgi/0.mp3")
             url?.queryItems = [
                 URLQueryItem(name: "api", value: "SYNO.AudioStation.Stream"),
@@ -451,8 +454,6 @@ final class SynologyAPI: ObservableObject {
             return url?.url?.absoluteString
         } else {
             // 原盘无损直出 (Bit-Perfect Direct Output，动态探测原始扩展名)
-            let path = song.synologyPath ?? ""
-            let ext = ((path as NSString).pathExtension).lowercased()
             let streamExt = ext.isEmpty ? "flac" : ext
             var url = URLComponents(string: baseURL + "/webapi/AudioStation/stream.cgi/0.\(streamExt)")
             url?.queryItems = [

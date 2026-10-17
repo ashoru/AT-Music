@@ -171,6 +171,22 @@ struct PlaylistView: View {
                             }
                         }
 
+                        Button {
+                            batchDownloadPlaylist()
+                        } label: {
+                            Label(isBatchDownloading ? "正在加入下载..." : "下载全部歌曲", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(displayedTracks.isEmpty || isBatchDownloading)
+
+                        if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
+                            Button {
+                                batchUploadPlaylistToNAS()
+                            } label: {
+                                Label(isBatchUploading ? "正在加入归档..." : "全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            }
+                            .disabled(displayedTracks.isEmpty || isBatchUploading)
+                        }
+
                         if displayDescription != nil || playlistPopularityText != nil {
                             Button {
                                 ATMusicHaptics.tap()
@@ -243,18 +259,6 @@ struct PlaylistView: View {
                         player.play(songs: displayedTracks.shuffled(), startAt: 0)
                     }
                     .disabled(displayedTracks.isEmpty)
-
-                    GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
-                        batchDownloadPlaylist()
-                    }
-                    .disabled(displayedTracks.isEmpty || isBatchDownloading)
-
-                    if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
-                        GlassIconButton(systemName: "externaldrive.badge.plus", size: 44, active: false) {
-                            batchUploadPlaylistToNAS()
-                        }
-                        .disabled(displayedTracks.isEmpty)
-                    }
                 }
 
                 playlistSearchRow
@@ -368,18 +372,6 @@ struct PlaylistView: View {
                 }
                 .disabled(displayedTracks.isEmpty)
                 .accessibilityLabel("随机播放")
-
-                GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 42, active: isBatchDownloading) {
-                    batchDownloadPlaylist()
-                }
-                .disabled(displayedTracks.isEmpty || isBatchDownloading)
-
-                if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
-                    GlassIconButton(systemName: "externaldrive.badge.plus", size: 42, active: false) {
-                        batchUploadPlaylistToNAS()
-                    }
-                    .disabled(displayedTracks.isEmpty)
-                }
 
                 Spacer(minLength: 0)
             }

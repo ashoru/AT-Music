@@ -2446,10 +2446,6 @@ struct SynologyAlbumView: View {
                                         player.play(songs: sortedTracks, startAt: 0)
                                     }
                                 }
-                                GlassButton(title: isBatchDownloading ? "下载中..." : "一键离线", systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle") {
-                                    batchDownloadAlbum()
-                                }
-                                .disabled(isBatchDownloading)
                             }
                             .padding(.horizontal, 16)
                         }
@@ -2490,7 +2486,19 @@ struct SynologyAlbumView: View {
         .navigationTitle(albumName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        batchDownloadAlbum()
+                    } label: {
+                        Label(isBatchDownloading ? "正在加入下载..." : "下载全专歌曲", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(sortedTracks.isEmpty || isBatchDownloading)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("更多操作")
+
                 Button {
                     dismiss()
                 } label: {
@@ -2741,10 +2749,6 @@ struct SynologyAlbumView: View {
                                 player.play(songs: sortedTracks, startAt: 0)
                             }
                         }
-                        GlassIconButton(systemName: isBatchDownloading ? "arrow.down.circle.fill" : "arrow.down.circle", size: 44, active: isBatchDownloading) {
-                            batchDownloadAlbum()
-                        }
-                        .disabled(isBatchDownloading)
                     }
                 }
 

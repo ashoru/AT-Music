@@ -48,6 +48,21 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.27-build-90-direct-nas-archive-and-menu-convergence",
+            version: "1.9.27",
+            title: "修复直接一键归档 NAS 歌曲时长 0:00 无法播放缺陷、全面收敛歌单与专辑离线与归档按钮至更多菜单",
+            features: [
+                "全面收敛歌单与专辑一键离线与 NAS 归档按钮至右上角「...」更多操作菜单（对标 Apple Music 原生规范，iPhone/iPad 双端头部播控区极简纯粹）",
+                "彻底重构直接一键归档 NAS 流水线（ensureLocalManagedAudio）：未下载曲目先经受管沙盒通道下载并严格根据文件二进制 Magic Bytes（fLaC/ID3/ftyp/RIFF）精准推断真实容器，杜绝 CDN 响应头错误造成的扩展名错乱",
+                "修复直接归档任务状态竞态递归循环：新增 .downloading 调度状态，根除 task.status 误置 .waiting 导致的调度器高频重复并发拉取与文件覆盖截断",
+                "群晖 Audio Station 直链流媒体原生兼容增强：对原文件为 ogg/ape/wma 等 iOS AVPlayer 无法原生硬解的格式，自动启用 NAS 服务端实时无缝转码为 320kbps MP3 直链，杜绝 0:00 时长与起播失败"
+            ],
+            fixes: [
+                "彻底解决未下载曲目直接点击「一键归档 NAS」后，群晖 Audio Station 上歌曲显示时长 0:00 且完全无法播放的严重缺陷",
+                "修复因部分 CDN 响应头伪装为 audio/ogg 导致原文件被误命名为 .ogg 并作为损坏文件归档至 NAS 的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.26-build-88-offline-song-delete-and-dedup-fix",
             version: "1.9.26",
             title: "彻底根治离线歌曲删除失效与多重重复下载 Bug、全维曲目智能匹配自愈与缓存联动清理",
