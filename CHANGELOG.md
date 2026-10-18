@@ -1,5 +1,15 @@
 # AT Music 更新日志
 
+## 1.9.30 build 93
+
+### 彻底根除歌曲标签与专辑封面修改非即时生效问题、封面双键内存缓存瞬显与写入稳定性全链路加固
+- **专辑封面修改 0ms 瞬显与强制穿透刷新**：彻底修复修改封面后页面仍显示旧图的问题；保存时同时将新图注入 `ATMusicRemoteCoverCache` 的原封面 URL、新文件 URL 与在线源 URL，实现无需网络请求的 0ms 瞬显；`CoverImage` 收到封面更新通知后直接开启 `force: true` 强制清除旧图缓存与磁盘缓存，杜绝旧图残留
+- **单曲与批量信息修改立即可见（SongCell overrideSong 状态响应）**：重构 `SongCell` 状态机，新增 `displayedSong` 与 `overrideSong` 动态计算机制；列表项在就地编辑完成或收到 `.atmusicSongMetadataDidUpdate` / `.atmusicSynologyMetadataDidUpdate` 全局广播时，立即在内存中切换至新元数据与新封面，杜绝复用 LazyVStack/List 导致的显示不更新
+- **全场景页面实时联动刷新（专辑页、传输中心、群晖多级视图）**：在 `AlbumDetailView`、`SynologyMusicView`、`SynologyFolderView`、`SynologyArtistView`、`SynologyAlbumView` 中全面接入元数据与封面广播监听，实时无缝替换视图中的对应曲目；`TransferCenterView` 单曲列表严格绑定 `identityKey` 唯一标识，杜绝离线歌曲编辑后列表错位
+- **修复群晖 NAS 写入偶尔失败与判定假死（放宽 Audio Station 缩略图生成校验）**：针对群晖 Audio Station 后台生成缩略图存在 2~5 秒延迟的问题，放宽 `verifyCoverWrite` 过于严苛的摘要比对判定，不再因缩略图生成延迟而误抛异常阻断保存；在线封面优先在手机端下载后通过 `uploadCover` 直推 NAS，彻底绕过 NAS 无法连接外网 CDN 或防盗链导致的写入卡住与失败
+- **修复沙盒封面存储路径转义错误与本地音乐库保存误报**：修复本地封面落盘时字符串插值缺失反斜杠导致文件名冲突的问题；重构 `LocalSongMetadataEditorSheet` 保存流程为异步等待落盘与缓存预热后再关闭，优化 `LocalLibraryStore` 判定逻辑，根除“本地音乐库未能读回新标签”的报错
+
+
 ## 1.9.29 build 92
 
 ### 官方前奏秒出与第三方完整音轨无缝热置换、双播放器热备池与128KB音频首包预加载

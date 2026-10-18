@@ -424,12 +424,25 @@ final class PlayerManager: NSObject, ObservableObject {
     /// 不重新加载音频，避免编辑歌曲信息时打断播放。
     func replaceSong(_ updated: Song) {
         let key = updated.identityKey
-        for index in queue.indices where queue[index].identityKey == key {
-            queue[index] = updated
+        var queueChanged = false
+        for index in queue.indices {
+            let item = queue[index]
+            if item.identityKey == key || LocalLibraryStore.isMatchingSong(item, updated) || (item.source == updated.source && item.id == updated.id && item.id != 0) {
+                queue[index] = updated
+                queueChanged = true
+            }
         }
-        for index in history.indices where history[index].identityKey == key {
-            history[index] = updated
+        for index in history.indices {
+            let item = history[index]
+            if item.identityKey == key || LocalLibraryStore.isMatchingSong(item, updated) || (item.source == updated.source && item.id == updated.id && item.id != 0) {
+                history[index] = updated
+                queueChanged = true
+            }
         }
+        if queueChanged {
+            objectWillChange.send()
+        }
+        lastNowPlayingArtworkKey = nil
         updateNowPlaying()
         savePersistedPlaybackState()
     }

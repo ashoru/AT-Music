@@ -2232,6 +2232,26 @@ struct AlbumDetailView: View {
                 .environmentObject(player)
                 .environmentObject(theme)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSongMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in tracks.indices {
+                    let item = tracks[i]
+                    if item.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(item, updated) || (item.source == updated.source && item.id == updated.id && item.id != 0) {
+                        tracks[i] = updated
+                    }
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in tracks.indices {
+                    let item = tracks[i]
+                    if item.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(item, updated) || (item.source == updated.source && item.id == updated.id && item.id != 0) {
+                        tracks[i] = updated
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - iPad 宽屏两栏全景专辑布局（对标 iPadOS Apple Music 专辑页规范）

@@ -740,7 +740,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
     private var retryCount = 0
     private var retryTask: Task<Void, Never>?
 
-    func load(_ url: URL?, isRetry: Bool = false) async {
+    func load(_ url: URL?, isRetry: Bool = false, force: Bool = false) async {
         if !isRetry {
             retryCount = 0
             retryTask?.cancel()
@@ -755,17 +755,35 @@ final class ATMusicCoverImageLoader: ObservableObject {
             return
         }
         let resolvedURL = ManagedAudioPath.resolveFileURL(url) ?? url
-        if loadedURL == resolvedURL, image != nil {
-            isLoading = false
-            loadFailed = false
-            return
-        }
-        if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
-            loadedURL = resolvedURL
-            image = cached
-            isLoading = false
-            loadFailed = false
-            return
+        if !force {
+            if loadedURL == resolvedURL, image != nil {
+                isLoading = false
+                loadFailed = false
+                return
+            }
+            if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
+                loadedURL = resolvedURL
+                image = cached
+                isLoading = false
+                loadFailed = false
+                return
+            }
+        } else {
+            // 强制刷新：若外部刚预写了新内存缓存，直接复用；否则清除所有旧缓存强制重新加载
+            if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
+                loadedURL = resolvedURL
+                image = cached
+                isLoading = false
+                loadFailed = false
+                return
+            }
+            ATMusicRemoteCoverCache.remove(for: resolvedURL)
+            if resolvedURL.isFileURL {
+                ATMusicImageFileCache.remove(resolvedURL.path)
+            }
+            URLCache.shared.removeCachedResponse(for: URLRequest(url: resolvedURL))
+            image = nil
+            loadedURL = nil
         }
 
         isLoading = true
@@ -947,15 +965,14 @@ struct CoverImage: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
-            if displayedImage == nil {
-                let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
-                if let updatedURL = note.object as? URL {
-                    if updatedURL == resolved || updatedURL == url {
-                        Task { await loader.load(resolved) }
-                    }
-                } else {
-                    Task { await loader.load(resolved) }
+            let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+            if let updatedURL = note.object as? URL {
+                let resolvedUpdated = ManagedAudioPath.resolveFileURL(updatedURL) ?? updatedURL
+                if updatedURL == resolved || updatedURL == url || resolvedUpdated == resolved || resolvedUpdated == url {
+                    Task { await loader.load(resolved, isRetry: false, force: true) }
                 }
+            } else {
+                Task { await loader.load(resolved, isRetry: false, force: true) }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in

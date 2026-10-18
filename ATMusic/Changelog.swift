@@ -48,6 +48,22 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.30-build-93-metadata-and-cover-instant-refresh",
+            version: "1.9.30",
+            title: "彻底根除歌曲标签与专辑封面修改非即时生效问题、封面双键内存缓存瞬显与写入稳定性加固",
+            features: [
+                "专辑封面修改 0ms 瞬显与强制穿透刷新：修改封面后新图同时注入新旧 URL 内存缓存，实现 0ms 瞬显；CoverImage 自动强制失效旧缓存与磁盘缓存，杜绝旧图残留",
+                "单曲与批量信息修改立即可见：SongCell 重构引入 overrideSong 状态响应机制，就地修改或收到全局广播后立即更新当前渲染，无需离开页面或重新进入",
+                "全场景视图联动无缝更新：AlbumDetailView、TransferCenterView、群晖多级文件夹与专辑/歌手视图接入即时通知监听，曲目信息与封面实时同步",
+                "修复群晖 NAS 写入偶尔失败与假死：放宽 Audio Station 缩略图生成延迟校验，手机端优先直推封面数据，彻底绕过 NAS 无法连接外网导致的写入卡死",
+                "修复沙盒封面存储路径转义错误与本地音乐库保存误报：修复文件名插值缺失反斜杠的问题，并重构本地保存流程为异步完整等待"
+            ],
+            fixes: [
+                "解决专辑封面修改后列表及播放器仍显示旧封面、偶发无法修改的问题",
+                "解决歌曲名称、歌手、专辑等信息修改后列表项不立即刷新的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.29-build-92-seamless-handover-dual-player-and-head-block",
             version: "1.9.29",
             title: "官方前奏秒出与第三方完整音轨无缝热置换、双播放器热备池与128KB音频首包预加载",

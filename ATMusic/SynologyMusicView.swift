@@ -56,6 +56,16 @@ struct SynologyMusicView: View {
             guard synology.isLoggedIn else { return }
             Task { await loadData() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in songs.indices {
+                    let s = songs[i]
+                    if s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0) {
+                        songs[i] = updated
+                    }
+                }
+            }
+        }
     }
 
     private var notConnectedView: some View {
@@ -253,6 +263,7 @@ struct SynologyMetadataEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerManager
     let song: Song
+    var onUpdated: ((Song) -> Void)? = nil
 
     @State private var metadata: SynologyTagMetadata
     @State private var originalMetadata: SynologyTagMetadata
@@ -264,8 +275,9 @@ struct SynologyMetadataEditorSheet: View {
     @State private var isSaving = false
     @State private var message = ""
 
-    init(song: Song) {
+    init(song: Song, onUpdated: ((Song) -> Void)? = nil) {
         self.song = song
+        self.onUpdated = onUpdated
         let snapshot = SynologyTagMetadata(
             title: Self.editableValue(song.name, placeholders: ["", "未知歌曲"]),
             artist: Self.editableValue(song.artists, placeholders: ["", "未知艺术家"]),
@@ -448,9 +460,36 @@ struct SynologyMetadataEditorSheet: View {
         let patch = metadata.patch(comparedTo: originalMetadata)
         guard !patch.isEmpty || selectedCoverURL != nil || selectedCoverData != nil else { return }
         let wroteTags = !patch.isEmpty
-        await MainActor.run { isSaving = true; message = "正在将已编辑字段写入 NAS…" }
+        await MainActor.run { isSaving = true; message = "正在准备封面与元数据…" }
+
+        var preparedCoverData = selectedCoverData
+        var preparedCoverImage: UIImage? = selectedCoverData.flatMap { UIImage(data: $0) }
+        if preparedCoverData == nil, let coverURL = selectedCoverURL {
+            if coverURL.isFileURL {
+                if let data = try? Data(contentsOf: coverURL), let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            } else {
+                var req = URLRequest(url: coverURL)
+                req.timeoutInterval = 12
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   !data.isEmpty, let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            }
+        }
+
+        await MainActor.run { message = "正在将已编辑字段写入 NAS…" }
         do {
-            try await SynologyAPI.shared.applyMetadata(song: song, patch: patch, coverURL: selectedCoverURL, coverData: selectedCoverData)
+            try await SynologyAPI.shared.applyMetadata(
+                song: song,
+                patch: patch,
+                coverURL: selectedCoverURL,
+                coverData: preparedCoverData
+            )
             let refreshedCover = SynologyAPI.shared.coverURL(
                 songId: song.synologyId ?? "\(song.id)",
                 cacheBust: UUID().uuidString
@@ -470,10 +509,36 @@ struct SynologyMetadataEditorSheet: View {
                 genre: metadata.genre.isEmpty ? nil : metadata.genre,
                 year: metadata.year.isEmpty ? nil : metadata.year,
                 comment: metadata.comment.isEmpty ? nil : metadata.comment,
+                discNumber: song.discNumber,
+                trackNumber: song.trackNumber,
                 fee: song.fee
             )
+
+            if let preparedCoverImage {
+                if let refreshedCover {
+                    ATMusicRemoteCoverCache.store(preparedCoverImage, for: refreshedCover)
+                }
+                if let oldCover = song.coverURL {
+                    ATMusicRemoteCoverCache.store(preparedCoverImage, for: oldCover)
+                }
+                if let selectedCoverURL {
+                    ATMusicRemoteCoverCache.store(preparedCoverImage, for: selectedCoverURL)
+                }
+            }
+
             await MainActor.run {
                 player.replaceSong(updatedSong)
+                onUpdated?(updatedSong)
+                if let refreshedCover {
+                    NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: refreshedCover)
+                }
+                if let oldCover = song.coverURL, oldCover != refreshedCover {
+                    NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: oldCover)
+                }
+                NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updatedSong)
+                NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: updatedSong)
+                SynologyAPI.shared.invalidateAllFolderCaches()
+                SynologyAPI.shared.bumpLibraryIndexRevision()
             }
             await MainActor.run {
                 originalMetadata = metadata
@@ -1919,6 +1984,16 @@ struct SynologyFolderView: View {
         .refreshable {
             await load(force: true)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in items.indices {
+                    if let s = items[i].song,
+                       (s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0)) {
+                        items[i] = SynologyFolderItem(id: items[i].id, name: items[i].kind == .song ? updated.name : items[i].name, kind: items[i].kind, song: updated)
+                    }
+                }
+            }
+        }
     }
 
     private func load(force: Bool = false) async {
@@ -2038,12 +2113,12 @@ struct SynologyBatchMetadataEditorSheet: View {
                         // 1. 顶部选中歌曲概览
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("批量设置 (songs.count) 首群晖 NAS 歌曲")
+                                Text("批量设置 \(songs.count) 首群晖 NAS 歌曲")
                                     .font(ATMusicFont.appFont(15, .semibold))
                                     .foregroundStyle(Color.atmusicLabel)
                                 Spacer()
                                 if let savedCount {
-                                    Text("已写入 (savedCount)/(songs.count) 首")
+                                    Text("已写入 \(savedCount)/\(songs.count) 首")
                                         .font(ATMusicFont.appFont(13, .semibold))
                                         .foregroundStyle(theme.accent.highlight)
                                 }
@@ -2163,7 +2238,7 @@ struct SynologyBatchMetadataEditorSheet: View {
                         }
 
                         GlassButton(
-                            title: isSaving ? "正在逐首写入 NAS…" : "保存并写入 (songs.count) 首 NAS 歌曲",
+                            title: isSaving ? "正在逐首写入 NAS…" : "保存并写入 \(songs.count) 首 NAS 歌曲",
                             systemName: "square.and.arrow.down",
                             prominent: true
                         ) {
@@ -2244,7 +2319,29 @@ struct SynologyBatchMetadataEditorSheet: View {
             await MainActor.run { message = "没有可写入的内容（字段均留空且未选择封面）" }
             return
         }
-        await MainActor.run { isSaving = true; message = "正在逐首写入 NAS…" }
+        await MainActor.run { isSaving = true; message = "正在准备封面与元数据…" }
+
+        var preparedCoverData = selectedCoverData
+        var preparedCoverImage: UIImage? = selectedCoverData.flatMap { UIImage(data: $0) }
+        if preparedCoverData == nil, let coverURL = selectedCoverURL {
+            if coverURL.isFileURL {
+                if let data = try? Data(contentsOf: coverURL), let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            } else {
+                var req = URLRequest(url: coverURL)
+                req.timeoutInterval = 15
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   !data.isEmpty, let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            }
+        }
+
+        await MainActor.run { message = "正在逐首写入 NAS…" }
         var saved = 0
         for song in songs {
             do {
@@ -2252,10 +2349,10 @@ struct SynologyBatchMetadataEditorSheet: View {
                     song: song,
                     patch: patch,
                     coverURL: selectedCoverURL,
-                    coverData: selectedCoverData
+                    coverData: preparedCoverData
                 )
                 let refreshedCover = SynologyAPI.shared.coverURL(
-                    songId: song.synologyId ?? "(song.id)",
+                    songId: song.synologyId ?? "\(song.id)",
                     cacheBust: UUID().uuidString
                 )
                 let updated = Song(
@@ -2277,16 +2374,32 @@ struct SynologyBatchMetadataEditorSheet: View {
                     trackNumber: song.trackNumber,
                     fee: song.fee
                 )
+                if let preparedCoverImage {
+                    if let refreshedCover {
+                        ATMusicRemoteCoverCache.store(preparedCoverImage, for: refreshedCover)
+                    }
+                    if let oldCover = song.coverURL {
+                        ATMusicRemoteCoverCache.store(preparedCoverImage, for: oldCover)
+                    }
+                }
                 await MainActor.run {
                     player.replaceSong(updated)
+                    NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
+                    NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: updated)
+                    if let refreshedCover {
+                        NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: refreshedCover)
+                    }
+                    if let oldCover = song.coverURL, oldCover != refreshedCover {
+                        NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: oldCover)
+                    }
                 }
                 saved += 1
                 await MainActor.run {
                     savedCount = saved
-                    message = "正在逐首写入 NAS…（(saved)/(songs.count)）"
+                    message = "正在逐首写入 NAS…（\(saved)/\(songs.count)）"
                 }
             } catch {
-                await MainActor.run { message = "第 (saved + 1) 首写入失败：(error.localizedDescription)" }
+                await MainActor.run { message = "第 \(saved + 1) 首写入失败：\(error.localizedDescription)" }
             }
         }
         await MainActor.run {
@@ -2299,11 +2412,11 @@ struct SynologyBatchMetadataEditorSheet: View {
             }
             if saved == songs.count {
                 ATMusicHaptics.success()
-                ToastCenter.shared.show("批量写入完成（(saved) 首已更新）")
+                ToastCenter.shared.show("批量写入完成（\(saved) 首已更新）")
                 dismiss()
             } else {
                 savedCount = saved
-                message = "完成 (saved)/(songs.count)，失败歌曲已跳过"
+                message = "完成 \(saved)/\(songs.count)，失败歌曲已跳过"
             }
         }
     }
@@ -2380,6 +2493,16 @@ struct SynologyArtistView: View {
         .navigationTitle(artistName)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in songs.indices {
+                    let s = songs[i]
+                    if s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0) {
+                        songs[i] = updated
+                    }
+                }
+            }
+        }
         .sheet(item: $selectedAlbum) { item in
             ATMusicNavigationStack {
                 SynologyAlbumView(
@@ -2703,8 +2826,17 @@ struct SynologyAlbumView: View {
                 .environmentObject(player)
                 .environmentObject(theme)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { _ in
-            Task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                for i in tracks.indices {
+                    let s = tracks[i]
+                    if s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0) {
+                        tracks[i] = updated
+                    }
+                }
+            } else {
+                Task { await load() }
+            }
         }
     }
 

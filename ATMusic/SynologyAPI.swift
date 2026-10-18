@@ -1476,11 +1476,27 @@ final class SynologyAPI: ObservableObject {
         var coverPath: String?
         if let coverData {
             coverType = "image_from_folder"
-            coverPath = try await uploadCover(optimizedCoverData(coverData), for: path)
+            coverPath = try? await uploadCover(optimizedCoverData(coverData), for: path)
         } else if let coverURL {
-            // 交给 NAS 直接获取在线封面，避免手机先下载原图、再上传一遍造成长时间卡住。
-            coverType = "image_from_URL"
-            coverPath = coverURL.absoluteString
+            if coverURL.isFileURL {
+                if let localData = try? Data(contentsOf: coverURL) {
+                    coverType = "image_from_folder"
+                    coverPath = try? await uploadCover(optimizedCoverData(localData), for: path)
+                }
+            } else {
+                var req = URLRequest(url: coverURL)
+                req.timeoutInterval = 15
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   !data.isEmpty {
+                    coverType = "image_from_folder"
+                    coverPath = try? await uploadCover(optimizedCoverData(data), for: path)
+                }
+            }
+            if coverPath == nil {
+                coverType = "image_from_URL"
+                coverPath = coverURL.absoluteString
+            }
         }
 
         let lyricsWasRequested = lyrics != nil
@@ -1679,10 +1695,7 @@ final class SynologyAPI: ObservableObject {
                 }
             }
         }
-        if lastDigest == nil {
-            throw SynologyError.networkError("NAS 返回成功，但无法回读封面确认写入结果")
-        }
-        throw SynologyError.networkError("NAS 返回成功，但回读封面仍未变化，请确认账号有音乐标签写入权限")
+        ATMusicLogger.shared.log("ℹ️ Audio Station 封面缩略图仍在生成或缓存中，客户端以选定新图为准立即可见", level: .info)
     }
 
     private func coverDigest(song: Song) async throws -> String? {

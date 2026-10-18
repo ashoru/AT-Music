@@ -611,7 +611,7 @@ struct TransferCenterView: View {
                 } else if offlineFilter == 0 || isMultiSelectingOffline {
                     // 单曲列表
                     LazyVStack(spacing: 0) {
-                        ForEach(downloadManager.downloadedSongs) { song in
+                        ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
                             if isMultiSelectingOffline {
                                 let isSelected = selectedOfflineIDs.contains(song.identityKey)
                                 HStack(spacing: 12) {
@@ -710,7 +710,7 @@ struct TransferCenterView: View {
                                 .padding(.horizontal, 4)
 
                                 LazyVStack(spacing: 0) {
-                                    ForEach(group.songs) { song in
+                                    ForEach(group.songs, id: \.identityKey) { song in
                                         SongCell(song: song)
                                     }
                                 }

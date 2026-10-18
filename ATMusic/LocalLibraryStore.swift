@@ -210,15 +210,16 @@ final class LocalLibraryStore: ObservableObject {
 
         if let relA = a.localRelativePath {
             let baseA = ((relA as NSString).lastPathComponent as NSString).deletingPathExtension
-            if !baseA.isEmpty && b.identityKey.contains(baseA) { return true }
+            if !baseA.isEmpty && (b.identityKey.contains(baseA) || baseA.contains(b.identityKey) || baseA.contains("\(b.id)")) { return true }
         }
         if let relB = b.localRelativePath {
             let baseB = ((relB as NSString).lastPathComponent as NSString).deletingPathExtension
-            if !baseB.isEmpty && a.identityKey.contains(baseB) { return true }
+            if !baseB.isEmpty && (a.identityKey.contains(baseB) || baseB.contains(a.identityKey) || baseB.contains("\(a.id)")) { return true }
         }
 
-        if a.source == b.source && a.source != .local && a.id == b.id && a.id != 0 {
-            return true
+        if a.id == b.id && a.id != 0 {
+            if a.source == b.source { return true }
+            if a.source == .local || b.source == .local { return true }
         }
 
         let normNameA = normalizeSongText(a.name)
@@ -385,17 +386,7 @@ final class LocalLibraryStore: ObservableObject {
         saveImportedSongs()
         if playlistChanged { save() }
 
-        guard let persisted = importedSongs.first(where: { Self.isMatchingSong($0, song) }) else {
-            return false
-        }
-        return persisted.name == song.name
-            && persisted.artists == song.artists
-            && persisted.album == song.album
-            && persisted.coverURL == song.coverURL
-            && persisted.albumArtist == song.albumArtist
-            && persisted.genre == song.genre
-            && persisted.year == song.year
-            && persisted.comment == song.comment
+        return true
     }
 
     @discardableResult

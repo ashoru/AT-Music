@@ -30,9 +30,19 @@ struct SongCell: View {
     @State private var showDownloadPicker = false
     @State private var showLocalMetadataEditor = false
     @State private var showSynologyMetadataEditor = false
+    @State private var overrideSong: Song? = nil
+
+    private var displayedSong: Song {
+        if let overrideSong { return overrideSong }
+        if let current = player.currentSong,
+           (current.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(current, song) || (current.source == song.source && current.id == song.id && current.id != 0)) {
+            return current
+        }
+        return song
+    }
 
     private var isCurrent: Bool {
-        player.currentSong?.identityKey == song.identityKey
+        player.currentSong?.identityKey == displayedSong.identityKey
     }
 
     private var isNativeClean: Bool {
@@ -49,7 +59,7 @@ struct SongCell: View {
     }
     private var resolvedSubtitle: String {
         if let subtitleText { return subtitleText }
-        return song.artists.isEmpty ? song.album : song.artists
+        return displayedSong.artists.isEmpty ? displayedSong.album : displayedSong.artists
     }
 
     private var rowContent: some View {
@@ -61,11 +71,11 @@ struct SongCell: View {
                     .frame(width: 26, alignment: .center)
             }
             if showCover {
-                CoverImage(url: song.coverURL, size: coverSize, cornerRadius: coverRadius)
+                CoverImage(url: displayedSong.coverURL, size: coverSize, cornerRadius: coverRadius)
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(song.name)
+                    Text(displayedSong.name)
                         .font(ATMusicFont.appFont(15, isCurrent ? .semibold : .regular))
                         .foregroundStyle(isCurrent ? Color.atmusicAmber : Color.atmusicLabel)
                         .lineLimit(1)
@@ -85,11 +95,11 @@ struct SongCell: View {
             if isCurrent && player.isPlaying {
                 NowPlayingIndicator()
             }
-            if showSongVIPBadge, song.isVIP {
+            if showSongVIPBadge, displayedSong.isVIP {
                 SongVIPBadgeView()
             }
             downloadIndicatorView
-            SourceBadgeView(source: song.source, compact: true)
+            SourceBadgeView(source: displayedSong.source, compact: true)
             if let favoriteToggle {
                 Button(action: favoriteToggle) {
                     Image(systemName: "heart.fill")
@@ -99,7 +109,7 @@ struct SongCell: View {
                 .buttonStyle(.plain)
                 .frame(minWidth: 42, alignment: .trailing)
             } else {
-                Text(song.formattedDuration)
+                Text(displayedSong.formattedDuration)
                     .font(ATMusicFont.appFont(12, .regular, .monospaced))
                     .foregroundStyle(Color.atmusicComment)
                     .frame(minWidth: 42, alignment: .trailing)
@@ -113,7 +123,7 @@ struct SongCell: View {
         }
         .contextMenu {
             Button {
-                player.playNext(song)
+                player.playNext(displayedSong)
             } label: {
                 Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
@@ -123,20 +133,20 @@ struct SongCell: View {
                 Label("添加到歌单", systemImage: "text.badge.plus")
             }
             if downloadFeatureUnlocked {
-                if DownloadManager.shared.isDownloaded(song: song) {
+                if DownloadManager.shared.isDownloaded(song: displayedSong) {
                     Button {
                         showDownloadPicker = true
                     } label: {
                         Label("重新下载 (更换音质)", systemImage: "arrow.clockwise.circle")
                     }
-                    if song.source != .synology {
+                    if displayedSong.source != .synology {
                         Button {
-                            DownloadManager.shared.startUploadToNAS(song: song)
+                            DownloadManager.shared.startUploadToNAS(song: displayedSong)
                         } label: {
                             Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
                         }
                     }
-                    if let url = DownloadManager.shared.localAudioURL(for: song) {
+                    if let url = DownloadManager.shared.localAudioURL(for: displayedSong) {
                         Button {
                             shareFile = ShareFileItem(url: url)
                         } label: {
@@ -144,7 +154,7 @@ struct SongCell: View {
                         }
                     }
                     Button(role: .destructive) {
-                        DownloadManager.shared.removeDownloaded(song: song)
+                        DownloadManager.shared.removeDownloaded(song: displayedSong)
                     } label: {
                         Label("从本地移除下载", systemImage: "trash")
                     }
@@ -152,24 +162,24 @@ struct SongCell: View {
                     Button {
                         downloadSong()
                     } label: {
-                        Label(song.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
+                        Label(displayedSong.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
                     }
-                    if song.source != .synology {
+                    if displayedSong.source != .synology {
                         Button {
-                            DownloadManager.shared.startUploadToNAS(song: song)
+                            DownloadManager.shared.startUploadToNAS(song: displayedSong)
                         } label: {
                             Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
                         }
                     }
                 }
             }
-            if song.source == .synology {
+            if displayedSong.source == .synology {
                 Button {
                     showSynologyMetadataEditor = true
                 } label: {
                     Label("编辑 NAS 标签与封面", systemImage: "pencil")
                 }
-            } else if song.source == .local || DownloadManager.shared.isDownloaded(song: song) {
+            } else if displayedSong.source == .local || DownloadManager.shared.isDownloaded(song: displayedSong) {
                 Button {
                     showLocalMetadataEditor = true
                 } label: {
@@ -180,10 +190,10 @@ struct SongCell: View {
                 Button {
                     if let playbackIndex, !playbackContext.isEmpty {
                         player.play(songs: playbackContext, startAt: playbackIndex)
-                    } else if let index = player.queue.firstIndex(of: song) {
+                    } else if let index = player.queue.firstIndex(of: displayedSong) {
                         player.playQueueIndex(index)
                     } else {
-                        player.play(songs: [song], startAt: 0)
+                        player.play(songs: [displayedSong], startAt: 0)
                     }
                 } label: {
                     Label("立即播放", systemImage: "play.fill")
@@ -191,50 +201,51 @@ struct SongCell: View {
             }
         }
         .sheet(isPresented: $showAddToPlaylist) {
-            AddToLocalPlaylistSheet(song: song)
+            AddToLocalPlaylistSheet(song: displayedSong)
                 .environmentObject(theme)
         }
         .sheet(item: $shareFile) { item in
             ShareSheet(items: [item.url])
         }
-        .confirmationDialog("已离线歌曲：\(song.name)", isPresented: $showDownloadedActionSheet, titleVisibility: .visible) {
+        .confirmationDialog("已离线歌曲：\(displayedSong.name)", isPresented: $showDownloadedActionSheet, titleVisibility: .visible) {
             Button("编辑歌曲信息与封面") {
                 showLocalMetadataEditor = true
             }
             Button("重新下载 (更换音质)") {
                 showDownloadPicker = true
             }
-            if song.source != .synology {
+            if displayedSong.source != .synology {
                 Button("转档到群晖 NAS") {
-                    DownloadManager.shared.startUploadToNAS(song: song)
+                    DownloadManager.shared.startUploadToNAS(song: displayedSong)
                 }
             }
             Button("查看本地音频参数") {
                 showAudioParameters()
             }
-            if let url = DownloadManager.shared.localAudioURL(for: song) {
+            if let url = DownloadManager.shared.localAudioURL(for: displayedSong) {
                 Button("隔空投送 / 导出") {
                     shareFile = ShareFileItem(url: url)
                 }
             }
             Button("从本地移除下载", role: .destructive) {
-                DownloadManager.shared.removeDownloaded(song: song)
+                DownloadManager.shared.removeDownloaded(song: displayedSong)
             }
             Button("取消", role: .cancel) {}
         }
         .confirmationDialog("选择离线下载音质", isPresented: $showDownloadPicker, titleVisibility: .visible) {
-            ForEach(ThirdPartyAudioQuality.supported(for: song.source)) { quality in
+            ForEach(ThirdPartyAudioQuality.supported(for: displayedSong.source)) { quality in
                 Button(quality.displayName) {
-                    DownloadManager.shared.startDownload(song: song, quality: quality, forceRedownload: true)
+                    DownloadManager.shared.startDownload(song: displayedSong, quality: quality, forceRedownload: true)
                 }
             }
             Button("取消", role: .cancel) {}
         }
         .sheet(isPresented: $showLocalMetadataEditor) {
-            let targetSong = song.source == .local ? song : (DownloadManager.shared.downloadedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) }) ?? song)
+            let targetSong = displayedSong.source == .local ? displayedSong : (DownloadManager.shared.downloadedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, displayedSong) }) ?? displayedSong)
             LocalSongMetadataEditorSheet(song: targetSong) { updated in
                 let saved = LocalLibraryStore.shared.updateImportedSong(updated)
                 if saved {
+                    overrideSong = updated
                     player.replaceSong(updated)
                     ToastCenter.shared.show("歌曲信息已更新")
                 }
@@ -244,17 +255,19 @@ struct SongCell: View {
             .environmentObject(player)
         }
         .sheet(isPresented: $showSynologyMetadataEditor) {
-            if song.source == .synology {
-                SynologyMetadataEditorSheet(song: song)
-                    .environmentObject(theme)
-                    .environmentObject(player)
+            if displayedSong.source == .synology {
+                SynologyMetadataEditorSheet(song: displayedSong) { updated in
+                    overrideSong = updated
+                }
+                .environmentObject(theme)
+                .environmentObject(player)
             }
         }
     }
 
     @ViewBuilder
     private var downloadIndicatorView: some View {
-        if DownloadManager.shared.isDownloaded(song: song) {
+        if DownloadManager.shared.isDownloaded(song: displayedSong) {
             Button {
                 showDownloadedActionSheet = true
                 ATMusicHaptics.tap()
@@ -264,8 +277,8 @@ struct SongCell: View {
                     .foregroundStyle(Color.atmusicAmber)
             }
             .buttonStyle(.plain)
-        } else if DownloadManager.shared.isDownloading(song: song) {
-            let task = DownloadManager.shared.activeDownloads.first(where: { $0.song.identityKey == song.identityKey })
+        } else if DownloadManager.shared.isDownloading(song: displayedSong) {
+            let task = DownloadManager.shared.activeDownloads.first(where: { $0.song.identityKey == displayedSong.identityKey })
             if let task, task.status == .downloading {
                 Button {
                     DownloadManager.shared.pauseDownload(id: task.id)
@@ -310,7 +323,7 @@ struct SongCell: View {
     }
 
     private func showAudioParameters() {
-        if let url = DownloadManager.shared.localAudioURL(for: song) {
+        if let url = DownloadManager.shared.localAudioURL(for: displayedSong) {
             let ext = url.pathExtension.uppercased()
             var sizeStr = "未知大小"
             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -332,7 +345,7 @@ struct SongCell: View {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
         ATMusicHaptics.medium()
-        DownloadManager.shared.startDownload(song: song, quality: quality)
+        DownloadManager.shared.startDownload(song: displayedSong, quality: quality)
     }
 
     var body: some View {
@@ -348,7 +361,22 @@ struct SongCell: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        // 高频滚动时单元格会反复进入/离开可视区域；不再为每一行建立入场动画状态，
-        // 避免 LazyVStack/List 批量复用时触发成百次布局和合成。
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSongMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
+                    overrideSong = updated
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
+            if let updated = note.object as? Song {
+                if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
+                    overrideSong = updated
+                }
+            }
+        }
+        .onChange(of: song) { _ in
+            overrideSong = nil
+        }
     }
 }

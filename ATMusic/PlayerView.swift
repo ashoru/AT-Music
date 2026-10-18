@@ -684,13 +684,16 @@ struct PlayerView: View {
         }
         .sheet(isPresented: $showSynologyMetadataEditor) {
             if let song, song.source == .synology {
-                SynologyMetadataEditorSheet(song: song)
-                    .transaction { transaction in transaction.animation = nil }
+                SynologyMetadataEditorSheet(song: song) { updated in
+                    player.replaceSong(updated)
+                }
+                .transaction { transaction in transaction.animation = nil }
             }
         }
         .sheet(isPresented: $showLocalMetadataEditor) {
-            if let song, song.source == .local {
-                LocalSongMetadataEditorSheet(song: song) { updated in
+            if let song {
+                let targetSong = song.source == .local ? song : (DownloadManager.shared.downloadedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) }) ?? song)
+                LocalSongMetadataEditorSheet(song: targetSong) { updated in
                     let saved = localLibrary.updateImportedSong(updated)
                     if saved { player.replaceSong(updated) }
                     return saved

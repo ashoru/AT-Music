@@ -1617,70 +1617,77 @@ struct LocalSongMetadataEditorSheet: View {
     }
 
     private func save() {
+        Task { await saveInternal() }
+    }
+
+    private func saveInternal() async {
         saving = true
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines)
         var updatedCoverURL = coverURL
+        var newCoverImage: UIImage? = nil
         do {
             if let coverData, let image = UIImage(data: coverData),
                let jpeg = image.jpegData(compressionQuality: 0.92),
                let relativePath = song.localRelativePath {
                 let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                let previousCoverURL = coverURL
+                let previousCoverURL = song.coverURL
                 updatedCoverURL = try LocalAudioFileManager.shared.writeSupportData(
                     jpeg,
-                    relativePath: "ATMusicAudio/Artwork/(baseName)-(UUID().uuidString).jpg"
+                    relativePath: "ATMusicAudio/Artwork/\(baseName)-\(UUID().uuidString).jpg"
                 )
                 if let previousCoverURL, previousCoverURL != updatedCoverURL {
                     LocalAudioFileManager.shared.removeManagedArtworkIfNeeded(previousCoverURL)
                     ATMusicRemoteCoverCache.remove(for: previousCoverURL)
-                    ATMusicImageFileCache.remove(previousCoverURL.path)
-                }
-                if let updatedCoverURL {
-                    ATMusicRemoteCoverCache.store(image, for: updatedCoverURL)
-                }
-            } else if let coverURL, !coverURL.isFileURL, let relativePath = song.localRelativePath {
-                // 在线选取的封面：异步转存为本地安全沙盒文件，保证离线永久可用与立即可见
-                Task.detached(priority: .utility) {
-                    var req = URLRequest(url: coverURL)
-                    req.timeoutInterval = 15
-                    if let (data, resp) = try? await URLSession.shared.data(for: req),
-                       let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
-                       let img = UIImage(data: data),
-                       let jpeg = img.jpegData(compressionQuality: 0.92) {
-                        let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
-                        if let localArtworkURL = try? LocalAudioFileManager.shared.writeSupportData(
-                            jpeg,
-                            relativePath: "ATMusicAudio/Artwork/(baseName)-(UUID().uuidString).jpg"
-                        ) {
-                            await MainActor.run {
-                                ATMusicRemoteCoverCache.store(img, for: localArtworkURL)
-                                let refreshed = Song(
-                                    id: song.id,
-                                    name: trimmedTitle,
-                                    artists: trimmedArtist.isEmpty ? "未知艺术家" : trimmedArtist,
-                                    album: trimmedAlbum.isEmpty ? "未知专辑" : trimmedAlbum,
-                                    coverURL: localArtworkURL,
-                                    duration: song.duration,
-                                    source: .local,
-                                    localRelativePath: song.localRelativePath,
-                                    albumArtist: albumArtist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : albumArtist.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    genre: genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : genre.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    year: year.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : year.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    comment: comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : comment.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    discNumber: song.discNumber,
-                                    trackNumber: song.trackNumber,
-                                    fee: song.fee
-                                )
-                                LocalLibraryStore.shared.updateImportedSong(refreshed)
-                                player.replaceSong(refreshed)
-                                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: localArtworkURL)
-                            }
-                        }
+                    if previousCoverURL.isFileURL {
+                        ATMusicImageFileCache.remove(previousCoverURL.path)
                     }
                 }
+                newCoverImage = image
+            } else if let chosenCoverURL = coverURL, !chosenCoverURL.isFileURL, let relativePath = song.localRelativePath {
+                message = "正在下载并保存封面…"
+                var req = URLRequest(url: chosenCoverURL)
+                req.timeoutInterval = 12
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   let img = UIImage(data: data),
+                   let jpeg = img.jpegData(compressionQuality: 0.92) {
+                    let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                    let previousCoverURL = song.coverURL
+                    if let localArtworkURL = try? LocalAudioFileManager.shared.writeSupportData(
+                        jpeg,
+                        relativePath: "ATMusicAudio/Artwork/\(baseName)-\(UUID().uuidString).jpg"
+                    ) {
+                        if let previousCoverURL, previousCoverURL != localArtworkURL {
+                            LocalAudioFileManager.shared.removeManagedArtworkIfNeeded(previousCoverURL)
+                            ATMusicRemoteCoverCache.remove(for: previousCoverURL)
+                            if previousCoverURL.isFileURL {
+                                ATMusicImageFileCache.remove(previousCoverURL.path)
+                            }
+                        }
+                        updatedCoverURL = localArtworkURL
+                        newCoverImage = img
+                    }
+                }
+            } else if let chosenCoverURL = coverURL, chosenCoverURL.isFileURL {
+                if let data = try? Data(contentsOf: chosenCoverURL), let img = UIImage(data: data) {
+                    newCoverImage = img
+                }
             }
+
+            if let newCoverImage {
+                if let updatedCoverURL {
+                    ATMusicRemoteCoverCache.store(newCoverImage, for: updatedCoverURL)
+                }
+                if let oldCover = song.coverURL {
+                    ATMusicRemoteCoverCache.store(newCoverImage, for: oldCover)
+                }
+                if let chosenCoverURL = coverURL {
+                    ATMusicRemoteCoverCache.store(newCoverImage, for: chosenCoverURL)
+                }
+            }
+
             let updated = Song(
                 id: song.id,
                 name: trimmedTitle,
@@ -1700,7 +1707,7 @@ struct LocalSongMetadataEditorSheet: View {
             )
             guard onSave(updated) else {
                 saving = false
-                message = "保存失败：本地音乐库未能读回新标签"
+                message = "保存失败：本地音乐库未能保存新标签"
                 return
             }
             if let updatedCoverURL, updatedCoverURL.isFileURL,
@@ -1709,15 +1716,21 @@ struct LocalSongMetadataEditorSheet: View {
                 message = "保存失败：新封面文件校验失败"
                 return
             }
+            LocalLibraryStore.shared.updateImportedSong(updated)
             player.replaceSong(updated)
-            NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: updatedCoverURL)
+            if let updatedCoverURL {
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: updatedCoverURL)
+            }
+            if let oldCover = song.coverURL, oldCover != updatedCoverURL {
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: oldCover)
+            }
             NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
             ATMusicHaptics.success()
             ToastCenter.shared.show("本地歌曲信息已更新")
             dismiss()
         } catch {
             saving = false
-            message = "保存失败：(error.localizedDescription)"
+            message = "保存失败：\(error.localizedDescription)"
         }
     }
 }
@@ -1751,12 +1764,12 @@ struct LocalBatchMetadataEditorSheet: View {
                         // 1. 顶部选中歌曲概览
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("批量修改 (songs.count) 首本地离线歌曲")
+                                Text("批量修改 \(songs.count) 首本地离线歌曲")
                                     .font(ATMusicFont.appFont(15, .semibold))
                                     .foregroundStyle(Color.atmusicLabel)
                                 Spacer()
                                 if let savedCount {
-                                    Text("已更新 (savedCount)/(songs.count) 首")
+                                    Text("已更新 \(savedCount)/\(songs.count) 首")
                                         .font(ATMusicFont.appFont(13, .semibold))
                                         .foregroundStyle(theme.accent.highlight)
                                 }
@@ -1876,7 +1889,7 @@ struct LocalBatchMetadataEditorSheet: View {
                         }
 
                         GlassButton(
-                            title: isSaving ? "正在写入本地库…" : "保存并应用到 (songs.count) 首歌曲",
+                            title: isSaving ? "正在写入本地库…" : "保存并应用到 \(songs.count) 首歌曲",
                             systemName: "checkmark.circle.fill",
                             prominent: true
                         ) {
@@ -1957,17 +1970,22 @@ struct LocalBatchMetadataEditorSheet: View {
 
         // 统一处理封面落盘
         var sharedCoverURL: URL? = nil
+        var sharedCoverImage: UIImage? = nil
         if let data = selectedCoverData, let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.92) {
             sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
                 jpeg,
-                relativePath: "ATMusicAudio/Artwork/batch-(UUID().uuidString).jpg"
+                relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
             )
             if let sharedCoverURL {
                 ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
             }
+            sharedCoverImage = img
         } else if let remoteURL = selectedCoverURL {
             if remoteURL.isFileURL {
                 sharedCoverURL = remoteURL
+                if let data = try? Data(contentsOf: remoteURL), let img = UIImage(data: data) {
+                    sharedCoverImage = img
+                }
             } else {
                 var req = URLRequest(url: remoteURL)
                 req.timeoutInterval = 15
@@ -1977,11 +1995,12 @@ struct LocalBatchMetadataEditorSheet: View {
                    let jpeg = img.jpegData(compressionQuality: 0.92) {
                     sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
                         jpeg,
-                        relativePath: "ATMusicAudio/Artwork/batch-(UUID().uuidString).jpg"
+                        relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
                     )
                     if let sharedCoverURL {
                         ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
                     }
+                    sharedCoverImage = img
                 }
             }
         }
@@ -2016,17 +2035,26 @@ struct LocalBatchMetadataEditorSheet: View {
 
             LocalLibraryStore.shared.updateImportedSong(updated)
             player.replaceSong(updated)
+            if let sharedCoverImage {
+                if let old = song.coverURL {
+                    ATMusicRemoteCoverCache.store(sharedCoverImage, for: old)
+                    NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: old)
+                }
+            }
+            NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
             saved += 1
             savedCount = saved
-            message = "正在写入本地库…（(saved)/(songs.count)）"
+            message = "正在写入本地库…（\(saved)/\(songs.count)）"
         }
 
-                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: sharedCoverURL)
+        if let sharedCoverURL {
+            NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: sharedCoverURL)
+        }
         NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: nil)
 
         isSaving = false
         ATMusicHaptics.success()
-        ToastCenter.shared.show("批量修改完成（(saved) 首已更新）")
+        ToastCenter.shared.show("批量修改完成（\(saved) 首已更新）")
         dismiss()
     }
 }
