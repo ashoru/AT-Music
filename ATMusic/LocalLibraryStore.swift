@@ -401,6 +401,39 @@ final class LocalLibraryStore: ObservableObject {
         return true
     }
 
+    /// 批量更新本地离线歌曲元数据（单次重构索引并落盘，杜绝循环更新时的重复磁盘 I/O）
+    @discardableResult
+    func updateImportedSongs(_ songs: [Song]) -> Int {
+        guard !songs.isEmpty else { return 0 }
+        var updatedCount = 0
+        var newImported = importedSongs
+        for song in songs {
+            if let idx = newImported.firstIndex(where: { Self.isMatchingSong($0, song) }) {
+                newImported[idx] = song
+                updatedCount += 1
+            }
+        }
+        guard updatedCount > 0 else { return 0 }
+        importedSongs = newImported
+
+        var updatedPlaylists = playlists
+        var playlistChanged = false
+        for playlistIndex in updatedPlaylists.indices {
+            for songIndex in updatedPlaylists[playlistIndex].songs.indices {
+                let curr = updatedPlaylists[playlistIndex].songs[songIndex]
+                if let matched = songs.first(where: { Self.isMatchingSong($0, curr) }) {
+                    updatedPlaylists[playlistIndex].songs[songIndex] = matched
+                    playlistChanged = true
+                }
+            }
+        }
+        if playlistChanged {
+            playlists = updatedPlaylists
+            save()
+        }
+        return updatedCount
+    }
+
     @discardableResult
     func removeAllMatchingImportedSongs(matching song: Song) -> Int {
         let before = importedSongs.count

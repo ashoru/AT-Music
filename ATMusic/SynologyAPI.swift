@@ -123,11 +123,18 @@ final class SynologyAPI: ObservableObject {
     private var librarySongsIndex: [String: Song] = [:]
     private let indexLock = NSLock()
 
+    private let uploadedCoverLock = NSLock()
+    private var uploadedCoverFolders: [String: String] = [:]
+
     private func clearLibraryCache() {
-        clearLibraryCache()
+        librarySongsCache.removeAll()
+        librarySongsCacheUpdatedAt = .distantPast
         indexLock.lock()
         librarySongsIndex.removeAll()
         indexLock.unlock()
+        uploadedCoverLock.lock()
+        uploadedCoverFolders.removeAll()
+        uploadedCoverLock.unlock()
     }
 
     private func rebuildLibrarySongsIndex() {
@@ -188,6 +195,29 @@ final class SynologyAPI: ObservableObject {
         }
         if changed {
             indexSong(updated)
+            persistLibraryIndex()
+            Task { @MainActor in
+                self.libraryIndexRevision &+= 1
+            }
+        }
+    }
+
+    /// 批量更新 NAS 歌曲快照与索引（单次落盘与单次版本递增，杜绝循环更新时的重复 I/O 与视图频繁刷新）
+    func updateCachedLibrarySongs(_ updatedList: [Song]) {
+        restorePersistentLibraryIndexIfNeeded()
+        guard !updatedList.isEmpty else { return }
+        var anyChanged = false
+        for updated in updatedList {
+            for idx in librarySongsCache.indices {
+                let s = librarySongsCache[idx]
+                if s.identityKey == updated.identityKey || (s.synologyId != nil && s.synologyId == updated.synologyId) || (s.id == updated.id && s.id != 0) {
+                    librarySongsCache[idx] = updated
+                    anyChanged = true
+                }
+            }
+            indexSong(updated)
+        }
+        if anyChanged {
             persistLibraryIndex()
             Task { @MainActor in
                 self.libraryIndexRevision &+= 1
@@ -1527,7 +1557,7 @@ final class SynologyAPI: ObservableObject {
     /// Audio Station 的 tag_editor.cgi 并不是标准 WebAPI：它要求的 data 与网页版编辑器完全一致，
     /// 必须包含 audioInfos、完整标签和 coverType/coverPath。以前只传 patch 会被服务端判作无效数据，
     /// 尤其带封面时会等待后再失败。这里先载入原始标签并只覆盖用户实际修改的字段。
-    func applyMetadata(song: Song, patch: SynologyTagPatch, coverURL: URL? = nil, coverData: Data? = nil, lyrics: String? = nil) async throws {
+    func applyMetadata(song: Song, patch: SynologyTagPatch, coverURL: URL? = nil, coverData: Data? = nil, lyrics: String? = nil, skipCacheInvalidation: Bool = false) async throws {
         guard accepts(song: song), let path = song.synologyPath, !path.isEmpty else {
             throw SynologyError.missingConfiguration("当前 NAS 歌曲没有可写入的原文件路径，请重新扫描音乐库")
         }
@@ -1614,9 +1644,11 @@ final class SynologyAPI: ObservableObject {
             // 这里再用官方 SYNO.AudioStation.Lyrics 写一次并回读，避免出现只在编辑器内存中变化。
             try await saveLyrics(song: song, lyrics: lyrics)
         }
-        clearLibraryCache()
-        await MainActor.run {
-            self.libraryIndexRevision &+= 1
+        if !skipCacheInvalidation {
+            clearLibraryCache()
+            await MainActor.run {
+                self.libraryIndexRevision &+= 1
+            }
         }
     }
 
@@ -1842,6 +1874,16 @@ final class SynologyAPI: ObservableObject {
         guard !sid.isEmpty else { throw SynologyError.unauthenticated }
         let folder = (path as NSString).deletingLastPathComponent
         let filename = "cover.jpg"
+        let fullPath = folder + "/" + filename
+
+        // 如果在当前会话已成功上传过同一目录的封面，直接复用其 NAS 路径，杜绝全专批量写入时重复上传同一张图片导致 NAS 拥堵与超时
+        uploadedCoverLock.lock()
+        if let existing = uploadedCoverFolders[folder], existing == fullPath {
+            uploadedCoverLock.unlock()
+            return fullPath
+        }
+        uploadedCoverLock.unlock()
+
         let boundary = "ATMusic-\(UUID().uuidString)"
         var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
         components?.queryItems = [
@@ -1881,8 +1923,11 @@ final class SynologyAPI: ObservableObject {
             ATMusicLogger.shared.log("⚠️ File Station 封面上传失败：\(errorText)", level: .warn)
             throw SynologyError.apiError(-1, "NAS 没有允许上传封面，请检查 File Station 权限")
         }
-        ATMusicLogger.shared.log("✅ File Station 封面上传成功：\(folder)/\(filename)", level: .info)
-        return folder + "/" + filename
+        uploadedCoverLock.lock()
+        uploadedCoverFolders[folder] = fullPath
+        uploadedCoverLock.unlock()
+        ATMusicLogger.shared.log("✅ File Station 封面上传成功：\(fullPath)", level: .info)
+        return fullPath
     }
 
     /// 将本机选图限制到合理尺寸再上传。原图（常见为数 MB 的 HEIC/JPEG）不再阻塞 NAS 写入。
@@ -2030,16 +2075,24 @@ final class SynologyAPI: ObservableObject {
         return data
     }
 
-    private func optimizedCoverData(_ data: Data) -> Data {
-        guard let image = UIImage(data: data) else { return data }
-        let maxSide: CGFloat = 1_600
-        let longest = max(image.size.width, image.size.height)
-        guard longest > maxSide else { return image.jpegData(compressionQuality: 0.86) ?? data }
-        let scale = maxSide / longest
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        return resized.jpegData(compressionQuality: 0.86) ?? data
+    func optimizedCoverData(_ data: Data) -> Data {
+        autoreleasepool {
+            guard let image = UIImage(data: data) else { return data }
+            let maxSide: CGFloat = 1_200
+            let longest = max(image.size.width, image.size.height)
+            guard longest > maxSide else { return image.jpegData(compressionQuality: 0.85) ?? data }
+            let scale = maxSide / longest
+            let size = CGSize(
+                width: max(1, (image.size.width * scale).rounded()),
+                height: max(1, (image.size.height * scale).rounded())
+            )
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1.0
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+            return resized.jpegData(compressionQuality: 0.85) ?? data
+        }
     }
 
     private static func stringValue(_ value: Any?) -> String? {

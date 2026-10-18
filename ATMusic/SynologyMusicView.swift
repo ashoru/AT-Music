@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 struct SynologyMusicView: View {
     @EnvironmentObject private var theme: ThemeStore
@@ -784,12 +785,20 @@ private struct CoverResolutionBadge: View {
                     var request = URLRequest(url: url)
                     request.cachePolicy = .returnCacheDataElseLoad
                     let (data, _) = try await URLSession.shared.data(for: request)
-                    guard !Task.isCancelled, let image = UIImage(data: data) else { return }
-                    let scale = image.scale > 0 ? image.scale : 1
-                    let width = Int((image.size.width * scale).rounded())
-                    let height = Int((image.size.height * scale).rounded())
-                    if width > 0 && height > 0 {
-                        resolution = "\(width)×\(height)"
+                    guard !Task.isCancelled, !data.isEmpty else { return }
+                    if let source = CGImageSourceCreateWithData(data as CFData, nil),
+                       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                       let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+                       let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int,
+                       pixelWidth > 0, pixelHeight > 0 {
+                        resolution = "\(pixelWidth)×\(pixelHeight)"
+                    } else if let image = UIImage(data: data) {
+                        let scale = image.scale > 0 ? image.scale : 1
+                        let width = Int((image.size.width * scale).rounded())
+                        let height = Int((image.size.height * scale).rounded())
+                        if width > 0 && height > 0 {
+                            resolution = "\(width)×\(height)"
+                        }
                     }
                 } catch {
                     // 保留“分辨率未知”提示，不让角标消失。
@@ -2101,6 +2110,7 @@ struct SynologyBatchMetadataEditorSheet: View {
     @State private var comment = ""
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
+    @State private var selectedCoverThumbnail: UIImage?
     @State private var isSaving = false
     @State private var message = ""
     @State private var showCoverPicker = false
@@ -2160,7 +2170,13 @@ struct SynologyBatchMetadataEditorSheet: View {
                                 showCoverPicker = true
                             } label: {
                                 HStack(spacing: 12) {
-                                    if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
+                                    if let selectedCoverThumbnail {
+                                        Image(uiImage: selectedCoverThumbnail)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 48, height: 48)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    } else if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
                                         Image(uiImage: img)
                                             .resizable()
                                             .scaledToFill()
@@ -2187,10 +2203,11 @@ struct SynologyBatchMetadataEditorSheet: View {
                                             .foregroundStyle(Color.atmusicComment)
                                     }
                                     Spacer()
-                                    if selectedCoverData != nil || selectedCoverURL != nil {
+                                    if selectedCoverData != nil || selectedCoverURL != nil || selectedCoverThumbnail != nil {
                                         Button {
                                             selectedCoverData = nil
                                             selectedCoverURL = nil
+                                            selectedCoverThumbnail = nil
                                         } label: {
                                             Image(systemName: "xmark.circle.fill")
                                                 .font(.system(size: 16))
@@ -2265,9 +2282,12 @@ struct SynologyBatchMetadataEditorSheet: View {
                 SongCoverSearchGridSheet(song: first) { candidate in
                     selectedCoverURL = candidate.song.coverURL
                     selectedCoverData = nil
+                    selectedCoverThumbnail = nil
                     showCoverPicker = false
                 } onPickData: { data in
-                    selectedCoverData = data
+                    let optimized = SynologyAPI.shared.optimizedCoverData(data)
+                    selectedCoverData = optimized
+                    selectedCoverThumbnail = UIImage(data: optimized)
                     selectedCoverURL = nil
                     showCoverPicker = false
                 }
@@ -2343,15 +2363,24 @@ struct SynologyBatchMetadataEditorSheet: View {
             }
         }
 
+        // 预先优化并压缩待写入封面，防止循环中频繁重复进行耗内存的大图解码
+        if let raw = preparedCoverData {
+            let optimized = SynologyAPI.shared.optimizedCoverData(raw)
+            preparedCoverData = optimized
+            preparedCoverImage = UIImage(data: optimized)
+        }
+
         await MainActor.run { message = "正在逐首写入 NAS…" }
         var saved = 0
+        var allUpdatedSongs: [Song] = []
         for song in songs {
             do {
                 try await SynologyAPI.shared.applyMetadata(
                     song: song,
                     patch: patch,
                     coverURL: selectedCoverURL,
-                    coverData: preparedCoverData
+                    coverData: preparedCoverData,
+                    skipCacheInvalidation: true
                 )
                 let refreshedCover = SynologyAPI.shared.coverURL(
                     songId: song.synologyId ?? "\(song.id)",
@@ -2376,6 +2405,8 @@ struct SynologyBatchMetadataEditorSheet: View {
                     trackNumber: song.trackNumber,
                     fee: song.fee
                 )
+                allUpdatedSongs.append(updated)
+
                 if let preparedCoverImage {
                     if let refreshedCover {
                         ATMusicRemoteCoverCache.store(preparedCoverImage, for: refreshedCover)
@@ -2385,9 +2416,9 @@ struct SynologyBatchMetadataEditorSheet: View {
                     }
                 }
                 await MainActor.run {
-                    player.replaceSong(updated)
-                    DetailSongsCache.shared.updateSong(updated)
-                    SynologyAPI.shared.updateCachedLibrarySong(updated)
+                    if player.currentSong?.identityKey == updated.identityKey {
+                        player.replaceSong(updated)
+                    }
                     NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
                     NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: updated)
                     if let refreshedCover {
@@ -2406,6 +2437,13 @@ struct SynologyBatchMetadataEditorSheet: View {
                 await MainActor.run { message = "第 \(saved + 1) 首写入失败：\(error.localizedDescription)" }
             }
         }
+
+        // 批量落盘与索引更新，单次完成以消除巨额 I/O 与并发请求
+        if !allUpdatedSongs.isEmpty {
+            DetailSongsCache.shared.updateSongs(allUpdatedSongs)
+            SynologyAPI.shared.updateCachedLibrarySongs(allUpdatedSongs)
+        }
+
         await MainActor.run {
             isSaving = false
             if saved > 0 {

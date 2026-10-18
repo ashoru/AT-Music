@@ -69,6 +69,34 @@ final class DetailSongsCache {
         if changed { persistAsync(snapshot) }
     }
 
+    /// 批量更新缓存中的歌曲信息，只做一次遍历与落盘
+    func updateSongs(_ updatedList: [Song]) {
+        guard !updatedList.isEmpty else { return }
+        lock.lock()
+        var changed = false
+        for (key, entry) in entries {
+            var updatedSongs = entry.songs
+            var entryChanged = false
+            for idx in updatedSongs.indices {
+                let s = updatedSongs[idx]
+                for updated in updatedList {
+                    if s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0) {
+                        updatedSongs[idx] = updated
+                        entryChanged = true
+                        break
+                    }
+                }
+            }
+            if entryChanged {
+                entries[key] = Entry(songs: updatedSongs, savedAt: entry.savedAt)
+                changed = true
+            }
+        }
+        let snapshot = entries
+        lock.unlock()
+        if changed { persistAsync(snapshot) }
+    }
+
     func invalidateAll() {
         lock.lock()
         entries.removeAll()

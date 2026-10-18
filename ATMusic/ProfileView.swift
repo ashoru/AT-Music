@@ -4206,7 +4206,7 @@ struct WallpaperPhotoPicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
         config.filter = .images
-        config.selectionLimit = 0 // 0 = 多选
+        config.selectionLimit = 1
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = context.coordinator
         return picker
@@ -4219,13 +4219,24 @@ struct WallpaperPhotoPicker: UIViewControllerRepresentable {
         init(_ parent: WallpaperPhotoPicker) { self.parent = parent }
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             picker.dismiss(animated: true)
-            for result in results {
-                let provider = result.itemProvider
-                if provider.canLoadObject(ofClass: UIImage.self) {
-                    provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                        guard let data, !data.isEmpty else { return }
-                        DispatchQueue.main.async {
-                            self.parent.onPicked(data)
+            guard let firstResult = results.first else { return }
+            let provider = firstResult.itemProvider
+            if provider.canLoadObject(ofClass: UIImage.self) {
+                provider.loadObject(ofClass: UIImage.self) { image, error in
+                    if let uiImage = image as? UIImage {
+                        let finalData = SynologyAPI.shared.optimizedCoverData(uiImage.jpegData(compressionQuality: 0.90) ?? Data())
+                        if !finalData.isEmpty {
+                            DispatchQueue.main.async {
+                                self.parent.onPicked(finalData)
+                            }
+                        }
+                    } else {
+                        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                            guard let data, !data.isEmpty else { return }
+                            let opt = SynologyAPI.shared.optimizedCoverData(data)
+                            DispatchQueue.main.async {
+                                self.parent.onPicked(opt)
+                            }
                         }
                     }
                 }

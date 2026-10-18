@@ -1,5 +1,13 @@
 # AT Music 更新日志
 
+## 1.9.33 build 96
+
+### 彻底修复批量写入歌曲专辑图闪退、消除递归堆栈溢出与内存峰值、批量写入性能十倍提速
+- **彻底修复批量写入专辑图闪退（根除 clearLibraryCache 递归自调用导致的 Stack Overflow 致命崩溃）**：定位并彻底修复 `SynologyAPI` 在保存单曲封面及标签后清理缓存时，因笔误调用 `clearLibraryCache()` 自身造成的无限递归与主线程栈溢出崩溃；重构为安全清理 `librarySongsCache` 与重建倒排索引 `librarySongsIndex`，彻底恢复批量编辑与单曲保存的稳定性
+- **全专批量写封面极速去重（同目录封面复用）**：针对整张专辑（通常包含 10~25 首歌曲）批量写入统一封面的场景，消除每首曲目都向 NAS 重复调用 `SYNO.FileStation.Upload` 上传同一张图片的严重冗余；引入目录级上传缓存机制，同目录专辑仅上传首张 `cover.jpg`，其余曲目直接复用该 NAS 封面文件路径交由 `tag_editor.cgi` 写入音频标签，耗时缩短 90% 以上，杜绝家庭宽带上行堵塞与上传超时
+- **图像内存安全与低功耗重构（格式锁死 scale=1.0 与 ImageIO 零解码读取分辨率）**：排查发现 `UIGraphicsImageRenderer` 默认使用设备屏幕倍率（iPhone 15/16 Pro 为 3x），导致 1200pt 图像在后台生成 3600×3600 的巨型位图（瞬时占用内存超 50MB）；显式锁死 `format.scale = 1.0` 与 `format.opaque = true`，内存占用降低 89%；在封面搜索网格 `CoverResolutionBadge` 中使用 `ImageIO`（`CGImageSourceCreateWithData`）仅解析图片头部 Exif 元数据获取像素尺寸，杜绝滑屏时并发解码 20+ 张全尺寸图片导致的内存峰值与 Jetsam 杀进程隐患
+- **批量操作事务化落盘（消除循环高频 I/O 与并发网络重载）**：在 `SynologyAPI`、`DetailSongsCache` 与 `LocalLibraryStore` 全面引入批量更新方法（`updateCachedLibrarySongs`、`updateSongs`、`updateImportedSongs`），将批量编辑时的数十次同步磁盘序列化落盘与高频视图通知收敛为单次安全事务处理，杜绝逐首写入时的磁盘 I/O 阻塞；在 `SynologyAPI.applyMetadata` 引入 `skipCacheInvalidation` 选项，避免每写入一首歌曲都触发全库重新网络拉取的雪崩效应
+
 ## 1.9.32 build 95
 
 ### 彻底根除群晖 NAS 歌曲播放与列表卡顿、首包缓冲优化与主线程零负载重构

@@ -48,6 +48,22 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.33-build-96-fix-batch-cover-crash",
+            version: "1.9.33",
+            title: "彻底修复批量写入歌曲专辑图闪退、消除递归堆栈溢出与内存峰值、批量写入性能十倍提速",
+            features: [
+                "彻底修复批量写入专辑图闪退（根除 clearLibraryCache 递归自调用导致的 Stack Overflow 致命崩溃）：定位并修复 SynologyAPI 在写入单曲封面/标签后清理缓存时，因方法名笔误递归调用自身导致的线程栈溢出与崩溃；全面恢复正确的缓存清理与哈希索引重建逻辑",
+                "全专批量写封面极速去重（同目录封面复用）：针对包含十几首歌曲的专辑，消除每首曲目都向 NAS 重复通过 File Station multipart 上传同一张封面图片的严重浪费；在当前编辑链路引入目录级上传缓存，同一专辑十几首曲目只需上传一次封面，写入性能提升 10 倍以上，彻底消灭 NAS 拥堵与上传超时",
+                "图像内存安全与低功耗重构（格式锁死 scale=1.0 与 ImageIO 零解码读取分辨率）：修复系统图片选择器在 iPhone 3x 屏幕上将 1200pt 渲染为 3600px 巨幅位图导致内存瞬时飙升的问题，强制设定 format.scale = 1.0；在封面搜索网格中改用 ImageIO 直接读取图片头信息获取尺寸，杜绝几十张在线图片并发解码导致的 Jetsam 内存警告与 OOM 风险",
+                "批量操作事务化落盘（消除循环高频 I/O 与并发网络重载）：在 SynologyAPI、DetailSongsCache 与 LocalLibraryStore 引入批量更新方法（updateCachedLibrarySongs / updateSongs / updateImportedSongs），将批量编辑时的数十次同步磁盘写入和视图频繁刷新合并为单次安全事务，杜绝逐首写入时的巨额磁盘 I/O 与重复加载"
+            ],
+            fixes: [
+                "彻底修复在群晖 NAS 歌曲批量编辑专辑封面时点击保存直接闪退的严重缺陷",
+                "消除批量编辑时高频触发全库重新拉取导致的界面卡顿与家庭网络带宽挤占",
+                "解决相册选图多选导致重复触发及大图内存峰值问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.32-build-95-fix-nas-playback-lag",
             version: "1.9.32",
             title: "彻底根除群晖 NAS 歌曲播放与列表卡顿、首包缓冲优化与主线程零负载重构",

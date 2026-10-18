@@ -1752,6 +1752,7 @@ struct LocalBatchMetadataEditorSheet: View {
     @State private var comment = ""
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
+    @State private var selectedCoverThumbnail: UIImage?
     @State private var showCoverPicker = false
     @State private var isSaving = false
     @State private var message = ""
@@ -1811,7 +1812,13 @@ struct LocalBatchMetadataEditorSheet: View {
                                 showCoverPicker = true
                             } label: {
                                 HStack(spacing: 12) {
-                                    if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
+                                    if let selectedCoverThumbnail {
+                                        Image(uiImage: selectedCoverThumbnail)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 48, height: 48)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    } else if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
                                         Image(uiImage: img)
                                             .resizable()
                                             .scaledToFill()
@@ -1838,10 +1845,11 @@ struct LocalBatchMetadataEditorSheet: View {
                                             .foregroundStyle(Color.atmusicComment)
                                     }
                                     Spacer()
-                                    if selectedCoverData != nil || selectedCoverURL != nil {
+                                    if selectedCoverData != nil || selectedCoverURL != nil || selectedCoverThumbnail != nil {
                                         Button {
                                             selectedCoverData = nil
                                             selectedCoverURL = nil
+                                            selectedCoverThumbnail = nil
                                         } label: {
                                             Image(systemName: "xmark.circle.fill")
                                                 .font(.system(size: 16))
@@ -1916,9 +1924,12 @@ struct LocalBatchMetadataEditorSheet: View {
                 SongCoverSearchGridSheet(song: first) { candidate in
                     selectedCoverURL = candidate.song.coverURL
                     selectedCoverData = nil
+                    selectedCoverThumbnail = nil
                     showCoverPicker = false
                 } onPickData: { data in
-                    selectedCoverData = data
+                    let optimized = SynologyAPI.shared.optimizedCoverData(data)
+                    selectedCoverData = optimized
+                    selectedCoverThumbnail = UIImage(data: optimized)
                     selectedCoverURL = nil
                     showCoverPicker = false
                 }
@@ -1971,44 +1982,53 @@ struct LocalBatchMetadataEditorSheet: View {
         isSaving = true
         message = "正在准备封面与元数据…"
 
-        // 统一处理封面落盘
+        // 统一处理封面落盘（预压缩尺寸防 OOM）
         var sharedCoverURL: URL? = nil
         var sharedCoverImage: UIImage? = nil
-        if let data = selectedCoverData, let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.92) {
-            sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
-                jpeg,
-                relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
-            )
-            if let sharedCoverURL {
-                ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+        if let data = selectedCoverData {
+            let optimized = SynologyAPI.shared.optimizedCoverData(data)
+            if let img = UIImage(data: optimized), let jpeg = img.jpegData(compressionQuality: 0.88) {
+                sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
+                    jpeg,
+                    relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
+                )
+                if let sharedCoverURL {
+                    ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+                }
+                sharedCoverImage = img
             }
-            sharedCoverImage = img
         } else if let remoteURL = selectedCoverURL {
             if remoteURL.isFileURL {
                 sharedCoverURL = remoteURL
-                if let data = try? Data(contentsOf: remoteURL), let img = UIImage(data: data) {
-                    sharedCoverImage = img
+                if let data = try? Data(contentsOf: remoteURL) {
+                    let optimized = SynologyAPI.shared.optimizedCoverData(data)
+                    if let img = UIImage(data: optimized) {
+                        sharedCoverImage = img
+                    }
                 }
             } else {
                 var req = URLRequest(url: remoteURL)
                 req.timeoutInterval = 15
                 if let (data, resp) = try? await URLSession.shared.data(for: req),
                    let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
-                   let img = UIImage(data: data),
-                   let jpeg = img.jpegData(compressionQuality: 0.92) {
-                    sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
-                        jpeg,
-                        relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
-                    )
-                    if let sharedCoverURL {
-                        ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+                   !data.isEmpty {
+                    let optimized = SynologyAPI.shared.optimizedCoverData(data)
+                    if let img = UIImage(data: optimized), let jpeg = img.jpegData(compressionQuality: 0.88) {
+                        sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
+                            jpeg,
+                            relativePath: "ATMusicAudio/Artwork/batch-\(UUID().uuidString).jpg"
+                        )
+                        if let sharedCoverURL {
+                            ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+                        }
+                        sharedCoverImage = img
                     }
-                    sharedCoverImage = img
                 }
             }
         }
 
         var saved = 0
+        var allUpdated: [Song] = []
         for song in songs {
             let newArtist = trimmedArtist.isEmpty ? song.artists : trimmedArtist
             let newAlbum = trimmedAlbum.isEmpty ? song.album : trimmedAlbum
@@ -2035,10 +2055,11 @@ struct LocalBatchMetadataEditorSheet: View {
                 trackNumber: song.trackNumber,
                 fee: song.fee
             )
+            allUpdated.append(updated)
 
-            LocalLibraryStore.shared.updateImportedSong(updated)
-            player.replaceSong(updated)
-            DetailSongsCache.shared.updateSong(updated)
+            if player.currentSong?.identityKey == updated.identityKey {
+                player.replaceSong(updated)
+            }
             if let sharedCoverImage {
                 if let old = song.coverURL {
                     ATMusicRemoteCoverCache.store(sharedCoverImage, for: old)
@@ -2049,6 +2070,12 @@ struct LocalBatchMetadataEditorSheet: View {
             saved += 1
             savedCount = saved
             message = "正在写入本地库…（\(saved)/\(songs.count)）"
+        }
+
+        // 统一批量落盘并更新索引，单次完成所有写入
+        if !allUpdated.isEmpty {
+            LocalLibraryStore.shared.updateImportedSongs(allUpdated)
+            DetailSongsCache.shared.updateSongs(allUpdated)
         }
 
         if let sharedCoverURL {
