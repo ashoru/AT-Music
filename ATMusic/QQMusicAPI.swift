@@ -819,6 +819,14 @@ final class QQMusicAPI {
         let url: String
         let br: String
         let attemptedBRs: [String]
+        let isTrial: Bool
+
+        init(url: String, br: String, attemptedBRs: [String], isTrial: Bool = false) {
+            self.url = url
+            self.br = br
+            self.attemptedBRs = attemptedBRs
+            self.isTrial = isTrial
+        }
     }
 
     /// 通过 vkey 获取 QQ 音乐播放地址（对齐 wp_MusicApi：GET + data JSON + filename + CDN 分发）。
@@ -871,7 +879,8 @@ final class QQMusicAPI {
                 guid: guid,
                 qqAuth: qqAuth
             ) {
-                return SongURLResult(url: url, br: br, attemptedBRs: attemptedBRs)
+                let isTrial = url.contains("RS02") || url.contains("/RS")
+                return SongURLResult(url: url, br: br, attemptedBRs: attemptedBRs, isTrial: isTrial)
             }
         }
         return nil

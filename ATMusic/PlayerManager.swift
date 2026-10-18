@@ -128,8 +128,11 @@ final class PlayerManager: NSObject, ObservableObject {
         let isThirdParty: Bool
         let playbackHeaders: [String: String]
         let fromPlaybackCache: Bool
+        let resourceLoader: AudioHeadBlockResourceLoader?
     }
     private var standbyPlayback: StandbyPlayback?
+    private var currentResourceLoader: AudioHeadBlockResourceLoader?
+    @Published var isHotSwapTrialActive: Bool = false
 
     private var player: AVPlayer?
     private var timeObserver: Any?
@@ -711,12 +714,24 @@ final class PlayerManager: NSObject, ObservableObject {
             if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
         }
 
-        let item = Self.makePlayerItem(url: url, headers: playbackHeaders)
-        item.preferredForwardBufferDuration = 5.0
+        // 方案 3：优先通过 128KB 首包资源加载器创建 Item
+        let (item, loader) = AudioHeadBlockPreloader.shared.makePlayerItem(
+            url: url,
+            headers: playbackHeaders,
+            key: nextSong.identityKey
+        )
+        item.preferredForwardBufferDuration = 8.0
         let standby = AVPlayer(playerItem: item)
         standby.automaticallyWaitsToMinimizeStalling = false
         standby.volume = 0
         standby.rate = 0
+
+        // 方案 2：强力预热硬件解码器与前置缓冲区 (preroll)
+        standby.preroll(atRate: 1.0) { [weak standby] finished in
+            if finished {
+                ATMusicLogger.shared.log("⚡️ [Dual-Player] Player B 硬件解码预热(preroll)就绪 -> \(nextSong.name)", level: .debug)
+            }
+        }
 
         self.standbyPlayback = StandbyPlayback(
             player: standby,
@@ -725,9 +740,10 @@ final class PlayerManager: NSObject, ObservableObject {
             url: url,
             isThirdParty: isThirdParty,
             playbackHeaders: playbackHeaders,
-            fromPlaybackCache: fromPlaybackCache
+            fromPlaybackCache: fromPlaybackCache,
+            resourceLoader: loader
         )
-        ATMusicLogger.shared.log("🚀 双播放器热备池就绪：Player B 预缓冲完成 -> \(nextSong.name)", level: .info)
+        ATMusicLogger.shared.log("🚀 [Dual-Player] 双播放器热备池就绪：Player B 预缓冲完成 -> \(nextSong.name)", level: .info)
     }
 
     private func cleanStandbyPlayer() {
@@ -844,6 +860,20 @@ final class PlayerManager: NSObject, ObservableObject {
             }
 
             if let resolvedURL, !Task.isCancelled, !UnblockService.isCorruptOrAntiLeechURL(resolvedURL) {
+                // 方案 3：立即向 CDN 发起轻量 128KB 首包预抓取（仅需 20~40ms）
+                var prefetchHeaders: [String: String] = [:]
+                if isQQAudioHost(resolvedURL.host) {
+                    prefetchHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
+                    prefetchHeaders["Referer"] = "https://y.qq.com/"
+                    let cookie = await MainActor.run { QQMusicAuth.shared.cookieHeader }
+                    if !cookie.isEmpty { prefetchHeaders["Cookie"] = cookie }
+                }
+                AudioHeadBlockPreloader.shared.preloadHeadBlock(
+                    for: resolvedURL,
+                    headers: prefetchHeaders,
+                    key: nextSong.identityKey
+                )
+
                 AudioURLCache.shared.set(
                     songKey: nextSong.identityKey,
                     quality: qualityKey,
@@ -1006,7 +1036,8 @@ final class PlayerManager: NSObject, ObservableObject {
                 fromPlaybackCache: standby.fromPlaybackCache,
                 isHotSwapTrial: false,
                 prewarmedPlayer: standby.player,
-                prewarmedItem: standby.item
+                prewarmedItem: standby.item,
+                resourceLoader: standby.resourceLoader
             )
             return
         }
@@ -1071,6 +1102,7 @@ final class PlayerManager: NSObject, ObservableObject {
             var resolvedThirdParty: UnblockService.Resolved?
             var qqOfficialBR: String?
             var attemptedQQOfficialBRs: [String] = []
+            var isHotSwapTrial = false
             // 官方地址失败后，使用已启用的自定义音源兜底。
             let enableUnblock = externalSourcesEnabled
             let strictUnlock = shouldLockOfficialOnly(song)
@@ -1104,9 +1136,15 @@ final class PlayerManager: NSObject, ObservableObject {
                     mediaMid: song.qqMediaMid,
                     quality: quality
                 )
-                urlString = officialResult?.url
-                qqOfficialBR = officialResult?.br
-                attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
+                if let official = officialResult {
+                    urlString = official.url
+                    qqOfficialBR = official.br
+                    attemptedQQOfficialBRs = official.attemptedBRs
+                    if official.isTrial && enableUnblock {
+                        ATMusicLogger.shared.log("QQ 官方为试听片段，秒起试听并准备第三方热置换：\(song.name)", level: .info)
+                        isHotSwapTrial = true
+                    }
+                }
                 if urlString == nil, enableUnblock {
                     ATMusicLogger.shared.log("QQ官方全档位无版权/不可播，降级走第三方音源兜底：\(song.name)", level: .warn)
                     (urlString, resolvedThirdParty) = await qqFallback(
@@ -1127,38 +1165,48 @@ final class PlayerManager: NSObject, ObservableObject {
                 )
                 urlString = neteaseRes.urlString
                 resolvedThirdParty = neteaseRes.resolvedThirdParty
-                if neteaseRes.isHotSwapTrial, let trialStr = urlString, let trialURL = URL(string: trialStr) {
-                    await MainActor.run {
-                        guard generation == self.loadGeneration else { return }
-                        self.setupPlayer(
-                            url: trialURL,
-                            resumeAt: initialProgress,
-                            fromPlaybackCache: false,
-                            isHotSwapTrial: true
-                        )
-                    }
-                    // 后台并行静默解析第三方完整音轨并进行无感热置换
-                    Task.detached(priority: .userInitiated) { [generation, weak self] in
-                        guard let self else { return }
-                        let isEnabled = await MainActor.run { self.externalSourcesEnabled }
-                        guard isEnabled else { return }
-                        let fullTrack = await UnblockService.resolve(
-                            name: song.name,
-                            artists: song.artists,
-                            neteaseID: song.id,
-                            songSource: .netease,
-                            quality: thirdPartyQuality,
-                            strict: strictUnlock
-                        )
-                        if let fullTrack {
-                            await MainActor.run {
-                                guard generation == self.loadGeneration, self.currentSong?.identityKey == song.identityKey else { return }
-                                self.hotSwapAudioTrack(with: fullTrack, for: song, generation: generation)
-                            }
-                        }
-                    }
-                    return
+                if neteaseRes.isHotSwapTrial {
+                    isHotSwapTrial = true
                 }
+            }
+
+            // 方案 1：官方试听片段 150ms 瞬时发声 + 第三方完整音轨静默无缝热置换
+            if isHotSwapTrial, let trialStr = urlString, let trialURL = URL(string: trialStr) {
+                await MainActor.run {
+                    guard generation == self.loadGeneration else { return }
+                    self.setupPlayer(
+                        url: trialURL,
+                        resumeAt: initialProgress,
+                        fromPlaybackCache: false,
+                        isHotSwapTrial: true
+                    )
+                }
+                // 后台并行静默解析第三方完整音轨并进行无感热置换
+                Task.detached(priority: .userInitiated) { [generation, weak self] in
+                    guard let self else { return }
+                    let isEnabled = await MainActor.run { self.externalSourcesEnabled }
+                    guard isEnabled else { return }
+                    let fullTrack = await UnblockService.resolve(
+                        name: song.name,
+                        artists: song.artists,
+                        neteaseID: song.id,
+                        songSource: song.source,
+                        qqMid: song.qqMid,
+                        qqMediaMid: song.qqMediaMid,
+                        kugouID: song.kugouHash,
+                        quality: thirdPartyQuality,
+                        strict: strictUnlock
+                    )
+                    if let fullTrack {
+                        await MainActor.run {
+                            guard generation == self.loadGeneration, self.currentSong?.identityKey == song.identityKey else { return }
+                            self.hotSwapAudioTrack(with: fullTrack, for: song, generation: generation)
+                        }
+                    } else {
+                        ATMusicLogger.shared.log("⚠️ 试听热置换后台解析全曲未命中：\(song.name)", level: .warn)
+                    }
+                }
+                return
             }
             if let resolved = resolvedThirdParty {
                 let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
@@ -1646,20 +1694,99 @@ final class PlayerManager: NSObject, ObservableObject {
         guard generation == self.loadGeneration,
               self.currentSong?.identityKey == song.identityKey,
               !UnblockService.isCorruptOrAntiLeechURL(resolved.url),
-              let player = self.player else { return }
-        let currentSeconds = player.currentTime().seconds
+              let currentActivePlayer = self.player else { return }
+
+        let currentSeconds = currentActivePlayer.currentTime().seconds
         let resumeAt = (currentSeconds.isFinite && currentSeconds > 0) ? currentSeconds : 0
-        ATMusicLogger.shared.log("⚡️ 无缝热置换生效：\(song.name) 当前进度=\(String(format: "%.1f", resumeAt))s -> 切换为第三方完整音轨(\(resolved.sourceTitle))", level: .info)
-        let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
-        self.setupPlayer(
+        ATMusicLogger.shared.log("⚡️ [Hot-Swap] 开始准备无缝热置换：\(song.name) 当前进度=\(String(format: "%.1f", resumeAt))s -> 完整音轨(\(resolved.sourceTitle))", level: .info)
+
+        // 1. 创建完整音轨的 PlayerItem 与后台候选 Player
+        let (nextItem, loader) = AudioHeadBlockPreloader.shared.makePlayerItem(
             url: resolved.url,
-            thirdPartyVIPNotice: notice,
-            resumeAt: resumeAt,
-            isThirdParty: true,
-            thirdPartyQuality: resolved.quality,
-            customHeaders: resolved.headers,
-            isHotSwapTrial: false
+            headers: resolved.headers,
+            key: song.identityKey
         )
+        nextItem.preferredForwardBufferDuration = 8.0
+        let nextPlayer = AVPlayer(playerItem: nextItem)
+        nextPlayer.automaticallyWaitsToMinimizeStalling = false
+        nextPlayer.volume = 0 // 静音缓冲，当前 trial player 仍在发声
+
+        // 2. 预定位到当前播放时间并预热解码器
+        if resumeAt > 0.05 {
+            let seekTime = CMTime(seconds: resumeAt, preferredTimescale: 600)
+            nextPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
+
+        var didHandover = false
+        var observation: NSKeyValueObservation?
+
+        let executeHandover = { [weak self, weak currentActivePlayer, weak nextPlayer, weak nextItem] in
+            guard let self, let currentActivePlayer, let nextPlayer, let nextItem else { return }
+            guard !didHandover else { return }
+            guard generation == self.loadGeneration, self.currentSong?.identityKey == song.identityKey else {
+                nextPlayer.pause()
+                nextPlayer.replaceCurrentItem(with: nil)
+                return
+            }
+            didHandover = true
+            observation?.invalidate()
+            observation = nil
+
+            let latestSeconds = currentActivePlayer.currentTime().seconds
+            let finalResume = (latestSeconds.isFinite && latestSeconds > 0) ? latestSeconds : resumeAt
+            if abs(finalResume - resumeAt) > 0.25 {
+                nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+
+            // 平滑热切：Player B 播放并恢复音量，Player A 暂停
+            nextPlayer.volume = self.targetVolume
+            nextPlayer.playImmediately(atRate: Float(self.rate))
+            currentActivePlayer.pause()
+            currentActivePlayer.replaceCurrentItem(with: nil)
+
+            self.isHotSwapTrialActive = false
+            let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
+            self.setupPlayer(
+                url: resolved.url,
+                thirdPartyVIPNotice: notice,
+                resumeAt: finalResume,
+                isThirdParty: true,
+                thirdPartyQuality: resolved.quality,
+                customHeaders: resolved.headers,
+                fromPlaybackCache: false,
+                isHotSwapTrial: false,
+                prewarmedPlayer: nextPlayer,
+                prewarmedItem: nextItem,
+                resourceLoader: loader
+            )
+            ATMusicLogger.shared.log("🚀 [Hot-Swap] 无缝热置换彻底完成！0ms中断平滑过渡至全曲：\(song.name)", level: .info)
+        }
+
+        observation = nextItem.observe(\.status, options: [.new, .initial]) { [weak nextItem] item, _ in
+            if item.status == .readyToPlay {
+                DispatchQueue.main.async {
+                    executeHandover()
+                }
+            } else if item.status == .failed {
+                observation?.invalidate()
+                observation = nil
+                ATMusicLogger.shared.log("⚠️ [Hot-Swap] 完整音轨预热加载失败，保留当前试听播放：\(song.name)", level: .warn)
+            }
+        }
+
+        nextPlayer.preroll(atRate: Float(rate)) { [weak nextPlayer] finished in
+            if finished {
+                DispatchQueue.main.async {
+                    executeHandover()
+                }
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            if !didHandover && nextItem.status != .failed {
+                executeHandover()
+            }
+        }
     }
 
     private func setupPlayer(
@@ -1674,7 +1801,8 @@ final class PlayerManager: NSObject, ObservableObject {
         fromPlaybackCache: Bool = false,
         isHotSwapTrial: Bool = false,
         prewarmedPlayer: AVPlayer? = nil,
-        prewarmedItem: AVPlayerItem? = nil
+        prewarmedItem: AVPlayerItem? = nil,
+        resourceLoader: AudioHeadBlockResourceLoader? = nil
     ) {
         guard ensurePlaybackAllowed(), let loadedSong = currentSong else { return }
         guard !UnblockService.isCorruptOrAntiLeechURL(url) else {
@@ -1714,10 +1842,16 @@ final class PlayerManager: NSObject, ObservableObject {
         let player: AVPlayer
         var playbackHeaders: [String: String] = customHeaders
 
+        self.isHotSwapTrialActive = isHotSwapTrial
+        if isHotSwapTrial {
+            self.duration = loadedSong.duration
+        }
+
         if let prewarmedPlayer, let prewarmedItem {
             item = prewarmedItem
             player = prewarmedPlayer
             player.volume = targetVolume
+            self.currentResourceLoader = resourceLoader
         } else {
             if isQQAudioHost(url.host) {
                 playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
@@ -1732,7 +1866,13 @@ final class PlayerManager: NSObject, ObservableObject {
                 let cookie = KugouMusicAuth.shared.cookieHeader
                 if !cookie.isEmpty { playbackHeaders["Cookie"] = cookie }
             }
-            item = Self.makePlayerItem(url: url, headers: playbackHeaders)
+            let (madeItem, loader) = AudioHeadBlockPreloader.shared.makePlayerItem(
+                url: url,
+                headers: playbackHeaders,
+                key: loadedSong.identityKey
+            )
+            item = madeItem
+            self.currentResourceLoader = loader
             item.preferredForwardBufferDuration = 8.0
             player = AVPlayer(playerItem: item)
             player.volume = targetVolume
@@ -1910,6 +2050,10 @@ final class PlayerManager: NSObject, ObservableObject {
         attachTimeObserverIfNeeded()
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             guard let self else { return }
+            if self.isHotSwapTrialActive {
+                ATMusicLogger.shared.log("⚠️ 试听音频播放完毕但全曲热置换仍在进行中，暂时保持等待...", level: .info)
+                return
+            }
             if self.playMode == .repeatOne {
                 self.restartCurrent()
             } else {
@@ -2548,8 +2692,10 @@ final class PlayerManager: NSObject, ObservableObject {
                         self.finishUnrecoverablePlaybackFailure(song: loadedSong, reason: "音源返回防盗链或截断音频")
                         return
                     }
-                    if abs(seconds - self.duration) > 0.25 {
-                        self.duration = seconds
+                    if !self.isHotSwapTrialActive {
+                        if abs(seconds - self.duration) > 0.25 {
+                            self.duration = seconds
+                        }
                     }
                 }
             }
@@ -2794,4 +2940,281 @@ final class PlayerManager: NSObject, ObservableObject {
         }
     }
 
+}
+
+
+// MARK: - 音频首包数据块（128KB Head-Block）预加载器与自定义资源加载器
+
+final class AudioHeadBlockPreloader: NSObject {
+    static let shared = AudioHeadBlockPreloader()
+
+    struct HeadBlockRecord {
+        let data: Data
+        let totalLength: Int64
+        let mimeType: String
+        let timestamp: Date
+    }
+
+    private let memoryCache = NSCache<NSString, NSData>()
+    private var metaCache: [String: (totalLength: Int64, mimeType: String)] = [:]
+    private let metaLock = NSLock()
+
+    private let session: URLSession
+    private let cacheDirectory: URL
+    private let fm = FileManager.default
+
+    private var activeTasks: [String: Task<Void, Never>] = [:]
+    private let taskLock = NSLock()
+
+    private override init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 4.0
+        config.timeoutIntervalForResource = 6.0
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: config)
+
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        self.cacheDirectory = caches.appendingPathComponent("ATMusicHeadBlocks", isDirectory: true)
+        try? fm.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        super.init()
+    }
+
+    /// 预拉取前 128KB (131,072 字节)
+    func preloadHeadBlock(for url: URL, headers: [String: String] = [:], key: String) {
+        guard url.scheme?.hasPrefix("http") == true else { return }
+        guard !UnblockService.isCorruptOrAntiLeechURL(url) else { return }
+
+        if hasHeadBlock(for: key) { return }
+
+        taskLock.lock()
+        if activeTasks[key] != nil {
+            taskLock.unlock()
+            return
+        }
+        let task = Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            defer {
+                self.taskLock.lock()
+                self.activeTasks.removeValue(forKey: key)
+                self.taskLock.unlock()
+            }
+            await self.fetchHeadBlock(url: url, headers: headers, key: key)
+        }
+        activeTasks[key] = task
+        taskLock.unlock()
+    }
+
+    private func fetchHeadBlock(url: URL, headers: [String: String], key: String) async {
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("bytes=0-131071", forHTTPHeaderField: "Range")
+        req.timeoutInterval = 3.5
+        for (k, v) in headers {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        let startTime = Date()
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse,
+              (http.statusCode == 200 || http.statusCode == 206),
+              data.count >= 4096 else {
+            return
+        }
+
+        var totalLength: Int64 = -1
+        if let rangeHeader = http.value(forHTTPHeaderField: "Content-Range"),
+           let slash = rangeHeader.lastIndex(of: "/") {
+            let totalStr = rangeHeader[rangeHeader.index(after: slash)...].trimmingCharacters(in: .whitespaces)
+            totalLength = Int64(totalStr) ?? -1
+        }
+        if totalLength <= 0 {
+            totalLength = http.expectedContentLength
+        }
+
+        let mimeType = http.mimeType ?? "audio/mpeg"
+        let elapsed = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+        metaLock.lock()
+        metaCache[key] = (totalLength: totalLength, mimeType: mimeType)
+        metaLock.unlock()
+
+        let diskURL = cacheDirectory.appendingPathComponent(Self.sanitizeFilename(key) + ".head")
+        try? data.write(to: diskURL, options: .atomic)
+
+        ATMusicLogger.shared.log("⚡️ [Head-Block] 128KB 首包预抓取完成：\(key) 大小=\(data.count) 耗时=\(elapsed)ms 格式=\(mimeType)", level: .debug)
+    }
+
+    func hasHeadBlock(for key: String) -> Bool {
+        if memoryCache.object(forKey: key as NSString) != nil {
+            return true
+        }
+        let diskURL = cacheDirectory.appendingPathComponent(Self.sanitizeFilename(key) + ".head")
+        return fm.fileExists(atPath: diskURL.path)
+    }
+
+    func getHeadBlock(for key: String) -> HeadBlockRecord? {
+        metaLock.lock()
+        let meta = metaCache[key]
+        metaLock.unlock()
+
+        if let memData = memoryCache.object(forKey: key as NSString) as Data? {
+            return HeadBlockRecord(
+                data: memData,
+                totalLength: meta?.totalLength ?? Int64(memData.count * 80),
+                mimeType: meta?.mimeType ?? "audio/mpeg",
+                timestamp: Date()
+            )
+        }
+
+        let diskURL = cacheDirectory.appendingPathComponent(Self.sanitizeFilename(key) + ".head")
+        if let diskData = try? Data(contentsOf: diskURL) {
+            memoryCache.setObject(diskData as NSData, forKey: key as NSString, cost: diskData.count)
+            return HeadBlockRecord(
+                data: diskData,
+                totalLength: meta?.totalLength ?? Int64(diskData.count * 80),
+                mimeType: meta?.mimeType ?? "audio/mpeg",
+                timestamp: Date()
+            )
+        }
+        return nil
+    }
+
+    func makePlayerItem(
+        url: URL,
+        headers: [String: String],
+        key: String
+    ) -> (item: AVPlayerItem, loader: AudioHeadBlockResourceLoader?) {
+        guard url.scheme?.hasPrefix("http") == true else {
+            return (AVPlayerItem(url: url), nil)
+        }
+        if let head = getHeadBlock(for: key),
+           var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            comps.scheme = "atmusic-head"
+            if let customURL = comps.url {
+                let asset = AVURLAsset(url: customURL)
+                let loader = AudioHeadBlockResourceLoader(originalURL: url, headers: headers, headRecord: head)
+                asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "com.atmusic.headblock.dispatch"))
+                let item = AVPlayerItem(asset: asset)
+                item.preferredForwardBufferDuration = 8.0
+                ATMusicLogger.shared.log("⚡️ [Head-Block] 命中 128KB 内存首包，0ms 瞬时解码起播：\(key)", level: .info)
+                return (item, loader)
+            }
+        }
+        return (PlayerManager.makePlayerItem(url: url, headers: headers), nil)
+    }
+
+    private static func sanitizeFilename(_ string: String) -> String {
+        string.components(separatedBy: CharacterSet.alphanumerics.inverted).joined(separator: "_")
+    }
+}
+
+final class AudioHeadBlockResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
+    private let originalURL: URL
+    private let headers: [String: String]
+    private let headRecord: AudioHeadBlockPreloader.HeadBlockRecord?
+    private var pendingRequests = Set<AVAssetResourceLoadingRequest>()
+    private let queue = DispatchQueue(label: "com.atmusic.headblock.loader", qos: .userInteractive)
+
+    init(originalURL: URL, headers: [String: String], headRecord: AudioHeadBlockPreloader.HeadBlockRecord?) {
+        self.originalURL = originalURL
+        self.headers = headers
+        self.headRecord = headRecord
+        super.init()
+    }
+
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
+    ) -> Bool {
+        queue.async {
+            self.handle(loadingRequest: loadingRequest)
+        }
+        return true
+    }
+
+    func resourceLoader(
+        _ resourceLoader: AVAssetResourceLoader,
+        didCancel loadingRequest: AVAssetResourceLoadingRequest
+    ) {
+        queue.async {
+            self.pendingRequests.remove(loadingRequest)
+        }
+    }
+
+    private func handle(loadingRequest: AVAssetResourceLoadingRequest) {
+        pendingRequests.insert(loadingRequest)
+
+        // 1. 响应 contentInformationRequest
+        if let info = loadingRequest.contentInformationRequest {
+            if let head = headRecord {
+                info.contentType = Self.uti(for: head.mimeType)
+                info.contentLength = head.totalLength
+                info.isByteRangeAccessSupported = true
+            }
+        }
+
+        // 2. 响应 dataRequest
+        guard let dataRequest = loadingRequest.dataRequest else {
+            loadingRequest.finishLoading()
+            pendingRequests.remove(loadingRequest)
+            return
+        }
+
+        let requestedOffset = dataRequest.requestedOffset
+        let requestedLength = Int64(dataRequest.requestedLength)
+
+        // 若请求落在 128KB 头部缓存内，0ms 立即从本地内存供给！
+        if let head = headRecord, requestedOffset < Int64(head.data.count) {
+            let start = Int(requestedOffset)
+            let end = min(Int(requestedOffset + requestedLength), head.data.count)
+            if end > start {
+                let chunk = head.data.subdata(in: start..<end)
+                dataRequest.respond(with: chunk)
+            }
+            if requestedOffset + requestedLength <= Int64(head.data.count) {
+                loadingRequest.finishLoading()
+                pendingRequests.remove(loadingRequest)
+                return
+            }
+        }
+
+        // 3. 超出首包部分，发起 Range 请求流式补全
+        let streamOffset = max(requestedOffset, Int64(headRecord?.data.count ?? 0))
+        let targetEnd = requestedOffset + requestedLength - 1
+        var req = URLRequest(url: originalURL)
+        req.setValue("bytes=\(streamOffset)-\(targetEnd)", forHTTPHeaderField: "Range")
+        for (k, v) in headers {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            guard let self else { return }
+            self.queue.async {
+                guard self.pendingRequests.contains(loadingRequest) else { return }
+                if let data, !data.isEmpty {
+                    dataRequest.respond(with: data)
+                    loadingRequest.finishLoading()
+                } else if let error {
+                    loadingRequest.finishLoading(with: error)
+                } else {
+                    loadingRequest.finishLoading()
+                }
+                self.pendingRequests.remove(loadingRequest)
+            }
+        }.resume()
+    }
+
+    private static func uti(for mimeType: String) -> String {
+        let lower = mimeType.lowercased()
+        if lower.contains("flac") {
+            return "org.xiph.flac"
+        } else if lower.contains("m4a") || lower.contains("mp4") || lower.contains("aac") {
+            return "com.apple.m4a-audio"
+        } else if lower.contains("wav") {
+            return "com.microsoft.waveform-audio"
+        } else {
+            return "public.mp3"
+        }
+    }
 }

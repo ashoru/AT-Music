@@ -726,97 +726,98 @@ enum UnblockService {
             return nil
         }
 
-        let br: String
+        let brCandidates: [(br: String, quality: ThirdPartyAudioQuality)]
         switch preferredQuality {
         case .kb128:
-            br = "128kmp3"
+            brCandidates = [("128kmp3", .kb128)]
         case .flac, .flac24bit, .hires, .atmos, .atmosPlus, .master:
-            br = "2000kflac"
+            brCandidates = [("2000kflac", preferredQuality), ("320kmp3", .kb320), ("128kmp3", .kb128)]
         default:
-            br = "320kmp3"
+            brCandidates = [("320kmp3", .kb320), ("128kmp3", .kb128)]
         }
 
         for item in abslist.prefix(4) {
             let rawRid = (item["DC_TARGETID"] as? String) ?? (item["MUSICRID"] as? String)?.replacingOccurrences(of: "MUSIC_", with: "") ?? ""
             guard !rawRid.isEmpty else { continue }
 
-            // 渠道 1: 车机专线 convert_url2 (严格防盗链排查)
-            if let url1 = URL(string: "http://anymatch.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk&type=convert_url2") {
-                var req1 = URLRequest(url: url1)
-                req1.timeoutInterval = 2.0
-                req1.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
-                if let (data1, _) = try? await session.data(for: req1),
-                   let text1 = String(data: data1, encoding: .utf8) {
-                    let isAntiLeech = text1.contains("bitrate=1")
-                        || text1.contains("type=1")
-                        || text1.contains("M5000004Gmy54cGDqK")
-                        || text1.contains("bitrate$1")
-                        || text1.contains("30106")
-                    if !isAntiLeech, let match = text1.range(of: "url=") {
-                        let rest = text1[match.upperBound...]
-                        let line = rest.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        if (line.hasPrefix("http://") || line.hasPrefix("https://")) && !line.contains("404") && !line.contains("error.php"),
-                           let finalURL = URL(string: line),
-                           !isCorruptOrAntiLeechURL(finalURL) {
-                            ATMusicLogger.shared.log("⚡️ 原生车机专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
-                            return Resolved(
-                                url: finalURL,
-                                source: "车机极速专线",
-                                quality: preferredQuality,
-                                headers: [
-                                    "User-Agent": "okhttp/3.10.0",
-                                    "Referer": "http://kuwo.cn/"
-                                ]
-                            )
+            for (br, actualQuality) in brCandidates {
+                // 渠道 1: 车机专线 convert_url2 (严格防盗链排查)
+                if let url1 = URL(string: "http://anymatch.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=kwplayercar_ar_6.0.0.9_B_jiakong_vh.apk&type=convert_url2") {
+                    var req1 = URLRequest(url: url1)
+                    req1.timeoutInterval = 2.0
+                    req1.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
+                    if let (data1, _) = try? await session.data(for: req1),
+                       let text1 = String(data: data1, encoding: .utf8) {
+                        let isAntiLeech = text1.contains("bitrate=1")
+                            || text1.contains("type=1")
+                            || text1.contains("M5000004Gmy54cGDqK")
+                            || text1.contains("bitrate$1")
+                            || text1.contains("30106")
+                        if !isAntiLeech, let match = text1.range(of: "url=") {
+                            let rest = text1[match.upperBound...]
+                            let line = rest.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                            if (line.hasPrefix("http://") || line.hasPrefix("https://")) && !line.contains("404") && !line.contains("error.php"),
+                               let finalURL = URL(string: line),
+                               !isCorruptOrAntiLeechURL(finalURL) {
+                                ATMusicLogger.shared.log("⚡️ 原生车机专线命中：\(cleanName) -> \(finalURL.host ?? "?") [\(br)]", level: .info)
+                                return Resolved(
+                                    url: finalURL,
+                                    source: "车机极速专线",
+                                    quality: actualQuality,
+                                    headers: [
+                                        "User-Agent": "okhttp/3.10.0",
+                                        "Referer": "http://kuwo.cn/"
+                                    ]
+                                )
+                            }
                         }
                     }
                 }
+
+                // 渠道 2: 车机签名通道 convert_url_with_sign (严格时长与类型排查)
+                guard let playURL = URL(string: "https://mobi.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=jiakong&type=convert_url_with_sign&surl=1") else {
+                    continue
+                }
+
+                var playReq = URLRequest(url: playURL)
+                playReq.timeoutInterval = 2.0
+                playReq.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
+
+                guard let (playData, _) = try? await session.data(for: playReq),
+                      let playJson = try? JSONSerialization.jsonObject(with: playData) as? [String: Any],
+                      let dataDict = playJson["data"] as? [String: Any] else {
+                    continue
+                }
+
+                let bitrate = (dataDict["bitrate"] as? NSNumber)?.intValue ?? (dataDict["bitrate"] as? Int) ?? 0
+                let type = (dataDict["type"] as? NSNumber)?.intValue ?? (dataDict["type"] as? Int) ?? 0
+                let duration = (dataDict["duration"] as? NSNumber)?.intValue ?? (dataDict["duration"] as? Int) ?? 0
+                let p2p = (dataDict["p2p_audiosourceid"] as? String) ?? ""
+
+                if bitrate <= 1 || type == 1 || (duration > 0 && duration <= 25) || p2p.contains("M5000004Gmy54cGDqK") || p2p.contains("30106") {
+                    continue
+                }
+
+                guard let finalUrlStr = (dataDict["surl"] as? String) ?? (dataDict["url"] as? String),
+                      let finalURL = URL(string: finalUrlStr),
+                      (finalUrlStr.hasPrefix("http://") || finalUrlStr.hasPrefix("https://")),
+                      !finalUrlStr.contains("404"),
+                      !finalUrlStr.contains("error.php"),
+                      !isCorruptOrAntiLeechURL(finalURL) else {
+                    continue
+                }
+
+                ATMusicLogger.shared.log("⚡️ 原生车机签名专线命中：\(cleanName) -> \(finalURL.host ?? "?") [\(br)]", level: .info)
+                return Resolved(
+                    url: finalURL,
+                    source: "车机极速专线",
+                    quality: actualQuality,
+                    headers: [
+                        "User-Agent": "okhttp/3.10.0",
+                        "Referer": "http://kuwo.cn/"
+                    ]
+                )
             }
-
-            // 渠道 2: 车机签名通道 convert_url_with_sign (严格时长与类型排查)
-            guard let playURL = URL(string: "https://mobi.kuwo.cn/mobi.s?f=web&rid=\(rawRid)&br=\(br)&source=jiakong&type=convert_url_with_sign&surl=1") else {
-                continue
-            }
-
-            var playReq = URLRequest(url: playURL)
-            playReq.timeoutInterval = 2.0
-            playReq.setValue("okhttp/3.10.0", forHTTPHeaderField: "User-Agent")
-
-            guard let (playData, _) = try? await session.data(for: playReq),
-                  let playJson = try? JSONSerialization.jsonObject(with: playData) as? [String: Any],
-                  let dataDict = playJson["data"] as? [String: Any] else {
-                continue
-            }
-
-            let bitrate = (dataDict["bitrate"] as? NSNumber)?.intValue ?? (dataDict["bitrate"] as? Int) ?? 0
-            let type = (dataDict["type"] as? NSNumber)?.intValue ?? (dataDict["type"] as? Int) ?? 0
-            let duration = (dataDict["duration"] as? NSNumber)?.intValue ?? (dataDict["duration"] as? Int) ?? 0
-            let p2p = (dataDict["p2p_audiosourceid"] as? String) ?? ""
-
-            if bitrate <= 1 || type == 1 || (duration > 0 && duration <= 25) || p2p.contains("M5000004Gmy54cGDqK") || p2p.contains("30106") {
-                ATMusicLogger.shared.log("⚠️ 酷我车机签名专线拦截防盗链：\(cleanName) rid=\(rawRid) dur=\(duration) br=\(bitrate)", level: .debug)
-                continue
-            }
-
-            guard let finalUrlStr = (dataDict["surl"] as? String) ?? (dataDict["url"] as? String),
-                  let finalURL = URL(string: finalUrlStr),
-                  (finalUrlStr.hasPrefix("http://") || finalUrlStr.hasPrefix("https://")),
-                  !finalUrlStr.contains("404"),
-                  !finalUrlStr.contains("error.php"),
-                  !isCorruptOrAntiLeechURL(finalURL) else {
-                continue
-            }
-
-            ATMusicLogger.shared.log("⚡️ 原生车机签名专线命中：\(cleanName) -> \(finalURL.host ?? "?")", level: .info)
-            return Resolved(
-                url: finalURL,
-                source: "车机极速专线",
-                quality: preferredQuality,
-                headers: [
-                    "User-Agent": "okhttp/3.10.0",
-                    "Referer": "http://kuwo.cn/"
-                ]
-            )
         }
         return nil
     }

@@ -343,7 +343,13 @@ final class NetEaseAPI {
             guard let id = item["id"] as? Int else { continue }
             let rawURL = item["url"] as? String
             let url = (rawURL?.isEmpty ?? true) ? nil : rawURL
-            let freeTrial = (item["freeTrialInfo"] as? [String: Any]) != nil
+            let hasFreeTrialInfo = (item["freeTrialInfo"] as? [String: Any]) != nil
+            let hasFreePrivilege = (item["freeTimeTrialPrivilege"] as? [String: Any]) != nil
+            let fee = item["fee"] as? Int ?? 0
+            let timeMs = item["time"] as? Int ?? 0
+            // 网易云试听音频特征：明确包含 freeTrialInfo，或时长 <= 65s 且属于收费曲目 (fee != 0)
+            let isShortTrial = (timeMs > 0 && timeMs <= 65_000 && fee > 0)
+            let freeTrial = hasFreeTrialInfo || hasFreePrivilege || isShortTrial
             result[id] = SongURLInfo(url: url, freeTrial: freeTrial)
         }
         return result
