@@ -120,6 +120,54 @@ final class SynologyAPI: ObservableObject {
     private var librarySongsLoadingTask: Task<[Song], Error>?
     private let librarySongsCacheTTL: TimeInterval = 600
     private var didRestorePersistentLibraryIndex = false
+    private var librarySongsIndex: [String: Song] = [:]
+    private let indexLock = NSLock()
+
+    private func clearLibraryCache() {
+        clearLibraryCache()
+        indexLock.lock()
+        librarySongsIndex.removeAll()
+        indexLock.unlock()
+    }
+
+    private func rebuildLibrarySongsIndex() {
+        var map: [String: Song] = [:]
+        for s in librarySongsCache {
+            map[s.identityKey] = s
+            if let synoId = s.synologyId {
+                map["syno_\(synoId)"] = s
+            }
+            if s.id != 0 {
+                map["id_\(s.id)"] = s
+            }
+        }
+        indexLock.lock()
+        librarySongsIndex = map
+        indexLock.unlock()
+    }
+
+    private func indexSong(_ song: Song) {
+        indexLock.lock()
+        librarySongsIndex[song.identityKey] = song
+        if let synoId = song.synologyId {
+            librarySongsIndex["syno_\(synoId)"] = song
+        }
+        if song.id != 0 {
+            librarySongsIndex["id_\(song.id)"] = song
+        }
+        indexLock.unlock()
+    }
+
+    /// O(1) 毫秒级根据歌曲实体或 identityKey 查询已缓存的 NAS 歌曲元数据（杜绝视图刷新时的 O(N) 遍历卡顿）
+    func cachedSong(for song: Song) -> Song? {
+        restorePersistentLibraryIndexIfNeeded()
+        indexLock.lock()
+        defer { indexLock.unlock() }
+        if let direct = librarySongsIndex[song.identityKey] { return direct }
+        if let synoId = song.synologyId, let bySyno = librarySongsIndex["syno_\(synoId)"] { return bySyno }
+        if song.id != 0, let byId = librarySongsIndex["id_\(song.id)"] { return byId }
+        return nil
+    }
 
     /// 获取当前已有的本地音乐库歌曲（若尚未读入内存，自动从本地磁盘索引轻量恢复，绝不发起网络阻塞）
     var cachedLibrarySongs: [Song] {
@@ -139,6 +187,7 @@ final class SynologyAPI: ObservableObject {
             }
         }
         if changed {
+            indexSong(updated)
             persistLibraryIndex()
             Task { @MainActor in
                 self.libraryIndexRevision &+= 1
@@ -334,8 +383,7 @@ final class SynologyAPI: ObservableObject {
             configurationGeneration = UUID()
             librarySongsLoadingTask?.cancel()
             librarySongsLoadingTask = nil
-            librarySongsCache.removeAll()
-            librarySongsCacheUpdatedAt = .distantPast
+            clearLibraryCache()
             didRestorePersistentLibraryIndex = false
             sid = ""
             isLoggedIn = false
@@ -412,8 +460,7 @@ final class SynologyAPI: ObservableObject {
         self.sid = newSid
         rememberLegacySession(newSid)
         defaults.removeObject(forKey: sidKey)
-        librarySongsCache.removeAll()
-        librarySongsCacheUpdatedAt = .distantPast
+        clearLibraryCache()
         didRestorePersistentLibraryIndex = false
         await MainActor.run {
             self.isLoggedIn = true
@@ -439,8 +486,7 @@ final class SynologyAPI: ObservableObject {
         librarySongsLoadingTask = nil
         sid = ""
         SecureCredentialStore.shared.deleteSecret(for: "synology.sid." + scope)
-        librarySongsCache.removeAll()
-        librarySongsCacheUpdatedAt = .distantPast
+        clearLibraryCache()
         didRestorePersistentLibraryIndex = false
         defaults.removeObject(forKey: sidKey)
         await MainActor.run {
@@ -578,6 +624,7 @@ final class SynologyAPI: ObservableObject {
             let result = try await loadingTask.value
             librarySongsCache = result
             librarySongsCacheUpdatedAt = Date()
+            rebuildLibrarySongsIndex()
             persistLibraryIndex()
             await MainActor.run {
                 self.libraryIndexRevision &+= 1
@@ -604,6 +651,7 @@ final class SynologyAPI: ObservableObject {
               !snapshot.songs.isEmpty else { return }
         librarySongsCache = snapshot.songs
         librarySongsCacheUpdatedAt = snapshot.updatedAt
+        rebuildLibrarySongsIndex()
     }
 
     private func persistLibraryIndex() {
@@ -1566,8 +1614,7 @@ final class SynologyAPI: ObservableObject {
             // 这里再用官方 SYNO.AudioStation.Lyrics 写一次并回读，避免出现只在编辑器内存中变化。
             try await saveLyrics(song: song, lyrics: lyrics)
         }
-        librarySongsCache.removeAll()
-        librarySongsCacheUpdatedAt = .distantPast
+        clearLibraryCache()
         await MainActor.run {
             self.libraryIndexRevision &+= 1
         }

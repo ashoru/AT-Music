@@ -156,7 +156,8 @@ final class MusicCacheManager: ObservableObject {
     func requestPrefetch(song: Song?, quality: ThirdPartyAudioQuality) {
         guard isPrefetchEnabled,
               let song,
-              song.source != .local else {
+              song.source != .local,
+              song.source != .synology else {
             cancelPrefetch()
             return
         }

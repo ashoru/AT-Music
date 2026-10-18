@@ -2862,17 +2862,24 @@ struct PlayerView: View {
             let image: UIImage?
             if resolved.isFileURL {
                 image = UIImage(contentsOfFile: resolved.path)
+            } else if let cached = ATMusicRemoteCoverCache.image(for: resolved) {
+                image = cached
             } else {
                 var req = URLRequest(url: resolved)
-                req.timeoutInterval = 12
+                req.timeoutInterval = 6
                 req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
                 let (data, _) = try await URLSession.shared.data(for: req)
                 image = UIImage(data: data)
+                if let image {
+                    ATMusicRemoteCoverCache.store(image, for: resolved)
+                }
             }
             guard let image,
                   let dominant = PaletteExtractor.dominantColor(in: image) else { return }
-            withAnimation {
-                dominantColor = dominant
+            await MainActor.run {
+                withAnimation {
+                    dominantColor = dominant
+                }
             }
         } catch {
             // 提取失败：静默保持回退色

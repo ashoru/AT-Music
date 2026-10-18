@@ -67,7 +67,18 @@ final class LocalLibraryStore: ObservableObject {
         didSet { save() }
     }
     @Published var importedSongs: [Song] {
-        didSet { saveImportedSongs() }
+        didSet {
+            rebuildImportedSongsIndex()
+            saveImportedSongs()
+        }
+    }
+    private var importedSongsIndex: [String: Song] = [:]
+    private func rebuildImportedSongsIndex() {
+        var map: [String: Song] = [:]
+        for s in importedSongs {
+            map[s.identityKey] = s
+        }
+        importedSongsIndex = map
     }
 
     private let defaults = UserDefaults.standard
@@ -88,6 +99,7 @@ final class LocalLibraryStore: ObservableObject {
         } else {
             importedSongs = []
         }
+        rebuildImportedSongsIndex()
         repairLocalArtworksIfNeeded()
         cleanDuplicateImportedSongsAndPlaylists()
     }
@@ -296,7 +308,7 @@ final class LocalLibraryStore: ObservableObject {
     }
 
     func localSong(for identityKey: String) -> Song? {
-        if let exact = importedSongs.first(where: { $0.identityKey == identityKey }) {
+        if let exact = importedSongsIndex[identityKey] ?? importedSongs.first(where: { $0.identityKey == identityKey }) {
             return exact
         }
         return importedSongs.first { song in

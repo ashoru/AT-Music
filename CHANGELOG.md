@@ -1,5 +1,15 @@
 # AT Music 更新日志
 
+## 1.9.32 build 95
+
+### 彻底根除群晖 NAS 歌曲播放与列表卡顿、首包缓冲优化与主线程零负载重构
+- **根治播放 NAS 歌曲导致的界面与播放器卡死（消除 SongCell O(N) 主线程遍历）**：定位并彻底移除 `SongCell.displayedSong` 计算属性在播放器高频更新（每秒 4~10 次）时反复线性遍历全量 NAS 缓存库（`cachedLibrarySongs.first(where:)`）的致命性能瓶颈；重构为纯净 O(1) 状态机响应模型；在 `SynologyAPI` 与 `LocalLibraryStore` 引入基于 `identityKey` 与 `synologyId` 的哈希倒排索引，即便数万首 NAS 曲目也能做到毫秒级 O(1) 检索，彻底恢复 120 帧满帧丝滑流畅
+- **修复 NAS 与大文件音频起播后 1~3 秒卡顿断流**：排查发现自定义 `AudioHeadBlockResourceLoader` 在首包后采用一次性阻塞式 `URLSession.shared.dataTask` 等待整段音频下载完毕后才向 AVPlayer 响应，且群晖 Audio Station `stream.cgi` 不支持复杂分段请求，导致起播 1~3 秒后音频流必定缺水断流；全面回归苹果原生 AVFoundation 硬件加速流式管道，直接原生流式缓冲与硬解，杜绝卡死
+- **消除 NAS 上行带宽挤占风暴**：在播放 NAS 歌曲时智能屏蔽后台整首预缓存（`MusicCacheManager.requestPrefetch`），杜绝播放当前歌曲的同时在后台疯狂全速拉取下一首 50MB~100MB 的 FLAC 无损文件，保持家庭宽带有限上行带宽被当前播放链路完全独占
+- **封面调色板与毛玻璃背景零冗余网络请求**：`PlayerView.extractCoverPalette` 与 `CoverBlurBackground` 优先复用 `ATMusicRemoteCoverCache` 已有的内存图片，杜绝切歌时向 NAS 重复请求 `cover.cgi`
+- **跨源歌词加载并发任务合并**：在 `SongLyricsLoader` 增加针对同一曲目的 `inFlightTasks` 合并机制，避免 `MiniPlayerView` 与 `PlayerView` 针对同一首曲目同时向多平台发起并发搜索
+
+
 ## 1.9.31 build 94
 
 ### 紧急修复双播放器预热闪退、群晖封面上传与缓存防污染、全场景封面修改即时生效

@@ -735,7 +735,7 @@ final class PlayerManager: NSObject, ObservableObject {
             headers: playbackHeaders,
             key: nextSong.identityKey
         )
-        item.preferredForwardBufferDuration = 8.0
+        item.preferredForwardBufferDuration = nextSong.source == .synology ? 4.0 : 8.0
         let standby = AVPlayer(playerItem: item)
         standby.automaticallyWaitsToMinimizeStalling = false
         standby.volume = 0
@@ -1904,7 +1904,7 @@ final class PlayerManager: NSObject, ObservableObject {
             )
             item = madeItem
             self.currentResourceLoader = loader
-            item.preferredForwardBufferDuration = 8.0
+            item.preferredForwardBufferDuration = loadedSong.source == .synology ? 6.0 : 8.0
             player = AVPlayer(playerItem: item)
             player.volume = targetVolume
             player.automaticallyWaitsToMinimizeStalling = false
@@ -3013,6 +3013,8 @@ final class AudioHeadBlockPreloader: NSObject {
     /// 预拉取前 128KB (131,072 字节)
     func preloadHeadBlock(for url: URL, headers: [String: String] = [:], key: String) {
         guard url.scheme?.hasPrefix("http") == true else { return }
+        // 群晖 NAS 音频直链与大音频流由 AVPlayer 硬件解码流式缓冲，不进行 HeadBlock 拦截以避免浪费家庭网络上行带宽
+        guard !url.absoluteString.contains("/AudioStation/") && !url.absoluteString.contains("stream.cgi") else { return }
         guard !UnblockService.isCorruptOrAntiLeechURL(url) else { return }
 
         if hasHeadBlock(for: key) { return }
@@ -3119,19 +3121,8 @@ final class AudioHeadBlockPreloader: NSObject {
         guard url.scheme?.hasPrefix("http") == true else {
             return (AVPlayerItem(url: url), nil)
         }
-        if let head = getHeadBlock(for: key),
-           var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            comps.scheme = "atmusic-head"
-            if let customURL = comps.url {
-                let asset = AVURLAsset(url: customURL)
-                let loader = AudioHeadBlockResourceLoader(originalURL: url, headers: headers, headRecord: head)
-                asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "com.atmusic.headblock.dispatch"))
-                let item = AVPlayerItem(asset: asset)
-                item.preferredForwardBufferDuration = 8.0
-                ATMusicLogger.shared.log("⚡️ [Head-Block] 命中 128KB 内存首包，0ms 瞬时解码起播：\(key)", level: .info)
-                return (item, loader)
-            }
-        }
+        // AVFoundation 原生 HTTP/HTTPS 流媒体管道性能、低功耗与稳定性最佳，
+        // 彻底避免自定义 ResourceLoader 中一次性 dataTask 阻塞导致的 128KB 首包后缓冲卡顿与 NAS 协议冲突。
         return (PlayerManager.makePlayerItem(url: url, headers: headers), nil)
     }
 

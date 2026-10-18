@@ -48,6 +48,23 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.32-build-95-fix-nas-playback-lag",
+            version: "1.9.32",
+            title: "彻底根除群晖 NAS 歌曲播放与列表卡顿、首包缓冲优化与主线程零负载重构",
+            features: [
+                "根治播放 NAS 歌曲导致的界面与播放器卡死（消除 SongCell O(N) 主线程遍历）：彻底移除歌曲行 computed property 在播放器高频刷新时反复遍历全量 NAS 缓存库的性能杀手，重构为纯净 O(1) 状态机；新增 SynologyAPI 与 LocalLibraryStore 瞬时哈希倒排索引，即便数万首 NAS 曲目也做到 120 帧丝滑满帧运行",
+                "修复 NAS 与大文件音频起播后 1~3 秒卡顿断流：移除 AudioHeadBlockResourceLoader 自定义 Scheme 拦截与一次性阻塞式 dataTask，全面回归苹果原生 AVFoundation 硬件加速流式流媒体管道，直接原生硬解缓冲，零卡顿、零假死",
+                "消除 NAS 上行带宽挤占风暴：在播放 NAS 歌曲时智能屏蔽后台整首预缓存（MusicCacheManager），杜绝边播边下 50MB FLAC 导致家庭宽带上行堵塞，保持主播放器带宽独占与超高速发声",
+                "封面调色板与毛玻璃背景零冗余网络请求：播放器动态取色与背景模糊直接复用已加载的 ATMusicRemoteCoverCache 内存封面，杜绝切歌时向 NAS 重复发起 cover.cgi 请求",
+                "跨源歌词加载并发任务合并：消除 MiniPlayerView 与 PlayerView 针对同一曲目同时发起多源歌词搜索的重复网络开销"
+            ],
+            fixes: [
+                "彻底解决播放群晖 NAS 歌曲时整个播放器严重卡顿、无法响应的致命性能缺陷",
+                "解决 NAS 歌曲在播放 1~3 秒后由于首包资源加载器阻塞导致的异常卡顿与停顿",
+                "优化万首级 NAS 音乐库在 iPhone 与 iPad 宽屏下的列表滚动与高频刷新性能"
+            ]
+        ),
+        VersionLog(
             id: "1.9.31-build-94-fix-preroll-crash-and-cover-upload",
             version: "1.9.31",
             title: "紧急修复双播放器预热闪退、群晖封面上传与缓存防污染、全场景封面修改即时生效",

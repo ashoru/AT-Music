@@ -6,6 +6,9 @@ import Foundation
 /// 3. 当未匹配到歌词时，跨平台智能模糊匹配补全并写入离线缓存；
 /// 4. 供播放器主页与播放器布局编辑器实时联动。
 enum SongLyricsLoader {
+    private static var inFlightTasks: [String: Task<[LyricLine], Never>] = [:]
+    private static let taskLock = NSLock()
+
     static func loadLyrics(for song: Song) async -> [LyricLine] {
         let identity = song.identityKey
 
@@ -15,6 +18,25 @@ enum SongLyricsLoader {
             if !parsed.isEmpty { return parsed }
         }
 
+        taskLock.lock()
+        if let existing = inFlightTasks[identity] {
+            taskLock.unlock()
+            return await existing.value
+        }
+        let task = Task<[LyricLine], Never> {
+            defer {
+                taskLock.lock()
+                inFlightTasks.removeValue(forKey: identity)
+                taskLock.unlock()
+            }
+            return await fetchAndParseLyrics(for: song)
+        }
+        inFlightTasks[identity] = task
+        taskLock.unlock()
+        return await task.value
+    }
+
+    private static func fetchAndParseLyrics(for song: Song) async -> [LyricLine] {
         var rawLyrics: String?
         var translationRaw: String?
 

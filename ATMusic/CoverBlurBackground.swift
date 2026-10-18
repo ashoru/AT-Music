@@ -182,6 +182,23 @@ final class CoverBlurView: UIView {
             return
         }
 
+        if let existing = ATMusicRemoteCoverCache.image(for: resolved) {
+            Self.blurQueue.async { [weak self] in
+                guard let self else { return }
+                let blurred = Self.makeBlurredImage(existing)
+                let colors = Self.extractGradientColors(from: existing)
+                if let blurred {
+                    Self.imageCache.setObject(blurred, forKey: resolved as NSURL)
+                }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.currentURL == resolved else { return }
+                    if let blurred { self.setImage(blurred, animated: true) }
+                    self.applyGradient(colors)
+                }
+            }
+            return
+        }
+
         var req = URLRequest(url: resolved)
         req.timeoutInterval = 15
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
