@@ -2008,7 +2008,7 @@ struct SynologyFolderView: View {
     }
 }
 
-/// 批量编辑 NAS 歌曲信息：统一修改专辑名称、整体设置封面，逐首写入 NAS 标签。
+/// 批量编辑 NAS 歌曲信息：统一修改演出者、专辑名称、专辑演出者、流派、年份、备注与封面，逐首写入 NAS 标签。
 struct SynologyBatchMetadataEditorSheet: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager
@@ -2016,7 +2016,12 @@ struct SynologyBatchMetadataEditorSheet: View {
     let songs: [Song]
     let keyword: String
 
+    @State private var artist = ""
     @State private var album = ""
+    @State private var albumArtist = ""
+    @State private var genre = ""
+    @State private var year = ""
+    @State private var comment = ""
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
     @State private var isSaving = false
@@ -2028,46 +2033,155 @@ struct SynologyBatchMetadataEditorSheet: View {
         NavigationView {
             ZStack {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("批量设置 \(songs.count) 首歌曲")
-                        .font(ATMusicFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.atmusicLabel)
-                    if let savedCount {
-                        Text("已写入 \(savedCount)/\(songs.count) 首")
-                            .font(ATMusicFont.appFont(13, .medium))
-                            .foregroundStyle(theme.accent.highlight)
-                    } else if !message.isEmpty {
-                        Text(message).font(ATMusicFont.appFont(12)).foregroundStyle(Color.atmusicComment)
-                    }
-                    TextField("专辑名称（留空不改动）", text: $album)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        showCoverPicker = true
-                    } label: {
-                        HStack {
-                            Label("选择封面图（可选）", systemImage: "photo")
-                            Spacer()
-                            if selectedCoverURL != nil || selectedCoverData != nil {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.accent.highlight)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // 1. 顶部选中歌曲概览
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("批量设置 (songs.count) 首群晖 NAS 歌曲")
+                                    .font(ATMusicFont.appFont(15, .semibold))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                if let savedCount {
+                                    Text("已写入 (savedCount)/(songs.count) 首")
+                                        .font(ATMusicFont.appFont(13, .semibold))
+                                        .foregroundStyle(theme.accent.highlight)
+                                }
+                            }
+                            // 歌曲横向预览
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(songs.prefix(15)), id: \.identityKey) { s in
+                                        HStack(spacing: 6) {
+                                            CoverImage(url: s.coverURL, size: 28, cornerRadius: 6)
+                                            Text(s.name)
+                                                .font(ATMusicFont.appFont(12))
+                                                .foregroundStyle(Color.atmusicLabel)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.primary.opacity(0.06), in: Capsule())
+                                    }
+                                    if songs.count > 15 {
+                                        Text("等共 \(songs.count) 首")
+                                            .font(ATMusicFont.appFont(11))
+                                            .foregroundStyle(Color.atmusicComment)
+                                    }
+                                }
                             }
                         }
-                        .font(ATMusicFont.appFont(14))
-                        .foregroundStyle(Color.atmusicLabel)
                         .padding(14)
-                        .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        // 2. 统一专辑封面设置
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("专辑封面（可选）")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicComment)
+                            Button {
+                                showCoverPicker = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
+                                        Image(uiImage: img)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 48, height: 48)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    } else if let selectedCoverURL {
+                                        CoverImage(url: selectedCoverURL, size: 48, cornerRadius: 10)
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(Color.primary.opacity(0.08))
+                                            .frame(width: 48, height: 48)
+                                            .overlay {
+                                                Image(systemName: "photo.badge.plus")
+                                                    .font(.system(size: 20))
+                                                    .foregroundStyle(Color.atmusicAmber)
+                                            }
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(selectedCoverData != nil || selectedCoverURL != nil ? "已选择新封面" : "点击选择统一专辑封面")
+                                            .font(ATMusicFont.appFont(14, .medium))
+                                            .foregroundStyle(Color.atmusicLabel)
+                                        Text(selectedCoverData != nil || selectedCoverURL != nil ? "所有选中的 NAS 歌曲将统一绑定该封面" : "支持在线搜索或从相册选择")
+                                            .font(ATMusicFont.appFont(11))
+                                            .foregroundStyle(Color.atmusicComment)
+                                    }
+                                    Spacer()
+                                    if selectedCoverData != nil || selectedCoverURL != nil {
+                                        Button {
+                                            selectedCoverData = nil
+                                            selectedCoverURL = nil
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(Color.atmusicComment)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Color.atmusicComment.opacity(0.5))
+                                    }
+                                }
+                                .padding(12)
+                                .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // 3. 元数据输入字段
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("标签字段（留空项保持原样不变）")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicComment)
+
+                            VStack(spacing: 8) {
+                                nasBatchInputField(title: "演出者", placeholder: "留空保持原样", text: $artist)
+                                nasBatchInputField(title: "专辑名称", placeholder: "留空保持原样", text: $album)
+                                nasBatchInputField(title: "专辑演出者", placeholder: "留空保持原样", text: $albumArtist)
+                                nasBatchInputField(title: "流派", placeholder: "留空保持原样", text: $genre)
+                                nasBatchInputField(title: "专辑年份", placeholder: "留空保持原样", text: $year, keyboard: .numberPad)
+                                nasBatchInputField(title: "备注", placeholder: "留空保持原样", text: $comment)
+                            }
+                            .padding(12)
+                            .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+
+                        if !message.isEmpty {
+                            Text(message)
+                                .font(ATMusicFont.appFont(12))
+                                .foregroundStyle(theme.accent.highlight)
+                        }
+
+                        if isSaving {
+                            ProgressView(value: Double(savedCount ?? 0), total: Double(songs.count))
+                                .tint(Color.atmusicAmber)
+                                .padding(.vertical, 4)
+                        }
+
+                        GlassButton(
+                            title: isSaving ? "正在逐首写入 NAS…" : "保存并写入 (songs.count) 首 NAS 歌曲",
+                            systemName: "square.and.arrow.down",
+                            prominent: true
+                        ) {
+                            Task { await save() }
+                        }
+                        .disabled(isSaving)
+                        .padding(.top, 8)
                     }
-                    .buttonStyle(.plain)
-                    Spacer()
-                    GlassButton(title: isSaving ? "正在写入…" : "写入 NAS", systemName: "square.and.arrow.down", prominent: true) {
-                        Task { await save() }
-                    }
-                    .disabled(isSaving)
+                    .padding(20)
                 }
-                .padding(20)
             }
             .navigationTitle("批量编辑")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
         }
         .sheet(isPresented: $showCoverPicker) {
             if let first = songs.first {
@@ -2084,16 +2198,50 @@ struct SynologyBatchMetadataEditorSheet: View {
         }
     }
 
+    @ViewBuilder
+    private func nasBatchInputField(title: String, placeholder: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(ATMusicFont.appFont(14))
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(width: 80, alignment: .leading)
+            TextField(placeholder, text: text)
+                .font(ATMusicFont.appFont(14))
+                .keyboardType(keyboard)
+            if !text.wrappedValue.isEmpty {
+                Button {
+                    text.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
     private func save() async {
         guard !isSaving else { return }
+        let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAlbumArtist = albumArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let patch = SynologyTagPatch(
-            title: nil, artist: nil,
+            title: nil,
+            artist: trimmedArtist.isEmpty ? nil : trimmedArtist,
             album: trimmedAlbum.isEmpty ? nil : trimmedAlbum,
-            albumArtist: nil, genre: nil, year: nil, comment: nil
+            albumArtist: trimmedAlbumArtist.isEmpty ? nil : trimmedAlbumArtist,
+            genre: trimmedGenre.isEmpty ? nil : trimmedGenre,
+            year: trimmedYear.isEmpty ? nil : trimmedYear,
+            comment: trimmedComment.isEmpty ? nil : trimmedComment
         )
         if patch.isEmpty && selectedCoverURL == nil && selectedCoverData == nil {
-            await MainActor.run { message = "没有可写入的内容（专辑名称留空且未选择封面）" }
+            await MainActor.run { message = "没有可写入的内容（字段均留空且未选择封面）" }
             return
         }
         await MainActor.run { isSaving = true; message = "正在逐首写入 NAS…" }
@@ -2106,23 +2254,56 @@ struct SynologyBatchMetadataEditorSheet: View {
                     coverURL: selectedCoverURL,
                     coverData: selectedCoverData
                 )
+                let refreshedCover = SynologyAPI.shared.coverURL(
+                    songId: song.synologyId ?? "(song.id)",
+                    cacheBust: UUID().uuidString
+                )
+                let updated = Song(
+                    id: song.id,
+                    name: song.name,
+                    artists: trimmedArtist.isEmpty ? song.artists : trimmedArtist,
+                    album: trimmedAlbum.isEmpty ? song.album : trimmedAlbum,
+                    coverURL: refreshedCover ?? song.coverURL,
+                    duration: song.duration,
+                    source: song.source,
+                    synologyId: song.synologyId,
+                    synologyServerScope: song.synologyServerScope,
+                    synologyPath: song.synologyPath,
+                    albumArtist: trimmedAlbumArtist.isEmpty ? song.albumArtist : trimmedAlbumArtist,
+                    genre: trimmedGenre.isEmpty ? song.genre : trimmedGenre,
+                    year: trimmedYear.isEmpty ? song.year : trimmedYear,
+                    comment: trimmedComment.isEmpty ? song.comment : trimmedComment,
+                    discNumber: song.discNumber,
+                    trackNumber: song.trackNumber,
+                    fee: song.fee
+                )
+                await MainActor.run {
+                    player.replaceSong(updated)
+                }
                 saved += 1
                 await MainActor.run {
                     savedCount = saved
-                    message = "正在逐首写入 NAS…（\(saved)/\(songs.count)）"
+                    message = "正在逐首写入 NAS…（(saved)/(songs.count)）"
                 }
             } catch {
-                await MainActor.run { message = "第 \(saved + 1) 首写入失败：\(error.localizedDescription)" }
+                await MainActor.run { message = "第 (saved + 1) 首写入失败：(error.localizedDescription)" }
             }
         }
         await MainActor.run {
             isSaving = false
+            if saved > 0 {
+                SynologyAPI.shared.invalidateAllFolderCaches()
+                SynologyAPI.shared.bumpLibraryIndexRevision()
+                NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: nil)
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: nil)
+            }
             if saved == songs.count {
-                ToastCenter.shared.show("批量写入完成（\(saved) 首）")
+                ATMusicHaptics.success()
+                ToastCenter.shared.show("批量写入完成（(saved) 首已更新）")
                 dismiss()
             } else {
                 savedCount = saved
-                message = "完成 \(saved)/\(songs.count)，失败歌曲已跳过"
+                message = "完成 (saved)/(songs.count)，失败歌曲已跳过"
             }
         }
     }
@@ -2361,6 +2542,7 @@ struct SynologyAlbumView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isBatchDownloading = false
+    @State private var showBatchEditor = false
 
     @MainActor
     private func batchDownloadAlbum() {
@@ -2494,6 +2676,13 @@ struct SynologyAlbumView: View {
                         Label(isBatchDownloading ? "正在加入下载..." : "下载全专歌曲", systemImage: "arrow.down.circle")
                     }
                     .disabled(sortedTracks.isEmpty || isBatchDownloading)
+
+                    Button {
+                        showBatchEditor = true
+                    } label: {
+                        Label("批量编辑全专信息", systemImage: "square.and.pencil")
+                    }
+                    .disabled(sortedTracks.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -2508,7 +2697,15 @@ struct SynologyAlbumView: View {
                 }
             }
         }
-        .task { await load() }
+                .task { await load() }
+        .sheet(isPresented: $showBatchEditor) {
+            SynologyBatchMetadataEditorSheet(songs: sortedTracks, keyword: albumName)
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { _ in
+            Task { await load() }
+        }
     }
 
     private var albumHeader: some View {

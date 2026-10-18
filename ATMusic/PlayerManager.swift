@@ -2687,7 +2687,15 @@ final class PlayerManager: NSObject, ObservableObject {
                     }
                 }
             }
-            guard let image else { return }
+            guard let image else {
+                await MainActor.run { [weak self] in
+                    // 封面加载失败时解除 key 锁定，使得重试或后续状态更新能够再次尝试加载封面
+                    if self?.lastNowPlayingArtworkKey == key {
+                        self?.lastNowPlayingArtworkKey = nil
+                    }
+                }
+                return
+            }
 
             Self.nowPlayingArtworkCache.setObject(image, forKey: url as NSURL)
             Self.nowPlayingArtworkCache.setObject(image, forKey: resolved as NSURL)

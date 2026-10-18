@@ -19,6 +19,7 @@ struct TransferCenterView: View {
     @State private var isMultiSelectingOffline: Bool = false
     @State private var selectedOfflineIDs: Set<String> = []
     @State private var showBatchAddToPlaylist: Bool = false
+    @State private var showBatchEdit: Bool = false
     @State private var showBatchDeleteAlert: Bool = false
     @State private var showCancelAllDownloadsAlert: Bool = false
     @State private var showCancelAllUploadsAlert: Bool = false
@@ -110,6 +111,11 @@ struct TransferCenterView: View {
         }
         .sheet(isPresented: $showBatchAddToPlaylist) {
             AddToLocalPlaylistSheet(songs: selectedOfflineSongs)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showBatchEdit) {
+            LocalBatchMetadataEditorSheet(songs: selectedOfflineSongs)
+                .environmentObject(player)
                 .environmentObject(theme)
         }
         .confirmationDialog("批量删除离线歌曲", isPresented: $showBatchDeleteAlert, titleVisibility: .visible) {
@@ -521,6 +527,20 @@ struct TransferCenterView: View {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 15))
                     Text("加歌单")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showBatchEdit = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 15))
+                    Text("批量编辑")
                         .font(ATMusicFont.appFont(10, .medium))
                 }
                 .foregroundStyle(Color.atmusicLabel)

@@ -95,6 +95,10 @@ final class SynologyAPI: ObservableObject {
 
     /// 全库索引完成后递增，搜索页可据此把首屏远程结果替换为完整本地结果。
     @Published private(set) var libraryIndexRevision: Int = 0
+
+    func bumpLibraryIndexRevision() {
+        libraryIndexRevision &+= 1
+    }
     @Published private(set) var isLibraryIndexLoading: Bool = false
 
     private let defaults = UserDefaults.standard
@@ -821,6 +825,10 @@ final class SynologyAPI: ObservableObject {
         } catch {
             ATMusicLogger.shared.log("NAS 文件夹缓存写入失败：\(error.localizedDescription)", level: .debug)
         }
+    }
+
+    func invalidateAllFolderCaches() {
+        invalidateFolderCache(folderID: nil)
     }
 
     func invalidateFolderCache(folderID: String? = nil) {

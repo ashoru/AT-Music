@@ -1119,6 +1119,7 @@ struct LocalMusicManagementSheet: View {
     @State private var selectedSongKeys: Set<String> = []
     @State private var showBatchAddToPlaylist = false
     @State private var showBatchDeleteAlert = false
+    @State private var showBatchEdit = false
 
     private var filteredSongs: [Song] {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1303,6 +1304,11 @@ struct LocalMusicManagementSheet: View {
                 AddToLocalPlaylistSheet(songs: selectedSongs)
                     .environmentObject(theme)
             }
+            .sheet(isPresented: $showBatchEdit) {
+                LocalBatchMetadataEditorSheet(songs: selectedSongs)
+                    .environmentObject(player)
+                    .environmentObject(theme)
+            }
             .confirmationDialog("删除本地歌曲？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
                 Button("删除应用内副本", role: .destructive) {
                     guard let song = pendingDelete else { return }
@@ -1381,6 +1387,20 @@ struct LocalMusicManagementSheet: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                showBatchEdit = true
+            } label: {
+                VStack(spacing: 3) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 15))
+                    Text("批量编辑")
+                        .font(ATMusicFont.appFont(10, .medium))
+                }
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
             if synology.isLoggedIn {
                 Button {
                     let songs = selectedSongs
@@ -1435,6 +1455,7 @@ struct LocalMusicManagementSheet: View {
 
 struct LocalSongMetadataEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var player: PlayerManager
     let song: Song
     let onSave: (Song) -> Bool
 
@@ -1609,10 +1630,55 @@ struct LocalSongMetadataEditorSheet: View {
                 let previousCoverURL = coverURL
                 updatedCoverURL = try LocalAudioFileManager.shared.writeSupportData(
                     jpeg,
-                    relativePath: "ATMusicAudio/Artwork/\(baseName)-\(UUID().uuidString).jpg"
+                    relativePath: "ATMusicAudio/Artwork/(baseName)-(UUID().uuidString).jpg"
                 )
                 if let previousCoverURL, previousCoverURL != updatedCoverURL {
                     LocalAudioFileManager.shared.removeManagedArtworkIfNeeded(previousCoverURL)
+                    ATMusicRemoteCoverCache.remove(for: previousCoverURL)
+                    ATMusicImageFileCache.remove(previousCoverURL.path)
+                }
+                if let updatedCoverURL {
+                    ATMusicRemoteCoverCache.store(image, for: updatedCoverURL)
+                }
+            } else if let coverURL, !coverURL.isFileURL, let relativePath = song.localRelativePath {
+                // 在线选取的封面：异步转存为本地安全沙盒文件，保证离线永久可用与立即可见
+                Task.detached(priority: .utility) {
+                    var req = URLRequest(url: coverURL)
+                    req.timeoutInterval = 15
+                    if let (data, resp) = try? await URLSession.shared.data(for: req),
+                       let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                       let img = UIImage(data: data),
+                       let jpeg = img.jpegData(compressionQuality: 0.92) {
+                        let baseName = ((relativePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                        if let localArtworkURL = try? LocalAudioFileManager.shared.writeSupportData(
+                            jpeg,
+                            relativePath: "ATMusicAudio/Artwork/(baseName)-(UUID().uuidString).jpg"
+                        ) {
+                            await MainActor.run {
+                                ATMusicRemoteCoverCache.store(img, for: localArtworkURL)
+                                let refreshed = Song(
+                                    id: song.id,
+                                    name: trimmedTitle,
+                                    artists: trimmedArtist.isEmpty ? "未知艺术家" : trimmedArtist,
+                                    album: trimmedAlbum.isEmpty ? "未知专辑" : trimmedAlbum,
+                                    coverURL: localArtworkURL,
+                                    duration: song.duration,
+                                    source: .local,
+                                    localRelativePath: song.localRelativePath,
+                                    albumArtist: albumArtist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : albumArtist.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    genre: genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : genre.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    year: year.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : year.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    comment: comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : comment.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    discNumber: song.discNumber,
+                                    trackNumber: song.trackNumber,
+                                    fee: song.fee
+                                )
+                                LocalLibraryStore.shared.updateImportedSong(refreshed)
+                                player.replaceSong(refreshed)
+                                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: localArtworkURL)
+                            }
+                        }
+                    }
                 }
             }
             let updated = Song(
@@ -1628,6 +1694,8 @@ struct LocalSongMetadataEditorSheet: View {
                 genre: genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : genre.trimmingCharacters(in: .whitespacesAndNewlines),
                 year: year.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : year.trimmingCharacters(in: .whitespacesAndNewlines),
                 comment: comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : comment.trimmingCharacters(in: .whitespacesAndNewlines),
+                discNumber: song.discNumber,
+                trackNumber: song.trackNumber,
                 fee: song.fee
             )
             guard onSave(updated) else {
@@ -1641,13 +1709,325 @@ struct LocalSongMetadataEditorSheet: View {
                 message = "保存失败：新封面文件校验失败"
                 return
             }
+            player.replaceSong(updated)
+            NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: updatedCoverURL)
+            NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
             ATMusicHaptics.success()
             ToastCenter.shared.show("本地歌曲信息已更新")
             dismiss()
         } catch {
             saving = false
-            message = "保存失败：\(error.localizedDescription)"
+            message = "保存失败：(error.localizedDescription)"
         }
+    }
+}
+
+/// 批量编辑本地离线歌曲信息：统一修改演出者、专辑名称、专辑演出者、流派、年份、备注与封面。
+struct LocalBatchMetadataEditorSheet: View {
+    @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var player: PlayerManager
+    @Environment(\.dismiss) private var dismiss
+    let songs: [Song]
+
+    @State private var artist = ""
+    @State private var album = ""
+    @State private var albumArtist = ""
+    @State private var genre = ""
+    @State private var year = ""
+    @State private var comment = ""
+    @State private var selectedCoverURL: URL?
+    @State private var selectedCoverData: Data?
+    @State private var showCoverPicker = false
+    @State private var isSaving = false
+    @State private var message = ""
+    @State private var savedCount: Int?
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // 1. 顶部选中歌曲概览
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("批量修改 (songs.count) 首本地离线歌曲")
+                                    .font(ATMusicFont.appFont(15, .semibold))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                Spacer()
+                                if let savedCount {
+                                    Text("已更新 (savedCount)/(songs.count) 首")
+                                        .font(ATMusicFont.appFont(13, .semibold))
+                                        .foregroundStyle(theme.accent.highlight)
+                                }
+                            }
+                            // 歌曲横向预览卡片
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(songs.prefix(15)), id: \.identityKey) { s in
+                                        HStack(spacing: 6) {
+                                            CoverImage(url: s.coverURL, size: 28, cornerRadius: 6)
+                                            Text(s.name)
+                                                .font(ATMusicFont.appFont(12))
+                                                .foregroundStyle(Color.atmusicLabel)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.primary.opacity(0.06), in: Capsule())
+                                    }
+                                    if songs.count > 15 {
+                                        Text("等共 \(songs.count) 首")
+                                            .font(ATMusicFont.appFont(11))
+                                            .foregroundStyle(Color.atmusicComment)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        // 2. 统一专辑封面设置
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("专辑封面（可选）")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicComment)
+                            Button {
+                                showCoverPicker = true
+                            } label: {
+                                HStack(spacing: 12) {
+                                    if let selectedCoverData, let img = UIImage(data: selectedCoverData) {
+                                        Image(uiImage: img)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 48, height: 48)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    } else if let selectedCoverURL {
+                                        CoverImage(url: selectedCoverURL, size: 48, cornerRadius: 10)
+                                    } else {
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .fill(Color.primary.opacity(0.08))
+                                            .frame(width: 48, height: 48)
+                                            .overlay {
+                                                Image(systemName: "photo.badge.plus")
+                                                    .font(.system(size: 20))
+                                                    .foregroundStyle(Color.atmusicAmber)
+                                            }
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(selectedCoverData != nil || selectedCoverURL != nil ? "已选择新封面" : "点击选择统一专辑封面")
+                                            .font(ATMusicFont.appFont(14, .medium))
+                                            .foregroundStyle(Color.atmusicLabel)
+                                        Text(selectedCoverData != nil || selectedCoverURL != nil ? "所有选中的歌曲将统一更换为该封面" : "支持在线搜索或从相册选择")
+                                            .font(ATMusicFont.appFont(11))
+                                            .foregroundStyle(Color.atmusicComment)
+                                    }
+                                    Spacer()
+                                    if selectedCoverData != nil || selectedCoverURL != nil {
+                                        Button {
+                                            selectedCoverData = nil
+                                            selectedCoverURL = nil
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(Color.atmusicComment)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(Color.atmusicComment.opacity(0.5))
+                                    }
+                                }
+                                .padding(12)
+                                .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // 3. 元数据输入字段
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("标签字段（留空项保持原样不变）")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicComment)
+
+                            VStack(spacing: 8) {
+                                batchInputField(title: "演出者", placeholder: "留空保持原样", text: $artist)
+                                batchInputField(title: "专辑名称", placeholder: "留空保持原样", text: $album)
+                                batchInputField(title: "专辑演出者", placeholder: "留空保持原样", text: $albumArtist)
+                                batchInputField(title: "流派", placeholder: "留空保持原样", text: $genre)
+                                batchInputField(title: "专辑年份", placeholder: "留空保持原样", text: $year, keyboard: .numberPad)
+                                batchInputField(title: "备注", placeholder: "留空保持原样", text: $comment)
+                            }
+                            .padding(12)
+                            .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+
+                        if !message.isEmpty {
+                            Text(message)
+                                .font(ATMusicFont.appFont(12))
+                                .foregroundStyle(theme.accent.highlight)
+                        }
+
+                        if isSaving {
+                            ProgressView(value: Double(savedCount ?? 0), total: Double(songs.count))
+                                .tint(Color.atmusicAmber)
+                                .padding(.vertical, 4)
+                        }
+
+                        GlassButton(
+                            title: isSaving ? "正在写入本地库…" : "保存并应用到 (songs.count) 首歌曲",
+                            systemName: "checkmark.circle.fill",
+                            prominent: true
+                        ) {
+                            Task { await save() }
+                        }
+                        .disabled(isSaving)
+                        .padding(.top, 8)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("批量编辑")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .sheet(isPresented: $showCoverPicker) {
+            if let first = songs.first {
+                SongCoverSearchGridSheet(song: first) { candidate in
+                    selectedCoverURL = candidate.song.coverURL
+                    selectedCoverData = nil
+                    showCoverPicker = false
+                } onPickData: { data in
+                    selectedCoverData = data
+                    selectedCoverURL = nil
+                    showCoverPicker = false
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func batchInputField(title: String, placeholder: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(ATMusicFont.appFont(14))
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(width: 80, alignment: .leading)
+            TextField(placeholder, text: text)
+                .font(ATMusicFont.appFont(14))
+                .keyboardType(keyboard)
+            if !text.wrappedValue.isEmpty {
+                Button {
+                    text.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func save() async {
+        guard !isSaving else { return }
+        let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAlbumArtist = albumArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let hasFieldChanges = !trimmedArtist.isEmpty || !trimmedAlbum.isEmpty || !trimmedAlbumArtist.isEmpty || !trimmedGenre.isEmpty || !trimmedYear.isEmpty || !trimmedComment.isEmpty
+        let hasCoverChanges = selectedCoverURL != nil || selectedCoverData != nil
+
+        guard hasFieldChanges || hasCoverChanges else {
+            message = "请至少输入一项需要修改的字段或选择专辑封面"
+            return
+        }
+
+        isSaving = true
+        message = "正在准备封面与元数据…"
+
+        // 统一处理封面落盘
+        var sharedCoverURL: URL? = nil
+        if let data = selectedCoverData, let img = UIImage(data: data), let jpeg = img.jpegData(compressionQuality: 0.92) {
+            sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
+                jpeg,
+                relativePath: "ATMusicAudio/Artwork/batch-(UUID().uuidString).jpg"
+            )
+            if let sharedCoverURL {
+                ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+            }
+        } else if let remoteURL = selectedCoverURL {
+            if remoteURL.isFileURL {
+                sharedCoverURL = remoteURL
+            } else {
+                var req = URLRequest(url: remoteURL)
+                req.timeoutInterval = 15
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   let img = UIImage(data: data),
+                   let jpeg = img.jpegData(compressionQuality: 0.92) {
+                    sharedCoverURL = try? LocalAudioFileManager.shared.writeSupportData(
+                        jpeg,
+                        relativePath: "ATMusicAudio/Artwork/batch-(UUID().uuidString).jpg"
+                    )
+                    if let sharedCoverURL {
+                        ATMusicRemoteCoverCache.store(img, for: sharedCoverURL)
+                    }
+                }
+            }
+        }
+
+        var saved = 0
+        for song in songs {
+            let newArtist = trimmedArtist.isEmpty ? song.artists : trimmedArtist
+            let newAlbum = trimmedAlbum.isEmpty ? song.album : trimmedAlbum
+            let newAlbumArtist = trimmedAlbumArtist.isEmpty ? song.albumArtist : trimmedAlbumArtist
+            let newGenre = trimmedGenre.isEmpty ? song.genre : trimmedGenre
+            let newYear = trimmedYear.isEmpty ? song.year : trimmedYear
+            let newComment = trimmedComment.isEmpty ? song.comment : trimmedComment
+            let newCoverURL = sharedCoverURL ?? song.coverURL
+
+            let updated = Song(
+                id: song.id,
+                name: song.name,
+                artists: newArtist,
+                album: newAlbum,
+                coverURL: newCoverURL,
+                duration: song.duration,
+                source: .local,
+                localRelativePath: song.localRelativePath,
+                albumArtist: newAlbumArtist,
+                genre: newGenre,
+                year: newYear,
+                comment: newComment,
+                discNumber: song.discNumber,
+                trackNumber: song.trackNumber,
+                fee: song.fee
+            )
+
+            LocalLibraryStore.shared.updateImportedSong(updated)
+            player.replaceSong(updated)
+            saved += 1
+            savedCount = saved
+            message = "正在写入本地库…（(saved)/(songs.count)）"
+        }
+
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: sharedCoverURL)
+        NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: nil)
+
+        isSaving = false
+        ATMusicHaptics.success()
+        ToastCenter.shared.show("批量修改完成（(saved) 首已更新）")
+        dismiss()
     }
 }
 

@@ -718,29 +718,58 @@ enum ATMusicRemoteCoverCache {
     static func store(_ image: UIImage, for url: URL) {
         images.setObject(image, forKey: url as NSURL, cost: image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0)
     }
+
+    static func remove(for url: URL?) {
+        guard let url else { return }
+        images.removeObject(forKey: url as NSURL)
+    }
+
+    static func removeAll() {
+        images.removeAllObjects()
+    }
 }
 
 @MainActor
-private final class ATMusicCoverImageLoader: ObservableObject {
+final class ATMusicCoverImageLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     @Published private(set) var loadedURL: URL?
+    @Published private(set) var isLoading: Bool = false
+    @Published private(set) var loadFailed: Bool = false
 
-    func load(_ url: URL?) async {
+    private var currentTargetURL: URL?
+    private var retryCount = 0
+    private var retryTask: Task<Void, Never>?
+
+    func load(_ url: URL?, isRetry: Bool = false) async {
+        if !isRetry {
+            retryCount = 0
+            retryTask?.cancel()
+            retryTask = nil
+        }
+        currentTargetURL = url
         guard let url else {
             image = nil
             loadedURL = nil
+            isLoading = false
+            loadFailed = false
             return
         }
         let resolvedURL = ManagedAudioPath.resolveFileURL(url) ?? url
-        if loadedURL == resolvedURL, image != nil { return }
+        if loadedURL == resolvedURL, image != nil {
+            isLoading = false
+            loadFailed = false
+            return
+        }
         if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
             loadedURL = resolvedURL
             image = cached
+            isLoading = false
+            loadFailed = false
             return
         }
 
-        loadedURL = resolvedURL
-        image = nil
+        isLoading = true
+        loadFailed = false
 
         if resolvedURL.isFileURL {
             let decoded: UIImage? = await Task.detached(priority: .utility) {
@@ -752,10 +781,26 @@ private final class ATMusicCoverImageLoader: ObservableObject {
                 }
                 return img
             }.value
-            guard !Task.isCancelled, loadedURL == resolvedURL, let decoded else { return }
-            ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
-            image = decoded
-            return
+            guard !Task.isCancelled, currentTargetURL == url else {
+                isLoading = false
+                return
+            }
+            if let decoded {
+                loadedURL = resolvedURL
+                ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
+                image = decoded
+                isLoading = false
+                loadFailed = false
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: resolvedURL)
+                return
+            } else {
+                loadedURL = nil
+                image = nil
+                isLoading = false
+                loadFailed = true
+                scheduleAutoRetryIfNeeded(for: url)
+                return
+            }
         }
 
         do {
@@ -764,19 +809,66 @@ private final class ATMusicCoverImageLoader: ObservableObject {
             request.cachePolicy = .returnCacheDataElseLoad
             request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, currentTargetURL == url else {
+                isLoading = false
+                return
+            }
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                loadedURL = nil
+                image = nil
+                isLoading = false
+                loadFailed = true
+                scheduleAutoRetryIfNeeded(for: url)
                 return
             }
             let decoded: UIImage? = await Task.detached(priority: .utility) {
                 UIImage(data: data)?.preparingForDisplay()
             }.value
-            guard !Task.isCancelled, loadedURL == resolvedURL, let decoded else { return }
+            guard !Task.isCancelled, currentTargetURL == url, let decoded else {
+                loadedURL = nil
+                image = nil
+                isLoading = false
+                loadFailed = true
+                scheduleAutoRetryIfNeeded(for: url)
+                return
+            }
+            loadedURL = resolvedURL
             ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
             image = decoded
+            isLoading = false
+            loadFailed = false
+            NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: resolvedURL)
         } catch {
-            // 保持中性占位；滚动和任务取消不切换为醒目的失败状态。
+            guard !Task.isCancelled, currentTargetURL == url else {
+                isLoading = false
+                return
+            }
+            loadedURL = nil
+            image = nil
+            isLoading = false
+            loadFailed = true
+            scheduleAutoRetryIfNeeded(for: url)
         }
+    }
+
+    private func scheduleAutoRetryIfNeeded(for url: URL) {
+        guard retryCount < 3 else { return }
+        retryCount += 1
+        let delaySeconds = Double(retryCount) * 2.0
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            await self.load(url, isRetry: true)
+        }
+    }
+
+    func retry() async {
+        guard let url = currentTargetURL else { return }
+        retryCount = 0
+        retryTask?.cancel()
+        retryTask = nil
+        await load(url, isRetry: false)
     }
 }
 
@@ -803,60 +895,73 @@ struct CoverImage: View {
     // 布局尺寸完全由外层固定容器决定；AsyncImage 只放在 overlay 中渲染，
     // 图片加载完成与否都不会改变任何布局尺寸（根治"封面加载后错乱"）。
     var body: some View {
-        if isFlexible {
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    GeometryReader { geo in
-                        let side = min(geo.size.width, geo.size.height)
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Color.atmusicGlassFill)
-                            .overlay {
-                                if let displayedImage {
-                                    Image(uiImage: displayedImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: side, height: side)
-                                        .clipped()
-                                } else {
-                                    placeholderIcon
+        Group {
+            if isFlexible {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        GeometryReader { geo in
+                            let side = min(geo.size.width, geo.size.height)
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .fill(Color.atmusicGlassFill)
+                                .overlay {
+                                    if let displayedImage {
+                                        Image(uiImage: displayedImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: side, height: side)
+                                            .clipped()
+                                    } else {
+                                        placeholderIcon
+                                    }
                                 }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                            .frame(width: side, height: side)
+                                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                                .frame(width: side, height: side)
+                        }
                     }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .task(id: url) {
-                    let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
-                    if ATMusicRemoteCoverCache.image(for: resolved) == nil {
-                        await loader.load(resolved)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                let w = width ?? size
+                let h = height ?? size
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.atmusicGlassFill)
+                    .frame(width: w, height: h)
+                    .overlay {
+                        if let displayedImage {
+                            Image(uiImage: displayedImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: w, height: h)
+                                .clipped()
+                        } else {
+                            placeholderIcon
+                        }
                     }
-                }
-        } else {
-            let w = width ?? size
-            let h = height ?? size
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.atmusicGlassFill)
-                .frame(width: w, height: h)
-                .overlay {
-                    if let displayedImage {
-                        Image(uiImage: displayedImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: w, height: h)
-                            .clipped()
-                    } else {
-                        placeholderIcon
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+        }
+        .task(id: url) {
+            let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+            if ATMusicRemoteCoverCache.image(for: resolved) == nil {
+                await loader.load(resolved)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
+            if displayedImage == nil {
+                let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+                if let updatedURL = note.object as? URL {
+                    if updatedURL == resolved || updatedURL == url {
+                        Task { await loader.load(resolved) }
                     }
+                } else {
+                    Task { await loader.load(resolved) }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .task(id: url) {
-                    let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
-                    if ATMusicRemoteCoverCache.image(for: resolved) == nil {
-                        await loader.load(resolved)
-                    }
-                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if displayedImage == nil && loader.loadFailed {
+                Task { await loader.retry() }
+            }
         }
     }
 
@@ -871,6 +976,17 @@ struct CoverImage: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .padding(.horizontal, 8)
+            } else if loader.loadFailed {
+                VStack(spacing: 4) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: max(14, size * 0.24), weight: .medium))
+                        .foregroundStyle(Color.atmusicComment)
+                    if size >= 100 {
+                        Text("点击重试")
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment.opacity(0.85))
+                    }
+                }
             } else {
                 // 中性等待图标（不再使用音乐音符）
                 Image(systemName: "waveform")
@@ -879,6 +995,12 @@ struct CoverImage: View {
             }
         }
         .frame(width: size, height: size)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if displayedImage == nil {
+                Task { await loader.retry() }
+            }
+        }
     }
 }
 

@@ -28,6 +28,8 @@ struct SongCell: View {
     @State private var shareFile: ShareFileItem?
     @State private var showDownloadedActionSheet = false
     @State private var showDownloadPicker = false
+    @State private var showLocalMetadataEditor = false
+    @State private var showSynologyMetadataEditor = false
 
     private var isCurrent: Bool {
         player.currentSong?.identityKey == song.identityKey
@@ -122,11 +124,16 @@ struct SongCell: View {
             }
             if downloadFeatureUnlocked {
                 if DownloadManager.shared.isDownloaded(song: song) {
-                    if SynologyAPI.shared.isLoggedIn {
+                    Button {
+                        showDownloadPicker = true
+                    } label: {
+                        Label("重新下载 (更换音质)", systemImage: "arrow.clockwise.circle")
+                    }
+                    if song.source != .synology {
                         Button {
                             DownloadManager.shared.startUploadToNAS(song: song)
                         } label: {
-                            Label("上传到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
                         }
                     }
                     if let url = DownloadManager.shared.localAudioURL(for: song) {
@@ -147,6 +154,26 @@ struct SongCell: View {
                     } label: {
                         Label(song.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
                     }
+                    if song.source != .synology {
+                        Button {
+                            DownloadManager.shared.startUploadToNAS(song: song)
+                        } label: {
+                            Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                        }
+                    }
+                }
+            }
+            if song.source == .synology {
+                Button {
+                    showSynologyMetadataEditor = true
+                } label: {
+                    Label("编辑 NAS 标签与封面", systemImage: "pencil")
+                }
+            } else if song.source == .local || DownloadManager.shared.isDownloaded(song: song) {
+                Button {
+                    showLocalMetadataEditor = true
+                } label: {
+                    Label("编辑歌曲信息与封面", systemImage: "pencil")
                 }
             }
             if !isCurrent {
@@ -171,14 +198,14 @@ struct SongCell: View {
             ShareSheet(items: [item.url])
         }
         .confirmationDialog("已离线歌曲：\(song.name)", isPresented: $showDownloadedActionSheet, titleVisibility: .visible) {
-            Button("从本地移除下载", role: .destructive) {
-                DownloadManager.shared.removeDownloaded(song: song)
+            Button("编辑歌曲信息与封面") {
+                showLocalMetadataEditor = true
             }
             Button("重新下载 (更换音质)") {
                 showDownloadPicker = true
             }
-            if SynologyAPI.shared.isLoggedIn && song.source != .synology {
-                Button("上传到群晖 NAS") {
+            if song.source != .synology {
+                Button("转档到群晖 NAS") {
                     DownloadManager.shared.startUploadToNAS(song: song)
                 }
             }
@@ -190,6 +217,9 @@ struct SongCell: View {
                     shareFile = ShareFileItem(url: url)
                 }
             }
+            Button("从本地移除下载", role: .destructive) {
+                DownloadManager.shared.removeDownloaded(song: song)
+            }
             Button("取消", role: .cancel) {}
         }
         .confirmationDialog("选择离线下载音质", isPresented: $showDownloadPicker, titleVisibility: .visible) {
@@ -199,6 +229,26 @@ struct SongCell: View {
                 }
             }
             Button("取消", role: .cancel) {}
+        }
+        .sheet(isPresented: $showLocalMetadataEditor) {
+            let targetSong = song.source == .local ? song : (DownloadManager.shared.downloadedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) }) ?? song)
+            LocalSongMetadataEditorSheet(song: targetSong) { updated in
+                let saved = LocalLibraryStore.shared.updateImportedSong(updated)
+                if saved {
+                    player.replaceSong(updated)
+                    ToastCenter.shared.show("歌曲信息已更新")
+                }
+                return saved
+            }
+            .environmentObject(theme)
+            .environmentObject(player)
+        }
+        .sheet(isPresented: $showSynologyMetadataEditor) {
+            if song.source == .synology {
+                SynologyMetadataEditorSheet(song: song)
+                    .environmentObject(theme)
+                    .environmentObject(player)
+            }
         }
     }
 

@@ -584,6 +584,14 @@ struct PlayerView: View {
             await loadLyrics()
             await extractCoverPalette()
         }
+        .onChange(of: song?.coverURL) { _, _ in
+            Task { await extractCoverPalette() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { _ in
+            if dominantColor == nil {
+                Task { await extractCoverPalette() }
+            }
+        }
         .onChange(of: layoutData) { _, newValue in
             PlayerLayoutStore.save(newValue, for: legacyLayoutStyle)
         }
@@ -763,94 +771,108 @@ struct PlayerView: View {
             }
             Button("取消", role: .cancel) {}
         }
-        .confirmationDialog("已离线歌曲：\(song?.name ?? "")", isPresented: $showDownloadedActionDialog, titleVisibility: .visible) {
-            Button("从本地移除下载", role: .destructive) {
-                if let song {
-                    DownloadManager.shared.removeDownloaded(song: song)
-                    ToastCenter.shared.show("已从本地移除下载")
-                }
-            }
-            Button("重新下载 (更换音质)") {
-                showDownloadPicker = true
-            }
-            if let song, SynologyAPI.shared.isLoggedIn, song.source != .synology {
-                Button("上传到群晖 NAS") {
-                    DownloadManager.shared.startUploadToNAS(song: song)
-                }
-            }
-            Button("查看本地音频参数") {
-                if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
-                    let ext = url.pathExtension.uppercased()
-                    var sizeStr = "未知大小"
-                    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                       let size = attrs[.size] as? NSNumber {
-                        sizeStr = ByteCountFormatter.string(fromByteCount: size.int64Value, countStyle: .file)
-                    }
-                    ToastCenter.shared.show("本地音轨：\(ext) · \(sizeStr)")
-                }
-            }
-            if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
-                Button("隔空投送 / 导出") {
-                    shareFile = ShareFileItem(url: url)
-                }
-            }
-            Button("取消", role: .cancel) {}
+        .confirmationDialog(downloadedActionDialogTitle, isPresented: $showDownloadedActionDialog, titleVisibility: .visible) {
+            downloadedActionDialogButtons
         }
-        .confirmationDialog("下载《\(song?.name ?? "当前歌曲")》", isPresented: $showDownloadPicker, titleVisibility: .visible) {
-            ForEach(downloadQualityOptions) { quality in
-                Button(quality.label) {
-                    Task { await downloadCurrent(quality) }
-                }
-            }
-            Button("取消", role: .cancel) {}
+        .confirmationDialog(downloadDialogTitle, isPresented: $showDownloadPicker, titleVisibility: .visible) {
+            downloadQualityDialogButtons
         }
         .confirmationDialog("更多操作", isPresented: $showNativeMoreActions, titleVisibility: .visible) {
-            if song?.album.isEmpty == false {
-                Button("查看专辑") {
-                    openAlbumDetail()
-                }
-            }
-            if song?.source == .synology {
-                Button("编辑歌曲信息、封面与歌词") {
-                    showSynologyMetadataEditor = true
-                }
-            } else if song?.source == .local {
-                Button("编辑歌曲信息") {
-                    showLocalMetadataEditor = true
-                }
-            }
-            Button("定时关闭") {
-                showSleepTimer = true
-            }
-            Button("添加到本地歌单") {
-                showAddToLocalPlaylist = true
-            }
-            if downloadFeatureUnlocked {
-                if let song, DownloadManager.shared.isDownloaded(song: song) {
-                    if SynologyAPI.shared.isLoggedIn {
-                        Button("上传到群晖 NAS") {
-                            DownloadManager.shared.startUploadToNAS(song: song)
-                        }
-                    }
-                    Button("从本地移除下载", role: .destructive) {
-                        DownloadManager.shared.removeDownloaded(song: song)
-                    }
-                    Button("重新下载 (更换音质)") {
-                        showDownloadPicker = true
-                    }
-                } else {
-                    Button(song?.source == .synology ? "离线下载到本机" : "离线下载歌曲") {
-                        showDownloadPicker = true
-                    }
-                }
-            }
-            Button("播放器设置") {
-                openPlayerSettings()
-            }
-            Button("取消", role: .cancel) {}
+            nativeMoreActionsButtons
         }
         .overlay(alignment: .bottom) {
             ToastView(center: ToastCenter.shared)
+        }
+    }
+
+    private var downloadedActionDialogTitle: String {
+        "已离线歌曲：\(song?.name ?? "")"
+    }
+
+    @ViewBuilder
+    private var downloadedActionDialogButtons: some View {
+        Button("从本地移除下载", role: .destructive) {
+            if let song {
+                DownloadManager.shared.removeDownloaded(song: song)
+                ToastCenter.shared.show("已从本地移除下载")
+            }
+        }
+        Button("重新下载 (更换音质)") {
+            showDownloadPicker = true
+        }
+        if let song, song.source != .synology {
+            Button("转档到群晖 NAS") {
+                DownloadManager.shared.startUploadToNAS(song: song)
+            }
+        }
+        Button("查看本地音频参数") {
+            if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
+                let ext = url.pathExtension.uppercased()
+                var sizeStr = "未知大小"
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = attrs[.size] as? NSNumber {
+                    sizeStr = ByteCountFormatter.string(fromByteCount: size.int64Value, countStyle: .file)
+                }
+                ToastCenter.shared.show("本地音轨：\(ext) · \(sizeStr)")
+            }
+        }
+        if let song, let url = DownloadManager.shared.localAudioURL(for: song) {
+            Button("隔空投送 / 导出") {
+                shareFile = ShareFileItem(url: url)
+            }
+        }
+        Button("取消", role: .cancel) {}
+    }
+
+    private var downloadDialogTitle: String {
+        if let name = song?.name, !name.isEmpty {
+            return "下载《\(name)》"
+        }
+        return "下载当前歌曲"
+    }
+
+    @ViewBuilder
+    private var downloadQualityDialogButtons: some View {
+        ForEach(downloadQualityOptions, id: \.self) { quality in
+            Button(quality.displayName) {
+                Task { await downloadCurrent(quality) }
+            }
+        }
+        Button("取消", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private var nativeMoreActionsButtons: some View {
+        if song?.album.isEmpty == false {
+            Button("查看专辑") { openAlbumDetail() }
+        }
+        if song?.source == .synology {
+            Button("编辑歌曲信息、封面与歌词") { showSynologyMetadataEditor = true }
+        } else if song?.source == .local {
+            Button("编辑歌曲信息") { showLocalMetadataEditor = true }
+        }
+        Button("定时关闭") { showSleepTimer = true }
+        Button("添加到本地歌单") { showAddToLocalPlaylist = true }
+        moreActionDownloadButtons
+        Button("播放器设置") { openPlayerSettings() }
+        Button("取消", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private var moreActionDownloadButtons: some View {
+        if downloadFeatureUnlocked {
+            if let song, DownloadManager.shared.isDownloaded(song: song) {
+                if song.source != .synology {
+                    Button("转档到群晖 NAS") { DownloadManager.shared.startUploadToNAS(song: song) }
+                }
+                Button("从本地移除下载", role: .destructive) { DownloadManager.shared.removeDownloaded(song: song) }
+                Button("重新下载 (更换音质)") { showDownloadPicker = true }
+            } else {
+                Button(song?.source == .synology ? "离线下载到本机" : "离线下载歌曲") { showDownloadPicker = true }
+                if let song, song.source != .synology {
+                    Button("转档到群晖 NAS") { DownloadManager.shared.startUploadToNAS(song: song) }
+                }
+            }
         }
     }
 
@@ -1757,9 +1779,14 @@ struct PlayerView: View {
                     Button("添加到歌单") { showAddToLocalPlaylist = true }
                     if downloadFeatureUnlocked {
                         Button("下载歌曲") { showDownloadPicker = true }
+                        if let song, song.source != .synology {
+                            Button("转档到群晖 NAS") { DownloadManager.shared.startUploadToNAS(song: song) }
+                        }
                     }
                     if song?.source == .synology {
                         Button("编辑 NAS 标签、封面与歌词") { showSynologyMetadataEditor = true }
+                    } else if song?.source == .local || (song != nil && DownloadManager.shared.isDownloaded(song: song!)) {
+                        Button("编辑歌曲信息与封面") { showLocalMetadataEditor = true }
                     }
                     Button("播放器设置") { openPlayerSettings() }
                 } label: {
