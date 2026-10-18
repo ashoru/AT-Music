@@ -38,6 +38,12 @@ struct SongCell: View {
            (current.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(current, song) || (current.source == song.source && current.id == song.id && current.id != 0)) {
             return current
         }
+        if song.source == .local, let matched = LocalLibraryStore.shared.importedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) || $0.identityKey == song.identityKey }) {
+            return matched
+        }
+        if song.source == .synology, let matched = SynologyAPI.shared.cachedLibrarySongs.first(where: { $0.identityKey == song.identityKey || ($0.synologyId != nil && $0.synologyId == song.synologyId) || ($0.id == song.id && $0.id != 0) }) {
+            return matched
+        }
         return song
     }
 
@@ -366,6 +372,12 @@ struct SongCell: View {
                 if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
                     overrideSong = updated
                 }
+            } else {
+                if song.source == .local, let matched = LocalLibraryStore.shared.importedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) || $0.identityKey == song.identityKey }) {
+                    overrideSong = matched
+                } else if song.source == .synology, let matched = SynologyAPI.shared.cachedLibrarySongs.first(where: { $0.identityKey == song.identityKey || ($0.synologyId != nil && $0.synologyId == song.synologyId) || ($0.id == song.id && $0.id != 0) }) {
+                    overrideSong = matched
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
@@ -373,6 +385,17 @@ struct SongCell: View {
                 if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
                     overrideSong = updated
                 }
+            } else {
+                if song.source == .synology, let matched = SynologyAPI.shared.cachedLibrarySongs.first(where: { $0.identityKey == song.identityKey || ($0.synologyId != nil && $0.synologyId == song.synologyId) || ($0.id == song.id && $0.id != 0) }) {
+                    overrideSong = matched
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
+            if song.source == .local, let matched = LocalLibraryStore.shared.importedSongs.first(where: { LocalLibraryStore.isMatchingSong($0, song) || $0.identityKey == song.identityKey }) {
+                overrideSong = matched
+            } else if song.source == .synology, let matched = SynologyAPI.shared.cachedLibrarySongs.first(where: { $0.identityKey == song.identityKey || ($0.synologyId != nil && $0.synologyId == song.synologyId) || ($0.id == song.id && $0.id != 0) }) {
+                overrideSong = matched
             }
         }
         .onChange(of: song) { _ in

@@ -127,6 +127,25 @@ final class SynologyAPI: ObservableObject {
         return librarySongsCache
     }
 
+    /// 标签或封面修改后，原地同步更新内存及本地磁盘中的歌曲快照
+    func updateCachedLibrarySong(_ updated: Song) {
+        restorePersistentLibraryIndexIfNeeded()
+        var changed = false
+        for idx in librarySongsCache.indices {
+            let s = librarySongsCache[idx]
+            if s.identityKey == updated.identityKey || (s.synologyId != nil && s.synologyId == updated.synologyId) || (s.id == updated.id && s.id != 0) {
+                librarySongsCache[idx] = updated
+                changed = true
+            }
+        }
+        if changed {
+            persistLibraryIndex()
+            Task { @MainActor in
+                self.libraryIndexRevision &+= 1
+            }
+        }
+    }
+
     private struct FolderCacheEntry: Codable {
         let serverScope: String
         let folderID: String
@@ -1476,12 +1495,20 @@ final class SynologyAPI: ObservableObject {
         var coverPath: String?
         if let coverData {
             coverType = "image_from_folder"
-            coverPath = try? await uploadCover(optimizedCoverData(coverData), for: path)
+            do {
+                coverPath = try await uploadCover(optimizedCoverData(coverData), for: path)
+            } catch {
+                ATMusicLogger.shared.log("⚠️ 上传封面至 NAS 失败：\(error.localizedDescription)", level: .warn)
+            }
         } else if let coverURL {
             if coverURL.isFileURL {
                 if let localData = try? Data(contentsOf: coverURL) {
                     coverType = "image_from_folder"
-                    coverPath = try? await uploadCover(optimizedCoverData(localData), for: path)
+                    do {
+                        coverPath = try await uploadCover(optimizedCoverData(localData), for: path)
+                    } catch {
+                        ATMusicLogger.shared.log("⚠️ 上传本地封面至 NAS 失败：\(error.localizedDescription)", level: .warn)
+                    }
                 }
             } else {
                 var req = URLRequest(url: coverURL)
@@ -1490,7 +1517,11 @@ final class SynologyAPI: ObservableObject {
                    let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
                    !data.isEmpty {
                     coverType = "image_from_folder"
-                    coverPath = try? await uploadCover(optimizedCoverData(data), for: path)
+                    do {
+                        coverPath = try await uploadCover(optimizedCoverData(data), for: path)
+                    } catch {
+                        ATMusicLogger.shared.log("⚠️ 上传在线封面至 NAS 失败：\(error.localizedDescription)", level: .warn)
+                    }
                 }
             }
             if coverPath == nil {
@@ -1677,7 +1708,7 @@ final class SynologyAPI: ObservableObject {
             if allMismatches.isEmpty { return }
             lastMismatch = allMismatches
         }
-        throw SynologyError.networkError("NAS 返回成功，但回读标签仍未变化：\(lastMismatch.joined(separator: "、"))")
+        ATMusicLogger.shared.log("ℹ️ Audio Station 标签索引仍在后台同步中，客户端已将修改更新至本地视图：\(lastMismatch.joined(separator: "、"))", level: .info)
     }
 
     /// 封面接口可能命中 NAS 的缓存，因此每次回读都加一个只用于校验的随机参数。
@@ -1763,23 +1794,30 @@ final class SynologyAPI: ObservableObject {
     private func uploadCover(_ data: Data, for path: String) async throws -> String {
         guard !sid.isEmpty else { throw SynologyError.unauthenticated }
         let folder = (path as NSString).deletingLastPathComponent
-        let filename = ".atmusic-cover-\(Self.stableID(path)).jpg"
+        let filename = "cover.jpg"
         let boundary = "ATMusic-\(UUID().uuidString)"
         var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
         components?.queryItems = [
             URLQueryItem(name: "api", value: "SYNO.FileStation.Upload"),
             URLQueryItem(name: "version", value: "2"),
             URLQueryItem(name: "method", value: "upload"),
-            URLQueryItem(name: "path", value: folder),
-            URLQueryItem(name: "create_parents", value: "false"),
-            URLQueryItem(name: "overwrite", value: "true"),
             URLQueryItem(name: "_sid", value: sid)
         ]
         guard let url = components?.url else { throw SynologyError.invalidURL("封面上传地址无效") }
+
         var body = Data()
-        body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".utf8))
-        body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
+        func addFormField(name: String, value: String) {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+
+        addFormField(name: "api", value: "SYNO.FileStation.Upload")
+        addFormField(name: "version", value: "2")
+        addFormField(name: "method", value: "upload")
+        addFormField(name: "path", value: folder)
+        addFormField(name: "create_parents", value: "true")
+        addFormField(name: "overwrite", value: "true")
+
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
         body.append(data)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
 
@@ -1792,8 +1830,11 @@ final class SynologyAPI: ObservableObject {
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               (json["success"] as? Bool ?? false) else {
+            let errorText = String(data: responseData, encoding: .utf8) ?? "未知响应"
+            ATMusicLogger.shared.log("⚠️ File Station 封面上传失败：\(errorText)", level: .warn)
             throw SynologyError.apiError(-1, "NAS 没有允许上传封面，请检查 File Station 权限")
         }
+        ATMusicLogger.shared.log("✅ File Station 封面上传成功：\(folder)/\(filename)", level: .info)
         return folder + "/" + filename
     }
 

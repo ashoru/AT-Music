@@ -39,6 +39,7 @@ final class CoverBlurView: UIView {
     private let gradientHost = UIView()
     private let tintView = UIView()
     private var currentURL: URL?
+    private var coverUpdateObserver: NSObjectProtocol?
     private static let imageCache = NSCache<NSURL, UIImage>()
     private static let blurQueue = DispatchQueue(label: "atmusic.coverblur", qos: .utility)
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -64,6 +65,33 @@ final class CoverBlurView: UIView {
         addSubview(gradientHost)
         addSubview(tintView)
         startBackgroundAnimations()
+
+        coverUpdateObserver = NotificationCenter.default.addObserver(
+            forName: .atmusicCoverDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self, let current = self.currentURL else { return }
+            if let updated = note.object as? URL {
+                if updated.coverIdentity == current.coverIdentity {
+                    Self.imageCache.removeObject(forKey: current as NSURL)
+                    let toReload = current
+                    self.currentURL = nil
+                    self.load(url: toReload)
+                }
+            } else {
+                Self.imageCache.removeObject(forKey: current as NSURL)
+                let toReload = current
+                self.currentURL = nil
+                self.load(url: toReload)
+            }
+        }
+    }
+
+    deinit {
+        if let observer = coverUpdateObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

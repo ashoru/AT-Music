@@ -48,6 +48,23 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.31-build-94-fix-preroll-crash-and-cover-upload",
+            version: "1.9.31",
+            title: "紧急修复双播放器预热闪退、群晖封面上传与缓存防污染、全场景封面修改即时生效",
+            features: [
+                "紧急修复 AVPlayer preroll 引起的致命闪退（彻底根除 NSInvalidArgumentException / SIGABRT）：严格在 status == .readyToPlay 时安全调用硬件解码预热，切歌与热置换完全无崩溃风险",
+                "彻底修复群晖 NAS 封面修改失败：规范 File Station multipart/form-data 参数，写入标准 cover.jpg 并与 tag_editor.cgi 深度打通；放宽 DSM 索引回读延迟容错，杜绝写入误报失败",
+                "全场景封面修改即时可见与 URL.coverIdentity 规范化：剥离临时参数精确对齐封面身份，强制清除旧图缓存并支持 tap 点击重试，解决 isFlexible 占位尺寸塌缩问题",
+                "毛玻璃背景与播放器调色板即时联动：CoverBlurView 接入封面更新广播即刻重新模糊渲染，PlayerView 自动重置 dominantColor 动态取色",
+                "DetailSongsCache 缓存全链路联动刷新：单曲及批量编辑后原地同步更新专辑详情与歌单缓存，返回页面无需手动刷新"
+            ],
+            fixes: [
+                "彻底修复切歌与预解析时由于 AVPlayer 未就绪调用 preroll 导致的系统闪退",
+                "解决群晖 NAS 歌曲封面修改失败、修改后列表和播放器不立即生效的问题",
+                "解决部分封面加载失败后无法重新加载以及自适应方块卡片占位图尺寸为 0 的 Bug"
+            ]
+        ),
+        VersionLog(
             id: "1.9.30-build-93-metadata-and-cover-instant-refresh",
             version: "1.9.30",
             title: "彻底根除歌曲标签与专辑封面修改非即时生效问题、封面双键内存缓存瞬显与写入稳定性加固",

@@ -528,6 +528,8 @@ struct SynologyMetadataEditorSheet: View {
 
             await MainActor.run {
                 player.replaceSong(updatedSong)
+                DetailSongsCache.shared.updateSong(updatedSong)
+                SynologyAPI.shared.updateCachedLibrarySong(updatedSong)
                 onUpdated?(updatedSong)
                 if let refreshedCover {
                     NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: refreshedCover)
@@ -2384,6 +2386,8 @@ struct SynologyBatchMetadataEditorSheet: View {
                 }
                 await MainActor.run {
                     player.replaceSong(updated)
+                    DetailSongsCache.shared.updateSong(updated)
+                    SynologyAPI.shared.updateCachedLibrarySong(updated)
                     NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
                     NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: updated)
                     if let refreshedCover {

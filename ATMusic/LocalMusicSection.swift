@@ -1620,6 +1620,7 @@ struct LocalSongMetadataEditorSheet: View {
         Task { await saveInternal() }
     }
 
+    @MainActor
     private func saveInternal() async {
         saving = true
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1718,6 +1719,7 @@ struct LocalSongMetadataEditorSheet: View {
             }
             LocalLibraryStore.shared.updateImportedSong(updated)
             player.replaceSong(updated)
+            DetailSongsCache.shared.updateSong(updated)
             if let updatedCoverURL {
                 NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: updatedCoverURL)
             }
@@ -1948,6 +1950,7 @@ struct LocalBatchMetadataEditorSheet: View {
         .padding(.vertical, 6)
     }
 
+    @MainActor
     private func save() async {
         guard !isSaving else { return }
         let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2035,6 +2038,7 @@ struct LocalBatchMetadataEditorSheet: View {
 
             LocalLibraryStore.shared.updateImportedSong(updated)
             player.replaceSong(updated)
+            DetailSongsCache.shared.updateSong(updated)
             if let sharedCoverImage {
                 if let old = song.coverURL {
                     ATMusicRemoteCoverCache.store(sharedCoverImage, for: old)

@@ -129,6 +129,7 @@ final class PlayerManager: NSObject, ObservableObject {
         let playbackHeaders: [String: String]
         let fromPlaybackCache: Bool
         let resourceLoader: AudioHeadBlockResourceLoader?
+        var statusObserver: NSKeyValueObservation?
     }
     private var standbyPlayback: StandbyPlayback?
     private var currentResourceLoader: AudioHeadBlockResourceLoader?
@@ -442,6 +443,7 @@ final class PlayerManager: NSObject, ObservableObject {
         if queueChanged {
             objectWillChange.send()
         }
+        DetailSongsCache.shared.updateSong(updated)
         lastNowPlayingArtworkKey = nil
         updateNowPlaying()
         savePersistedPlaybackState()
@@ -739,10 +741,14 @@ final class PlayerManager: NSObject, ObservableObject {
         standby.volume = 0
         standby.rate = 0
 
-        // 方案 2：强力预热硬件解码器与前置缓冲区 (preroll)
-        standby.preroll(atRate: 1.0) { [weak standby] finished in
-            if finished {
-                ATMusicLogger.shared.log("⚡️ [Dual-Player] Player B 硬件解码预热(preroll)就绪 -> \(nextSong.name)", level: .debug)
+        // 方案 2：强力预热硬件解码器与前置缓冲区 (preroll 安全调用：必须在 status == .readyToPlay 时触发)
+        var statusObserver: NSKeyValueObservation?
+        statusObserver = standby.observe(\.status, options: [.new, .initial]) { [weak standby] observedPlayer, _ in
+            guard observedPlayer.status == .readyToPlay else { return }
+            observedPlayer.preroll(atRate: 1.0) { [weak standby] finished in
+                if finished {
+                    ATMusicLogger.shared.log("⚡️ [Dual-Player] Player B 硬件解码预热(preroll)就绪 -> \(nextSong.name)", level: .debug)
+                }
             }
         }
 
@@ -754,7 +760,8 @@ final class PlayerManager: NSObject, ObservableObject {
             isThirdParty: isThirdParty,
             playbackHeaders: playbackHeaders,
             fromPlaybackCache: fromPlaybackCache,
-            resourceLoader: loader
+            resourceLoader: loader,
+            statusObserver: statusObserver
         )
         ATMusicLogger.shared.log("🚀 [Dual-Player] 双播放器热备池就绪：Player B 预缓冲完成 -> \(nextSong.name)", level: .info)
     }
@@ -765,6 +772,7 @@ final class PlayerManager: NSObject, ObservableObject {
         preResolvingSongKey = nil
         guard let standby = standbyPlayback else { return }
         standbyPlayback = nil
+        standby.statusObserver?.invalidate()
         standby.player.pause()
         standby.player.replaceCurrentItem(with: nil)
     }
@@ -1035,6 +1043,7 @@ final class PlayerManager: NSObject, ObservableObject {
            standby.song.identityKey == song.identityKey,
            standby.item.status != .failed,
            initialProgress <= 0.05 {
+            standby.statusObserver?.invalidate()
             self.standbyPlayback = nil
             duration = song.duration
             progress = 0
@@ -1732,6 +1741,7 @@ final class PlayerManager: NSObject, ObservableObject {
 
         var didHandover = false
         var observation: NSKeyValueObservation?
+        var nextPlayerStatusObserver: NSKeyValueObservation?
 
         let executeHandover = { [weak self, weak currentActivePlayer, weak nextPlayer, weak nextItem] in
             guard let self, let currentActivePlayer, let nextPlayer, let nextItem else { return }
@@ -1744,6 +1754,8 @@ final class PlayerManager: NSObject, ObservableObject {
             didHandover = true
             observation?.invalidate()
             observation = nil
+            nextPlayerStatusObserver?.invalidate()
+            nextPlayerStatusObserver = nil
 
             let latestSeconds = currentActivePlayer.currentTime().seconds
             let finalResume = (latestSeconds.isFinite && latestSeconds > 0) ? latestSeconds : resumeAt
@@ -1787,10 +1799,16 @@ final class PlayerManager: NSObject, ObservableObject {
             }
         }
 
-        nextPlayer.preroll(atRate: Float(rate)) { [weak nextPlayer] finished in
-            if finished {
-                DispatchQueue.main.async {
-                    executeHandover()
+        let targetRate = Float(self.rate)
+        nextPlayerStatusObserver = nextPlayer.observe(\.status, options: [.new, .initial]) { [weak nextPlayer] observedPlayer, _ in
+            guard observedPlayer.status == .readyToPlay else { return }
+            nextPlayerStatusObserver?.invalidate()
+            nextPlayerStatusObserver = nil
+            observedPlayer.preroll(atRate: targetRate) { [weak nextPlayer] finished in
+                if finished {
+                    DispatchQueue.main.async {
+                        executeHandover()
+                    }
                 }
             }
         }

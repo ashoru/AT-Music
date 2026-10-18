@@ -1,5 +1,15 @@
 # AT Music 更新日志
 
+## 1.9.31 build 94
+
+### 紧急修复双播放器预热闪退、群晖封面上传与缓存防污染、全场景封面修改即时生效
+- **紧急修复 AVPlayer preroll 引起的致命闪退（彻底根除 NSInvalidArgumentException / SIGABRT）**：针对崩溃日志中频发的 `AVPlayer cannot service a preroll request until its status is AVPlayerStatusReadyToPlay.` 致命异常，重构 `PlayerManager` 双播放器预热与热置换管线；严密通过 KVO 监听 `observedPlayer.status == .readyToPlay` 就绪后再安全调用硬件解码预热，并在播放器销毁或切换时及时失效监听器，彻底消灭崩溃源头
+- **彻底修复群晖 NAS 封面修改失败与偶发不可修改**：规范 `SYNO.FileStation.Upload` API 调用协议，将 `api`、`version`、`method`、`path`、`create_parents`、`overwrite` 正确作为 multipart/form-data 表单字段打包上传；统一写入标准 `cover.jpg` 文件，供 `tag_editor.cgi` 与 Audio Station 原生识别；在 `verifyTagEditorWrite` 中放宽 DSM 后台索引生成时间差导致的误报失败；新增 `updateCachedLibrarySong` 原地同步内存与本地磁盘快照
+- **全场景封面修改即时可见与 URL.coverIdentity 规范化**：新增 `URL.coverIdentity` 扩展，剥离 `_atmusic_refresh`、`_atmusic_verify`、`_sid` 等临时动态参数，精准匹配封面资源；重构 `ATMusicCoverImageLoader` 在 `force: true` 模式下彻底清除所有旧缓存，避免误复用陈旧图片；移除图片普通下载完成时错误发送的全局通知，避免递归广播风暴；网络请求在重试时自动开启 `.reloadIgnoringLocalCacheData`；占位图增加点击重试交互，并修复 `isFlexible` 模式下占位图尺寸塌缩至 0x0 的 Bug
+- **毛玻璃背景与播放器调色板即时联动**：`CoverBlurBackground` 接入 `.atmusicCoverDidUpdate` 广播，封面变更时立即清除模糊缓存并重新渲染；`PlayerView` 收到通知后重置 `dominantColor = nil` 重新提取动态主色调
+- **DetailSongsCache 缓存全链路联动刷新**：在 `PlayerManager.replaceSong`、`LocalMusicSection`、`SynologyMusicView` 中保存单曲或批量信息后，同步调用 `DetailSongsCache.shared.updateSong`，确保用户返回专辑详情、歌单详情等页面时立即呈现最新曲目信息与封面
+
+
 ## 1.9.30 build 93
 
 ### 彻底根除歌曲标签与专辑封面修改非即时生效问题、封面双键内存缓存瞬显与写入稳定性全链路加固

@@ -729,6 +729,21 @@ enum ATMusicRemoteCoverCache {
     }
 }
 
+extension URL {
+    var coverIdentity: String {
+        let resolved = ManagedAudioPath.resolveFileURL(self) ?? self
+        if resolved.isFileURL {
+            return resolved.standardizedFileURL.path
+        }
+        guard var comp = URLComponents(url: resolved, resolvingAgainstBaseURL: false) else {
+            return resolved.absoluteString
+        }
+        let ephemeralKeys: Set<String> = ["_atmusic_refresh", "_atmusic_verify", "_sid", "_", "t"]
+        comp.queryItems = comp.queryItems?.filter { !ephemeralKeys.contains($0.name) }
+        return comp.string ?? resolved.absoluteString
+    }
+}
+
 @MainActor
 final class ATMusicCoverImageLoader: ObservableObject {
     @Published private(set) var image: UIImage?
@@ -755,7 +770,17 @@ final class ATMusicCoverImageLoader: ObservableObject {
             return
         }
         let resolvedURL = ManagedAudioPath.resolveFileURL(url) ?? url
-        if !force {
+        if force {
+            ATMusicRemoteCoverCache.remove(for: resolvedURL)
+            ATMusicRemoteCoverCache.remove(for: url)
+            if resolvedURL.isFileURL {
+                ATMusicImageFileCache.remove(resolvedURL.path)
+            }
+            URLCache.shared.removeCachedResponse(for: URLRequest(url: resolvedURL))
+            URLCache.shared.removeCachedResponse(for: URLRequest(url: url))
+            image = nil
+            loadedURL = nil
+        } else {
             if loadedURL == resolvedURL, image != nil {
                 isLoading = false
                 loadFailed = false
@@ -768,22 +793,13 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 loadFailed = false
                 return
             }
-        } else {
-            // 强制刷新：若外部刚预写了新内存缓存，直接复用；否则清除所有旧缓存强制重新加载
-            if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
+            if let cached = ATMusicRemoteCoverCache.image(for: url) {
                 loadedURL = resolvedURL
                 image = cached
                 isLoading = false
                 loadFailed = false
                 return
             }
-            ATMusicRemoteCoverCache.remove(for: resolvedURL)
-            if resolvedURL.isFileURL {
-                ATMusicImageFileCache.remove(resolvedURL.path)
-            }
-            URLCache.shared.removeCachedResponse(for: URLRequest(url: resolvedURL))
-            image = nil
-            loadedURL = nil
         }
 
         isLoading = true
@@ -791,7 +807,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
 
         if resolvedURL.isFileURL {
             let decoded: UIImage? = await Task.detached(priority: .utility) {
-                if let cached = ATMusicImageFileCache.image(at: resolvedURL.path) {
+                if !force, let cached = ATMusicImageFileCache.image(at: resolvedURL.path) {
                     return cached
                 }
                 guard let img = UIImage(contentsOfFile: resolvedURL.path)?.preparingForDisplay() else {
@@ -809,7 +825,6 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 image = decoded
                 isLoading = false
                 loadFailed = false
-                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: resolvedURL)
                 return
             } else {
                 loadedURL = nil
@@ -824,7 +839,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
         do {
             var request = URLRequest(url: resolvedURL)
             request.timeoutInterval = 15
-            request.cachePolicy = .returnCacheDataElseLoad
+            request.cachePolicy = (isRetry || force) ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad
             request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
             guard !Task.isCancelled, currentTargetURL == url else {
@@ -855,7 +870,6 @@ final class ATMusicCoverImageLoader: ObservableObject {
             image = decoded
             isLoading = false
             loadFailed = false
-            NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: resolvedURL)
         } catch {
             guard !Task.isCancelled, currentTargetURL == url else {
                 isLoading = false
@@ -870,9 +884,10 @@ final class ATMusicCoverImageLoader: ObservableObject {
     }
 
     private func scheduleAutoRetryIfNeeded(for url: URL) {
-        guard retryCount < 3 else { return }
+        guard retryCount < 5 else { return }
         retryCount += 1
-        let delaySeconds = Double(retryCount) * 2.0
+        let delays = [1.0, 2.0, 3.0, 5.0, 8.0]
+        let delaySeconds = delays[min(retryCount - 1, delays.count - 1)]
         retryTask?.cancel()
         retryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
@@ -886,7 +901,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
         retryCount = 0
         retryTask?.cancel()
         retryTask = nil
-        await load(url, isRetry: false)
+        await load(url, isRetry: true, force: true)
     }
 }
 
@@ -966,9 +981,13 @@ struct CoverImage: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
             let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+            guard let resolved else { return }
             if let updatedURL = note.object as? URL {
                 let resolvedUpdated = ManagedAudioPath.resolveFileURL(updatedURL) ?? updatedURL
-                if updatedURL == resolved || updatedURL == url || resolvedUpdated == resolved || resolvedUpdated == url {
+                if updatedURL == resolved || updatedURL == url ||
+                   resolvedUpdated == resolved || (url != nil && resolvedUpdated == url!) ||
+                   updatedURL.coverIdentity == resolved.coverIdentity ||
+                   (url != nil && updatedURL.coverIdentity == url!.coverIdentity) {
                     Task { await loader.load(resolved, isRetry: false, force: true) }
                 }
             } else {
@@ -983,12 +1002,13 @@ struct CoverImage: View {
     }
 
     private var placeholderIcon: some View {
-        ZStack {
+        let displayDim = size > 0 ? size : 80
+        return ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.atmusicGlassFill)
             if let emptyHint {
                 Text(emptyHint)
-                    .font(ATMusicFont.appFont(max(11, min(size * 0.09, 15)), .medium))
+                    .font(ATMusicFont.appFont(max(11, min(displayDim * 0.09, 15)), .medium))
                     .foregroundStyle(Color.atmusicComment)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -996,9 +1016,9 @@ struct CoverImage: View {
             } else if loader.loadFailed {
                 VStack(spacing: 4) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: max(14, size * 0.24), weight: .medium))
+                        .font(.system(size: max(14, displayDim * 0.24), weight: .medium))
                         .foregroundStyle(Color.atmusicComment)
-                    if size >= 100 {
+                    if displayDim >= 100 {
                         Text("点击重试")
                             .font(ATMusicFont.appFont(11))
                             .foregroundStyle(Color.atmusicComment.opacity(0.85))
@@ -1007,14 +1027,14 @@ struct CoverImage: View {
             } else {
                 // 中性等待图标（不再使用音乐音符）
                 Image(systemName: "waveform")
-                    .font(.system(size: size * 0.28, weight: .medium))
+                    .font(.system(size: max(14, displayDim * 0.28), weight: .medium))
                     .foregroundStyle(Color.atmusicComment)
             }
         }
-        .frame(width: size, height: size)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
-            if displayedImage == nil {
+            if displayedImage == nil || loader.loadFailed {
                 Task { await loader.retry() }
             }
         }

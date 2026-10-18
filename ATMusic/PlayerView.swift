@@ -588,9 +588,8 @@ struct PlayerView: View {
             Task { await extractCoverPalette() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { _ in
-            if dominantColor == nil {
-                Task { await extractCoverPalette() }
-            }
+            dominantColor = nil
+            Task { await extractCoverPalette() }
         }
         .onChange(of: layoutData) { _, newValue in
             PlayerLayoutStore.save(newValue, for: legacyLayoutStyle)

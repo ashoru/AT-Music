@@ -46,6 +46,44 @@ final class DetailSongsCache {
         now.timeIntervalSince(entry.savedAt) < ttl
     }
 
+    func updateSong(_ updated: Song) {
+        lock.lock()
+        var changed = false
+        for (key, entry) in entries {
+            var updatedSongs = entry.songs
+            var entryChanged = false
+            for idx in updatedSongs.indices {
+                let s = updatedSongs[idx]
+                if s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0) {
+                    updatedSongs[idx] = updated
+                    entryChanged = true
+                }
+            }
+            if entryChanged {
+                entries[key] = Entry(songs: updatedSongs, savedAt: entry.savedAt)
+                changed = true
+            }
+        }
+        let snapshot = entries
+        lock.unlock()
+        if changed { persistAsync(snapshot) }
+    }
+
+    func invalidateAll() {
+        lock.lock()
+        entries.removeAll()
+        lock.unlock()
+        persistAsync([:])
+    }
+
+    func invalidate(for key: String) {
+        lock.lock()
+        entries.removeValue(forKey: key)
+        let snapshot = entries
+        lock.unlock()
+        persistAsync(snapshot)
+    }
+
     private func persistAsync(_ value: [String: Entry]) {
         persistenceQueue.async { [defaults, storageKey] in
             guard let data = try? JSONEncoder().encode(value) else { return }
