@@ -48,6 +48,21 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.35-build-98-fix-syntax-batch-cover-and-build",
+            version: "1.9.35",
+            title: "修复批量修改封面与搜索结果闭包语法，顺延升级构建 1.9.35 (Build 98)",
+            features: [
+                "修复 NAS 批量编辑与全专封面保存链路的闭包语法与方法冗余，确保批量写入与单曲编辑稳定顺畅",
+                "修复搜索结果群晖 NAS 专辑封面匹配的语法引用问题，恢复本地与服务端专辑封面精确匹配",
+                "全套工程配置、代码与文档版本号顺延校准升级至 1.9.35 (Build 98)"
+            ],
+            fixes: [
+                "修复 SynologyBatchMetadataEditorSheet 内部方法重复声明导致的编译与运行时异常",
+                "修复 SearchView 针对群晖专辑封面匹配时的语法错误"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.34-build-97-fix-batch-cover-hang-and-album-cards",
             version: "1.9.34",
             title: "彻底修复批量写入歌曲专辑封面失败卡死，搜索结果群晖 NAS 专辑统一方块卡片布局",
