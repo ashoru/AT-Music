@@ -15,6 +15,7 @@ struct IPadRootView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showTransferCenter = false
+    @State private var showSettings = false
 
     init(
         selection: Binding<RootTab>,
@@ -43,6 +44,13 @@ struct IPadRootView: View {
             .environmentObject(theme)
             .environmentObject(auth)
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(theme)
+                .environmentObject(player)
+                .environmentObject(auth)
+                .modifier(SettingsLiquidSheetPresentation())
+        }
     }
 
     // MARK: - 侧边栏列表
@@ -59,6 +67,7 @@ struct IPadRootView: View {
                     sidebarButton(.library)
                     sidebarButton(.profile)
                     sidebarTransferCenterButton
+                    sidebarSettingsButton
                 }
 
                 Section("音频输出") {
@@ -102,6 +111,16 @@ struct IPadRootView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var sidebarSettingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Label("设置", systemImage: "gearshape")
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
     }

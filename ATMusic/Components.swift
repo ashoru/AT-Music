@@ -426,11 +426,15 @@ struct SettingsCatalogGroup<Content: View>: View {
     }
 }
 
-/// 设置页使用的大尺寸液态弹层。iOS 15 自动退化为普通 sheet，
-/// iOS 16+ 使用参考版的大 detent 和拖拽指示条。
+/// 设置页使用的大尺寸液态弹层。
+/// iPadOS 原生 FormSheet 已自带规范的大屏居中模态卡片，避免在 iPad 上使用 presentationBackgroundInteraction 或强制 medium detent 导致 NSInternalInconsistencyException 闪退；
+/// iPhone / 紧凑模式下 iOS 16+ 使用参考版的大 detent 和拖拽指示条。
 struct SettingsLiquidSheetPresentation: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 16, *) {
+        if DeviceLayoutHelper.isIPad {
+            content
+                .presentationDragIndicator(.visible)
+        } else if #available(iOS 16, *) {
             content.modifier(SettingsReferenceDetents())
         } else {
             content

@@ -48,6 +48,19 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-100",
+            version: "1.9.36",
+            title: "彻底修复 iPad 打开设置闪退与侧栏设置入口补齐",
+            features: [
+                "彻底修复 iPadOS 下点击打开设置弹层立即闪退（NSInternalInconsistencyException）缺陷",
+                "iPad 专属大屏 FormSheet 居中展示，移除不兼容的 backgroundInteraction 与 medium Detent",
+                "iPad 侧边栏新增「设置」快捷入口，无需进入个人中心即可一键调出设置面板"
+            ],
+            fixes: [
+                "修复播放器设置在 iPad 大屏下背景视图层级被错误清空的展示冲突"
+            ]
+        ),
+        VersionLog(
             id: "1.9.36-build-99",
             version: "1.9.36",
             title: "iPadOS 宽屏深度适配与传输中心双列网格",

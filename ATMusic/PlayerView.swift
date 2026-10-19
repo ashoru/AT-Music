@@ -399,9 +399,7 @@ struct PlayerView: View {
     var body: some View {
         let _ = theme.accent
         Group {
-            if showPlayerSettings {
-                Color.clear.ignoresSafeArea()
-            } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+            if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                 IPadPlayerView(
                     song: song,
                     lyrics: lyrics,
@@ -434,6 +432,8 @@ struct PlayerView: View {
                         isPresented = false
                     }
                 )
+            } else if showPlayerSettings {
+                Color.clear.ignoresSafeArea()
             } else if coverPlayerStyle == .immersive {
                 ImmersivePlayerView(
                     song: song,
