@@ -2353,6 +2353,173 @@ struct SynologyBatchMetadataEditorSheet: View {
                 }
             } else {
                 var req = URLRequest(url: coverURL)
+                req.timeoutInterval = 20
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   !data.isEmpty, let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            }
+        }
+
+        // 预先优化并压缩待写入封面，防止循环中频繁重复进行耗内存的大图解码
+        if let raw = preparedCoverData {
+            let optimized = SynologyAPI.shared.optimizedCoverData(raw)
+            preparedCoverData = optimized
+            preparedCoverImage = UIImage(data: optimized)
+        } else if selectedCoverURL != nil {
+            await MainActor.run {
+                isSaving = false
+                message = "封面下载失败，请检查网络或重新选择图片"
+            }
+            return
+        }
+
+        await MainActor.run { message = "正在批量写入 NAS…" }
+        var saved = 0
+        var allUpdatedSongs: [Song] = []
+        for song in songs {
+            do {
+                try await SynologyAPI.shared.applyMetadata(
+                    song: song,
+                    patch: patch,
+                    coverURL: nil,
+                    coverData: preparedCoverData,
+                    skipCacheInvalidation: true,
+                    skipVerification: true
+                )
+                let refreshedCover = SynologyAPI.shared.coverURL(
+                    songId: song.synologyId ?? "\(song.id)",
+                    cacheBust: UUID().uuidString
+                )
+                let updated = Song(
+                    id: song.id,
+                    name: song.name,
+                    artists: trimmedArtist.isEmpty ? song.artists : trimmedArtist,
+                    album: trimmedAlbum.isEmpty ? song.album : trimmedAlbum,
+                    coverURL: refreshedCover ?? song.coverURL,
+                    duration: song.duration,
+                    source: song.source,
+                    synologyId: song.synologyId,
+                    synologyServerScope: song.synologyServerScope,
+                    synologyPath: song.synologyPath,
+                    albumArtist: trimmedAlbumArtist.isEmpty ? song.albumArtist : trimmedAlbumArtist,
+                    genre: trimmedGenre.isEmpty ? song.genre : trimmedGenre,
+                    year: trimmedYear.isEmpty ? song.year : trimmedYear,
+                    comment: trimmedComment.isEmpty ? song.comment : trimmedComment,
+                    discNumber: song.discNumber,
+                    trackNumber: song.trackNumber,
+                    fee: song.fee
+                )
+                allUpdatedSongs.append(updated)
+
+                if let preparedCoverImage {
+                    if let refreshedCover {
+                        ATMusicRemoteCoverCache.store(preparedCoverImage, for: refreshedCover)
+                    }
+                    if let oldCover = song.coverURL {
+                        ATMusicRemoteCoverCache.store(preparedCoverImage, for: oldCover)
+                    }
+                }
+                saved += 1
+                await MainActor.run {
+                    savedCount = saved
+                    message = "正在批量写入 NAS…（\(saved)/\(songs.count)）"
+                }
+            } catch {
+                await MainActor.run { message = "第 \(saved + 1) 首写入失败：\(error.localizedDescription)" }
+            }
+        }
+
+        // 批量落盘与索引更新，单次完成以消除巨额 I/O 与并发视图刷新假死
+        if !allUpdatedSongs.isEmpty {
+            DetailSongsCache.shared.updateSongs(allUpdatedSongs)
+            SynologyAPI.shared.updateCachedLibrarySongs(allUpdatedSongs)
+            await MainActor.run {
+                for updated in allUpdatedSongs {
+                    if player.currentSong?.identityKey == updated.identityKey {
+                        player.replaceSong(updated)
+                    }
+                }
+                NotificationCenter.default.post(name: .atmusicSynologyMetadataDidUpdate, object: nil)
+                NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: nil)
+            }
+        }
+
+        await MainActor.run {
+            isSaving = false
+            if saved > 0 {
+                SynologyAPI.shared.invalidateAllFolderCaches()
+            }
+            if saved == songs.count {
+                ATMusicHaptics.success()
+                ToastCenter.shared.show("批量写入完成（\(saved) 首已更新）")
+                dismiss()
+            } else {
+                savedCount = saved
+                message = "写入结束：成功 \(saved) 首，失败 \(songs.count - saved) 首"
+            }
+        }
+    }
+
+    private func nasBatchInputField(title: String, placeholder: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(ATMusicFont.appFont(14))
+                .foregroundStyle(Color.atmusicLabel)
+                .frame(width: 80, alignment: .leading)
+            TextField(placeholder, text: text)
+                .font(ATMusicFont.appFont(14))
+                .keyboardType(keyboard)
+            if !text.wrappedValue.isEmpty {
+                Button {
+                    text.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func save() async {
+        guard !isSaving else { return }
+        let trimmedArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAlbumArtist = albumArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedGenre = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let patch = SynologyTagPatch(
+            title: nil,
+            artist: trimmedArtist.isEmpty ? nil : trimmedArtist,
+            album: trimmedAlbum.isEmpty ? nil : trimmedAlbum,
+            albumArtist: trimmedAlbumArtist.isEmpty ? nil : trimmedAlbumArtist,
+            genre: trimmedGenre.isEmpty ? nil : trimmedGenre,
+            year: trimmedYear.isEmpty ? nil : trimmedYear,
+            comment: trimmedComment.isEmpty ? nil : trimmedComment
+        )
+        if patch.isEmpty && selectedCoverURL == nil && selectedCoverData == nil {
+            await MainActor.run { message = "没有可写入的内容（字段均留空且未选择封面）" }
+            return
+        }
+        await MainActor.run { isSaving = true; message = "正在准备封面与元数据…" }
+
+        var preparedCoverData = selectedCoverData
+        var preparedCoverImage: UIImage? = selectedCoverData.flatMap { UIImage(data: $0) }
+        if preparedCoverData == nil, let coverURL = selectedCoverURL {
+            if coverURL.isFileURL {
+                if let data = try? Data(contentsOf: coverURL), let img = UIImage(data: data) {
+                    preparedCoverData = data
+                    preparedCoverImage = img
+                }
+            } else {
+                var req = URLRequest(url: coverURL)
                 req.timeoutInterval = 15
                 if let (data, resp) = try? await URLSession.shared.data(for: req),
                    let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),

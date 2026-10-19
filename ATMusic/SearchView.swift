@@ -1249,7 +1249,7 @@ struct SearchView: View {
         case .artist:
             synologyArtistResultsArea
         case .album:
-            synologyAlbumResultsArea
+            albumResultsArea
         case .playlist:
             synologyPlaylistResultsArea
         }
@@ -2009,6 +2009,20 @@ struct SearchView: View {
                         synologySearchSongs = songs
                         synologyArtistEntries = makeSynologyArtistEntries(result.artists, songs: songs)
                         synologyAlbumEntries = makeSynologyAlbumEntries(result.albums, songs: songs)
+                        let resolvedAlbums = result.albums.map { album -> Album in
+                            let cover = album.coverURL
+                                ?? songs.first(where: { $0.album.localizedCaseInsensitiveCompare(album.name) == .orderedSame })?.coverURL
+                                ?? songs.first(where: { $0.album.localizedStandardContains(album.name) || album.name.localizedStandardContains($0.album) })?.coverURL
+                            return Album(
+                                id: album.id,
+                                name: album.name,
+                                artistName: album.artistName,
+                                coverURL: cover,
+                                source: .synology,
+                                trackCount: album.trackCount
+                            )
+                        }
+                        albumResults = resolvedAlbums
                         if !songs.isEmpty { ATMusicHaptics.success() }
                     }
                 case (.synology, .playlist):
