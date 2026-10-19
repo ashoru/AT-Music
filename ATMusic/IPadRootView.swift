@@ -119,8 +119,9 @@ struct IPadRootView: View {
     // MARK: - 侧栏底置迷你播放组件
     private func sidebarMiniPlayer(song: Song) -> some View {
         HStack(spacing: 12) {
-            CoverImage(url: song.coverURL, size: 44, cornerRadius: 8)
-                .frame(width: 44, height: 44)
+            CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
+                .frame(width: 46, height: 46)
+                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(song.title)
@@ -137,10 +138,11 @@ struct IPadRootView: View {
             Spacer(minLength: 0)
 
             Button {
+                ATMusicHaptics.tap()
                 player.togglePlayPause()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color.atmusicLabel)
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(Color.primary.opacity(0.08)))
@@ -148,6 +150,7 @@ struct IPadRootView: View {
             .buttonStyle(.plain)
 
             Button {
+                ATMusicHaptics.tap()
                 player.nextTrack()
             } label: {
                 Image(systemName: "forward.fill")
@@ -160,9 +163,8 @@ struct IPadRootView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-                .background(.ultraThinMaterial)
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.08), radius: 10, x: 0, y: 4)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)

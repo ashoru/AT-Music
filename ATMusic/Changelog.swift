@@ -48,6 +48,20 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-99",
+            version: "1.9.36",
+            title: "iPadOS 宽屏深度适配与传输中心双列网格",
+            features: [
+                "传输中心离线曲库与分类视图适配 iPad 宽屏双列自适应流式排版（songListColumns）",
+                "传输中心批量多选悬浮操作坞大屏收敛居中（maxWidth 560），优化双手握持触控体验",
+                "iPad 侧边栏底置迷你播放器升级为原生 ATMusicGlass 液态玻璃与高保真微光呼吸投影",
+                "侧边栏迷你播放器播控与切歌按钮补齐原生触觉反馈（ATMusicHaptics）"
+            ],
+            fixes: [
+                "解决离线曲目在 1280pt 宽屏下过度横向拉伸导致的信息离散与视觉失衡问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.35-build-98-fix-syntax-batch-cover-and-build",
             version: "1.9.35",
             title: "修复批量修改封面与搜索结果闭包语法，顺延升级构建 1.9.35 (Build 98)",

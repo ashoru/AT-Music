@@ -581,6 +581,7 @@ struct TransferCenterView: View {
             }
             .buttonStyle(.plain)
         }
+        .frame(maxWidth: 560)
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .background {
@@ -609,50 +610,99 @@ struct TransferCenterView: View {
                         subtitle: "下载后的歌曲将自动保存在本机受管沙盒，支持无网络离线 0ms 极速秒播"
                     )
                 } else if offlineFilter == 0 || isMultiSelectingOffline {
-                    // 单曲列表
-                    LazyVStack(spacing: 0) {
-                        ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
-                            if isMultiSelectingOffline {
-                                let isSelected = selectedOfflineIDs.contains(song.identityKey)
-                                HStack(spacing: 12) {
-                                    Button {
+                    // 单曲列表：iPad 宽屏下采用自适应双列流式排版，iPhone 保持连续紧凑单列
+                    if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                        LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 10) {
+                            ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
+                                if isMultiSelectingOffline {
+                                    let isSelected = selectedOfflineIDs.contains(song.identityKey)
+                                    HStack(spacing: 10) {
+                                        Button {
+                                            ATMusicHaptics.select()
+                                            if isSelected {
+                                                selectedOfflineIDs.remove(song.identityKey)
+                                            } else {
+                                                selectedOfflineIDs.insert(song.identityKey)
+                                            }
+                                        } label: {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 18, weight: .semibold))
+                                                .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        SongCell(song: song)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background {
+                                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
                                         ATMusicHaptics.select()
                                         if isSelected {
                                             selectedOfflineIDs.remove(song.identityKey)
                                         } else {
                                             selectedOfflineIDs.insert(song.identityKey)
                                         }
-                                    } label: {
-                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
                                     }
-                                    .buttonStyle(.plain)
-
+                                } else {
                                     SongCell(song: song)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background {
+                                            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        }
                                 }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    ATMusicHaptics.select()
-                                    if isSelected {
-                                        selectedOfflineIDs.remove(song.identityKey)
-                                    } else {
-                                        selectedOfflineIDs.insert(song.identityKey)
-                                    }
-                                }
-                            } else {
-                                SongCell(song: song)
                             }
                         }
+                        .padding(.horizontal, 16)
+                    } else {
+                        LazyVStack(spacing: 0) {
+                            ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
+                                if isMultiSelectingOffline {
+                                    let isSelected = selectedOfflineIDs.contains(song.identityKey)
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            ATMusicHaptics.select()
+                                            if isSelected {
+                                                selectedOfflineIDs.remove(song.identityKey)
+                                            } else {
+                                                selectedOfflineIDs.insert(song.identityKey)
+                                            }
+                                        } label: {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 20, weight: .semibold))
+                                                .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        SongCell(song: song)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        ATMusicHaptics.select()
+                                        if isSelected {
+                                            selectedOfflineIDs.remove(song.identityKey)
+                                        } else {
+                                            selectedOfflineIDs.insert(song.identityKey)
+                                        }
+                                    }
+                                } else {
+                                    SongCell(song: song)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .background {
+                            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
-                    .background {
-                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
-                    .padding(.horizontal, 16)
                 } else if offlineFilter == 1 {
-                    // 按专辑聚合
-                    LazyVStack(spacing: 10) {
+                    // 按专辑聚合：iPad 宽屏下双列自适应，iPhone 单列
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 14), spacing: 10) {
                         ForEach(offlineAlbums, id: \.name) { album in
                             HStack(spacing: 12) {
                                 CoverImage(url: album.coverURL, size: 48, cornerRadius: 8)
@@ -709,9 +759,23 @@ struct TransferCenterView: View {
                                 }
                                 .padding(.horizontal, 4)
 
-                                LazyVStack(spacing: 0) {
-                                    ForEach(group.songs, id: \.identityKey) { song in
-                                        SongCell(song: song)
+                                if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
+                                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 14), spacing: 8) {
+                                        ForEach(group.songs, id: \.identityKey) { song in
+                                            SongCell(song: song)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background {
+                                                    RoundedRectangle(cornerRadius: 10)
+                                                        .fill(Color.primary.opacity(0.03))
+                                                }
+                                        }
+                                    }
+                                } else {
+                                    LazyVStack(spacing: 0) {
+                                        ForEach(group.songs, id: \.identityKey) { song in
+                                            SongCell(song: song)
+                                        }
                                     }
                                 }
                             }
@@ -723,8 +787,8 @@ struct TransferCenterView: View {
                     }
                     .padding(.horizontal, 16)
                 } else {
-                    // 按歌手聚合
-                    LazyVStack(spacing: 10) {
+                    // 按歌手聚合：iPad 宽屏下双列自适应，iPhone 单列
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 14), spacing: 10) {
                         ForEach(offlineArtists, id: \.name) { artist in
                             HStack(spacing: 12) {
                                 CoverImage(url: artist.coverURL, size: 48, cornerRadius: 24)
