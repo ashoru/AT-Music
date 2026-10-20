@@ -16,6 +16,11 @@ public struct DeviceLayoutHelper {
         isIPad && horizontalSizeClass == .regular
     }
 
+    /// 是否处于 iPad 紧凑分屏（1/3 屏或 Slide Over）
+    public static func isIPadCompact(_ horizontalSizeClass: UserInterfaceSizeClass?) -> Bool {
+        isIPad && horizontalSizeClass == .compact
+    }
+
     /// 自适应歌单/专辑网格列配置
     /// - iPhone / Compact: 保持 2 列
     /// - iPad Regular: 依据屏幕宽度自适应 3 ~ 6 列（卡片宽度 160 ~ 240pt）
@@ -29,6 +34,23 @@ public struct DeviceLayoutHelper {
             return [GridItem(.adaptive(minimum: minWidth, maximum: maxWidth), spacing: spacing)]
         } else {
             return [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+        }
+    }
+
+    /// 依据容器实际像素宽度自适应卡片列数（用于复杂多级分屏如 1/3、1/2、2/3 屏）
+    public static func adaptiveCardColumnsByWidth(_ width: CGFloat, spacing: CGFloat = 16) -> [GridItem] {
+        if width < 520 {
+            // 1/3 屏 / 紧凑窗口：双列
+            return [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+        } else if width < 800 {
+            // 1/2 半分屏 / 竖屏：3 列
+            return Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
+        } else if width < 1120 {
+            // 2/3 分屏 / 11" 横屏：4 列
+            return Array(repeating: GridItem(.flexible(), spacing: spacing), count: 4)
+        } else {
+            // 12.9" / 13" 横屏大屏：5 列
+            return Array(repeating: GridItem(.flexible(), spacing: spacing), count: 5)
         }
     }
 
@@ -52,7 +74,7 @@ public struct DeviceLayoutHelper {
     /// iPad 宽屏下的内容区最大宽度约束（防止横屏内容被无意义拉伸过宽）
     public static func contentMaxWidth(for horizontalSizeClass: UserInterfaceSizeClass?) -> CGFloat? {
         if isIPadRegular(horizontalSizeClass) {
-            return 1280
+            return 1360
         } else {
             return 860
         }

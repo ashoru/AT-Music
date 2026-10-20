@@ -48,6 +48,36 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-101",
+            version: "1.9.36",
+            title: "iPad 界面全面重构：Apple Music 官方规范与全分屏适配",
+            features: [
+                "严格对齐 Apple Music iPad 官方两栏 NavigationSplitView 架构与资料库直达侧栏",
+                "深度兼容 1/3 屏、1/2 半分屏、2/3 屏、Slide Over 与横竖屏全场景自适应流态",
+                "iPad 专属大屏双栏播放器重构：左侧大封面中控台，右侧实时滚动歌词与待播队列",
+                "全面支持软件 4 套 UI 调节（liquid、clear、compact、nativeClean）",
+                "iPhone 原生界面与核心业务功能 100% 保持原样零回归"
+            ],
+            fixes: [
+                "彻底解决 iPad 1/2 半分屏模式下右栏歌词被挤压变形以及横屏过度拉伸问题"
+            ]
+        ),
+        VersionLog(
+            id: "1.9.36-build-101",
+            version: "1.9.36",
+            title: "iPad 界面全面重构：Apple Music 官方规范与全分屏适配",
+            features: [
+                "严格对齐 Apple Music iPad 官方两栏 NavigationSplitView 架构与资料库直达侧栏",
+                "深度兼容 1/3 屏、1/2 半分屏、2/3 屏、Slide Over 与横竖屏全场景自适应流态",
+                "iPad 专属大屏双栏播放器重构：左侧大封面中控台，右侧实时滚动歌词与待播队列",
+                "全面支持软件 4 套 UI 调节（liquid、clear、compact、nativeClean）",
+                "iPhone 原生界面与核心业务功能 100% 保持原样零回归"
+            ],
+            fixes: [
+                "彻底解决 iPad 1/2 半分屏模式下右栏歌词被挤压变形以及横屏过度拉伸问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.36-build-100",
             version: "1.9.36",
             title: "彻底修复 iPad 打开设置闪退与侧栏设置入口补齐",

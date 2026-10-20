@@ -2,9 +2,10 @@ import SwiftUI
 import MediaPlayer
 import AVKit
 
-/// iPad 专属 Apple Music 风格侧边分栏播放器
-/// 左侧：大尺寸专辑封面、完整曲目信息、进度拖拽条、播放控制中控台、音量滑块与 AirPlay 选择器
-/// 右侧：实时动态同滚动步歌词 / 待播清单（Queue）分栏无缝切换
+/// iPad 专属 Apple Music 官方级侧边分栏播放器
+/// 宽屏（>= 750pt）：左侧大封面中控台 + 右侧动态滚动歌词/待播清单双栏并排；
+/// 半分屏/窄屏（< 750pt）：自适应收缩为全尺寸单栏分段式呈现，兼容所有 iPadOS 分屏状态；
+/// 完整支持软件 4 套 UI 调节（liquid、clear、compact、nativeClean）。
 struct IPadPlayerView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager
@@ -13,6 +14,7 @@ struct IPadPlayerView: View {
     @EnvironmentObject private var favorites: FavoritesStore
     @ObservedObject private var localLibrary = LocalLibraryStore.shared
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
 
     let song: Song?
     let lyrics: [LyricLine]
@@ -27,14 +29,21 @@ struct IPadPlayerView: View {
     let onDismiss: () -> Void
 
     @State private var rightPaneMode: RightPaneMode = .lyrics
+    @State private var narrowSegment: Int = 0 // 0: 封面控制, 1: 歌词, 2: 待播清单
     @State private var isDraggingScrubber = false
     @State private var scrubProgress: Double = 0
     @State private var autoScrollEnabled = true
-    @State private var volume: Float = 0.5
     @State private var pickedArtistName = ""
     @State private var selectedAlbum: Album?
     @State private var showArtistHome = false
     @State private var showSignalPath = false
+
+    private var uiStyle: ATMusicUIStyle {
+        uiStyleRaw == "outline" ? .clear : (ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid)
+    }
+
+    private var isNativeClean: Bool { uiStyle == .nativeClean }
+    private var isCompact: Bool { uiStyle == .compact }
 
     enum RightPaneMode: String, CaseIterable, Identifiable {
         case lyrics = "实时歌词"
@@ -77,30 +86,37 @@ struct IPadPlayerView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let isWide = proxy.size.width >= 750
+
             ZStack {
-                // 流体背景
+                // 流体背景（Apple Music 风格动态封面全屏渐变）
                 CoverBlurBackground(url: song?.coverURL, scheme: colorScheme)
-                    .overlay(Color.black.opacity(colorScheme == .dark ? 0.45 : 0.20))
+                    .overlay(Color.black.opacity(colorScheme == .dark ? 0.46 : 0.22))
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    topNavigationBar
-                        .padding(.horizontal, 28)
-                        .padding(.top, 16)
+                    topNavigationBar(isWide: isWide)
+                        .padding(.horizontal, isCompact ? 18 : 28)
+                        .padding(.top, 14)
                         .padding(.bottom, 8)
 
-                    // 左右分栏主体
-                    HStack(spacing: 36) {
-                        // 左栏：封面与播放主控制台
-                        leftPlaybackColumn(containerWidth: proxy.size.width)
-                            .frame(width: min(max(proxy.size.width * 0.42, 380), 500))
+                    if isWide {
+                        // 宽屏模式：Apple Music 官方左右双栏
+                        HStack(spacing: isCompact ? 24 : 36) {
+                            leftPlaybackColumn(containerWidth: proxy.size.width)
+                                .frame(width: min(max(proxy.size.width * 0.43, 360), 520))
 
-                        // 右栏：歌词 / 播放队列
-                        rightContentColumn
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            rightContentColumn
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .padding(.horizontal, isCompact ? 20 : 32)
+                        .padding(.bottom, 24)
+                    } else {
+                        // 1/2 半分屏 / 窄屏分屏：自适应单栏
+                        narrowLayoutView(width: proxy.size.width)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
                     }
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 24)
                 }
             }
         }
@@ -140,8 +156,9 @@ struct IPadPlayerView: View {
     }
 
     // MARK: - 顶栏
-    private var topNavigationBar: some View {
-        HStack(spacing: 16) {
+
+    private func topNavigationBar(isWide: Bool) -> some View {
+        HStack(spacing: 14) {
             Button(action: onDismiss) {
                 Image(systemName: "chevron.down.circle.fill")
                     .font(.system(size: 26))
@@ -173,14 +190,14 @@ struct IPadPlayerView: View {
 
             Spacer()
 
-            // 系统原生 AirPlay 投播
+            // 隔空播放
             AirPlayRoutePicker(tintColor: .white.withAlphaComponent(0.85))
                 .frame(width: 32, height: 32)
 
             // 定时关闭
             Button(action: onSleepTimer) {
                 Image(systemName: "moon.zzz.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundStyle(player.sleepTimerRemaining > 0 ? Color.atmusicAmber : .white.opacity(0.85))
             }
             .buttonStyle(.plain)
@@ -229,30 +246,31 @@ struct IPadPlayerView: View {
         return favorites.isSongLiked(song)
     }
 
-    // MARK: - 左栏（封面 + 控制区）
+    // MARK: - 左栏（大封面与核心中控台）
+
     private func leftPlaybackColumn(containerWidth: CGFloat) -> some View {
-        VStack(spacing: 20) {
+        VStack(spacing: isCompact ? 14 : 20) {
             Spacer(minLength: 0)
 
-            // 大尺寸专辑封面
-            CoverImage(url: song?.coverURL, size: 340, cornerRadius: 20)
+            // 大尺寸专辑封面（带播放呼吸动效）
+            CoverImage(url: song?.coverURL, size: 360, cornerRadius: 22)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
-                .shadow(color: .black.opacity(0.45), radius: 24, x: 0, y: 12)
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.50 : 0.28), radius: 24, x: 0, y: 12)
                 .scaleEffect(player.isPlaying ? 1.0 : 0.94)
                 .animation(.spring(response: 0.45, dampingFraction: 0.75), value: player.isPlaying)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, isCompact ? 6 : 14)
 
-            // 歌曲信息
+            // 歌曲信息排版
             VStack(alignment: .leading, spacing: 6) {
                 Text(song?.title ?? "未在播放")
-                    .font(ATMusicFont.appFont(24, .bold))
+                    .font(ATMusicFont.appFont(isCompact ? 20 : 25, .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 SongSubtitleMenu(
                     song: song,
-                    font: ATMusicFont.appFont(17, .medium),
+                    font: ATMusicFont.appFont(isCompact ? 15 : 17, .medium),
                     color: .white.opacity(0.78),
                     alignment: .leading,
                     onSelectArtist: { artist in
@@ -278,10 +296,10 @@ struct IPadPlayerView: View {
             playbackScrubber
                 .padding(.horizontal, 14)
 
-            // 核心播放按钮
+            // 核心播控按键行
             transportControlsRow
 
-            // 快捷音量控制条
+            // 硬件音量控制条
             volumeControlRow
                 .padding(.horizontal, 14)
 
@@ -290,6 +308,7 @@ struct IPadPlayerView: View {
     }
 
     // MARK: - 进度条组件
+
     private var playbackScrubber: some View {
         VStack(spacing: 6) {
             GeometryReader { geo in
@@ -339,21 +358,24 @@ struct IPadPlayerView: View {
         }
     }
 
-    // MARK: - 播放控制按键行
+    // MARK: - 播放控制按键行 (Apple Music 标志性大圆形中控)
+
     private var transportControlsRow: some View {
-        HStack(spacing: 32) {
+        HStack(spacing: isCompact ? 22 : 32) {
             // 随机播放切换
             Button {
+                ATMusicHaptics.tap()
                 player.toggleShuffle()
             } label: {
                 Image(systemName: "shuffle")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(player.isShuffled ? Color.atmusicAmber : .white.opacity(0.65))
             }
             .buttonStyle(.plain)
 
             // 上一曲
             Button {
+                ATMusicHaptics.tap()
                 player.previousTrack()
             } label: {
                 Image(systemName: "backward.fill")
@@ -362,15 +384,16 @@ struct IPadPlayerView: View {
             }
             .buttonStyle(.plain)
 
-            // 播放 / 暂停 大按钮
+            // 播放 / 暂停 大按钮（Apple 经典醒目白色高反差圆底）
             Button {
+                ATMusicHaptics.medium()
                 player.togglePlayPause()
             } label: {
                 ZStack {
                     Circle()
                         .fill(.white)
                         .frame(width: 66, height: 66)
-                        .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                        .shadow(color: .black.opacity(0.30), radius: 10, y: 4)
 
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 28, weight: .bold))
@@ -382,6 +405,7 @@ struct IPadPlayerView: View {
 
             // 下一曲
             Button {
+                ATMusicHaptics.tap()
                 player.nextTrack()
             } label: {
                 Image(systemName: "forward.fill")
@@ -392,10 +416,11 @@ struct IPadPlayerView: View {
 
             // 循环模式切换
             Button {
+                ATMusicHaptics.tap()
                 player.toggleLoopMode()
             } label: {
                 Image(systemName: loopModeIcon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(player.loopMode != .off ? Color.atmusicAmber : .white.opacity(0.65))
             }
             .buttonStyle(.plain)
@@ -411,6 +436,7 @@ struct IPadPlayerView: View {
     }
 
     // MARK: - 快捷音量控制条
+
     private var volumeControlRow: some View {
         HStack(spacing: 12) {
             Image(systemName: "speaker.fill")
@@ -429,14 +455,16 @@ struct IPadPlayerView: View {
         }
     }
 
-    // MARK: - 右栏（歌词 / 待播列表）
+    // MARK: - 右栏（实时歌词 / 待播列表切换）
+
     private var rightContentColumn: some View {
         VStack(spacing: 16) {
-            // 右栏顶部切换标签
+            // 顶部切换分段器
             HStack(spacing: 12) {
                 ForEach(RightPaneMode.allCases) { mode in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        ATMusicHaptics.select()
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                             rightPaneMode = mode
                         }
                     } label: {
@@ -477,7 +505,7 @@ struct IPadPlayerView: View {
             }
             .padding(.top, 4)
 
-            // 主展示内容
+            // 内容展示
             ZStack {
                 if rightPaneMode == .lyrics {
                     liveLyricsScrollView
@@ -487,15 +515,69 @@ struct IPadPlayerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.white.opacity(0.06))
-                    .background(.ultraThinMaterial.opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                rightPaneBackground
             }
         }
     }
 
+    @ViewBuilder
+    private var rightPaneBackground: some View {
+        switch uiStyle {
+        case .liquid:
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.white.opacity(0.06))
+                .background(.ultraThinMaterial.opacity(0.35))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                }
+        case .clear:
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        case .compact:
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.white.opacity(0.05))
+        case .nativeClean:
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.black.opacity(colorScheme == .dark ? 0.35 : 0.15))
+        }
+    }
+
+    // MARK: - 1/2 半分屏自适应单栏
+
+    @ViewBuilder
+    private func narrowLayoutView(width: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            Picker("", selection: $narrowSegment) {
+                Text("播控").tag(0)
+                Text("歌词").tag(1)
+                Text("待播").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 10)
+
+            TabView(selection: $narrowSegment) {
+                ScrollView {
+                    leftPlaybackColumn(containerWidth: width)
+                        .padding(.top, 10)
+                }
+                .tag(0)
+
+                liveLyricsScrollView
+                    .background(rightPaneBackground)
+                    .tag(1)
+
+                inlineQueueListView
+                    .background(rightPaneBackground)
+                    .tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+    }
+
     // MARK: - 实时同步滚动歌词
+
     private var liveLyricsScrollView: some View {
         ScrollViewReader { scrollProxy in
             ScrollView(.vertical, showsIndicators: false) {
@@ -508,10 +590,10 @@ struct IPadPlayerView: View {
                             .font(ATMusicFont.appFont(16))
                             .foregroundStyle(.white.opacity(0.6))
                     }
-                    .frame(maxWidth: .infinity, minHeight: 400)
+                    .frame(maxWidth: .infinity, minHeight: 380)
                 } else {
-                    VStack(alignment: .leading, spacing: 22) {
-                        Color.clear.frame(height: 120)
+                    VStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
+                        Color.clear.frame(height: 100)
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { item in
                             let index = item.offset
@@ -520,15 +602,15 @@ struct IPadPlayerView: View {
 
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(line.text)
-                                    .font(ATMusicFont.appFont(isCurrent ? 28 : 20, isCurrent ? .bold : .medium))
+                                    .font(ATMusicFont.appFont(isCurrent ? (isCompact ? 24 : 28) : (isCompact ? 18 : 20), isCurrent ? .bold : .medium))
                                     .foregroundStyle(isCurrent ? .white : .white.opacity(0.40))
-                                    .blur(radius: isCurrent ? 0 : 0.4)
+                                    .blur(radius: isCurrent ? 0 : 0.3)
                                     .scaleEffect(isCurrent ? 1.02 : 1.0, anchor: .leading)
                                     .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isCurrent)
 
                                 if let translation = line.translation, !translation.isEmpty {
                                     Text(translation)
-                                        .font(ATMusicFont.appFont(isCurrent ? 16 : 14))
+                                        .font(ATMusicFont.appFont(isCurrent ? 15 : 13))
                                         .foregroundStyle(isCurrent ? Color.atmusicAmber.opacity(0.9) : .white.opacity(0.28))
                                 }
                             }
@@ -539,9 +621,9 @@ struct IPadPlayerView: View {
                             }
                         }
 
-                        Color.clear.frame(height: 160)
+                        Color.clear.frame(height: 140)
                     }
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, isCompact ? 20 : 32)
                 }
             }
             .onChange(of: clock.currentTime) { _, currentTime in
@@ -574,6 +656,7 @@ struct IPadPlayerView: View {
     }
 
     // MARK: - 实时待播列表（Queue）
+
     private var inlineQueueListView: some View {
         let queuedSongs = player.queue
         return ScrollView(.vertical, showsIndicators: false) {
