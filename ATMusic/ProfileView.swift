@@ -2241,7 +2241,7 @@ struct SettingsView: View {
             .navigationBarHidden(isNativeClean)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    if !isNativeClean { Button("完成") { dismiss() } }
+                    if !DeviceLayoutHelper.isIPad && !isNativeClean { Button("完成") { dismiss() } }
                 }
             }
         }

@@ -146,7 +146,7 @@ struct IPadRootView: View {
                 // 3. 账户与设置
                 Section("设置与账户") {
                     sidebarRow(for: .tab(.profile), customTitle: "个人中心")
-                    sidebarSettingsRow
+                    sidebarRow(for: .settings, customTitle: "偏好设置")
                 }
 
                 // 4. 音频输出 (隔空播放)
@@ -239,29 +239,7 @@ struct IPadRootView: View {
         }
     }
 
-    private var sidebarSettingsRow: some View {
-        Button {
-            ATMusicHaptics.tap()
-            showSettingsSheet = true
-        } label: {
-            HStack(spacing: isCompact ? 8 : 12) {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: isCompact ? 15 : 17, weight: .medium))
-                    .foregroundStyle(Color.atmusicLabel)
-                    .frame(width: 24, alignment: .center)
 
-                Text("偏好设置")
-                    .font(ATMusicFont.appFont(isCompact ? 13 : 15, .regular))
-                    .foregroundStyle(Color.atmusicLabel.opacity(0.85))
-
-                Spacer(minLength: 4)
-            }
-            .padding(.vertical, isCompact ? 5 : 7)
-            .padding(.horizontal, isCompact ? 8 : 10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
     private var airPlayRow: some View {
         HStack(spacing: 12) {
@@ -449,12 +427,11 @@ struct IPadRootView: View {
             .environmentObject(player)
             .environmentObject(theme)
         case .settings:
-            ATMusicNavigationStack {
-                SettingsView()
-            }
-            .environmentObject(player)
-            .environmentObject(theme)
-            .environmentObject(auth)
+            SettingsView()
+                .environmentObject(theme)
+                .environmentObject(player)
+                .environmentObject(auth)
+                .environmentObject(favorites)
         }
     }
 

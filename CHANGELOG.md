@@ -1,5 +1,13 @@
 # AT Music 更新日志
 
+## 1.9.36 build 102
+
+### 彻底修复 iPad 打开设置闪退，对齐 Apple Music 原生设置分栏
+- **侧栏偏好设置原生对齐**：按照 Apple Music iPad 官方交互规范，侧边栏「偏好设置」点击后直接在主 Detail 内容区分栏展示，彻底废除在 NavigationSplitView 根节点强弹 Modal Sheet 的不稳定设计。
+- **根除 iPadOS 崩溃异常**：彻底消除 SettingsLiquidSheetPresentation 中 presentationBackgroundInteraction 与 medium 分档引发的 NSInternalInconsistencyException 底层崩溃。
+- **四套 UI 风格完美联动**：偏好设置在侧边栏中享有与发现、资料库完全一致的选中高亮胶囊（liquid 渐变边框、clear 线框、compact 填充、nativeClean 原生白卡）与触感反馈。
+- **iPhone 与核心业务零回归**：iPhone 端保持大尺寸液态弹层与原汁原味的体验，业务代码与音频链路零改动。
+
 ## 1.9.36 build 101
 
 ### iPad 界面深度重构：严格对齐 Apple Music 官方 iPadOS 规范，全分屏形态与四套 UI 风格全面适配

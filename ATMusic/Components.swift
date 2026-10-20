@@ -427,35 +427,15 @@ struct SettingsCatalogGroup<Content: View>: View {
 }
 
 /// 设置页使用的大尺寸液态弹层。
-/// iPadOS 原生 FormSheet 已自带规范的大屏居中模态卡片，避免在 iPad 上使用 presentationBackgroundInteraction 或强制 medium detent 导致 NSInternalInconsistencyException 闪退；
-/// iPhone / 紧凑模式下 iOS 16+ 使用参考版的大 detent 和拖拽指示条。
+/// 规范支持大屏 FormSheet 与 iPhone 大弹层，彻底移除 medium 交互背景穿透，防止 iPadOS 抛出 largestUndimmedDetentIdentifier 异常闪退。
 struct SettingsLiquidSheetPresentation: ViewModifier {
     func body(content: Content) -> some View {
-        if DeviceLayoutHelper.isIPad {
+        if #available(iOS 16.0, *) {
             content
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
-        } else if #available(iOS 16, *) {
-            content.modifier(SettingsReferenceDetents())
         } else {
             content
-        }
-    }
-}
-
-@available(iOS 16, *)
-private struct SettingsReferenceDetents: ViewModifier {
-    @State private var selectedDetent: PresentationDetent = .medium
-
-    func body(content: Content) -> some View {
-        let sheet = content
-            .presentationDetents([.medium, .large], selection: $selectedDetent)
-            .presentationDragIndicator(.visible)
-        if #available(iOS 16.4, *) {
-            sheet
-                .presentationCornerRadius(30)
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-        } else {
-            sheet
         }
     }
 }
