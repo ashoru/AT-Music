@@ -48,6 +48,19 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-107",
+            version: "1.9.36",
+            title: "根治试听歌播完卡死与切歌音源错位",
+            features: [
+                "试听歌曲热置换机制修复：完整音轨置换此前因候选播放器被提前释放而从未成功，现已能正常无缝切换到全曲"
+            ],
+            fixes: [
+                "彻底修复试听歌播完后卡住不自动播放下一首的问题（置换失败或超时会自动切歌，不再无限等待）",
+                "修复切换歌曲后音源仍停留在上一首的问题（切歌时清除旧条目，恢复播放时校验曲目一致性）"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-106",
             version: "1.9.36",
             title: "安全加固：凭证迁入 Keychain 与 iOS 16 兼容",

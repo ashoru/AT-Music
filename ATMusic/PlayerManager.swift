@@ -131,6 +131,30 @@ final class PlayerManager: NSObject, ObservableObject {
         let resourceLoader: AudioHeadBlockResourceLoader?
         var statusObserver: NSKeyValueObservation?
     }
+    /// 热置换候选播放器宿主：必须由属性强引用持有，否则 hotSwap 函数返回后候选被释放、
+    /// 所有状态回调因弱引用为空而静默失效（2026-10-21 日志实证：全天 3 次置换、成功 0 次）。
+    private final class HotSwapCandidate {
+        let player: AVPlayer
+        let item: AVPlayerItem
+        let songKey: String
+        let generation: Int
+        let loader: AudioHeadBlockResourceLoader?
+        var statusObservation: NSKeyValueObservation?
+        var playerStatusObservation: NSKeyValueObservation?
+        var executeHandover: (() -> Void)?
+        var didHandover = false
+        var itemFailed = false
+        var trialEnded = false
+
+        init(player: AVPlayer, item: AVPlayerItem, songKey: String, generation: Int, loader: AudioHeadBlockResourceLoader?) {
+            self.player = player
+            self.item = item
+            self.songKey = songKey
+            self.generation = generation
+            self.loader = loader
+        }
+    }
+
     private var standbyPlayback: StandbyPlayback?
     private var currentResourceLoader: AudioHeadBlockResourceLoader?
     @Published var isHotSwapTrialActive: Bool = false
@@ -192,6 +216,15 @@ final class PlayerManager: NSObject, ObservableObject {
     /// 用一个延迟校验作为兜底，且每个 loadGeneration 只允许推进一次。
     private var playbackEndFallbackWorkItem: DispatchWorkItem?
     private var completedPlaybackGeneration: Int?
+    /// 热置换候选（强持有，见 HotSwapCandidate 注释）
+    private var hotSwapCandidate: HotSwapCandidate?
+    /// 试听已播完、置换未到时的限时等待任务
+    private var hotSwapTrialEndWaitWorkItem: DispatchWorkItem?
+    /// 后台解析未命中全曲的代际标记（试听结束后据此立即切歌，不再等超时）
+    private var hotSwapResolveFailedGeneration: Int?
+    private var trialEndedGeneration: Int?
+    /// 当前 AVPlayer 中实际装载的歌曲 key，用于恢复播放时校验界面与音源一致性
+    private var activeItemSongKey: String?
     private static let nowPlayingArtworkCache = NSCache<NSURL, UIImage>()
 
     private let historyKey = "atmusic.history"
@@ -485,6 +518,13 @@ final class PlayerManager: NSObject, ObservableObject {
         guard ensurePlaybackAllowed() else { return }
         guard let player else {
             guard currentSong != nil else { return }
+            loadCurrent(resumeAt: progress)
+            return
+        }
+        if let activeItemSongKey, activeItemSongKey != currentSong?.identityKey {
+            // 播放器里残留的是上一首的 item（新歌还在解析或已解析失败），
+            // 直接 play 会把旧歌唤醒而界面显示新歌，改为重新加载当前歌曲
+            ATMusicLogger.shared.log("恢复播放时发现播放器曲目与界面不一致，重新加载当前歌曲", level: .warn)
             loadCurrent(resumeAt: progress)
             return
         }
@@ -1022,6 +1062,11 @@ final class PlayerManager: NSObject, ObservableObject {
         let cacheQuality = playbackCacheQuality()
         loadGeneration += 1
         let generation = loadGeneration
+        cleanHotSwapCandidate()
+        hotSwapTrialEndWaitWorkItem?.cancel()
+        hotSwapTrialEndWaitWorkItem = nil
+        hotSwapResolveFailedGeneration = nil
+        trialEndedGeneration = nil
         playbackEndFallbackWorkItem?.cancel()
         playbackEndFallbackWorkItem = nil
         thirdPartyRetryExcludedHostsBySong.removeValue(forKey: song.identityKey)
@@ -1069,6 +1114,11 @@ final class PlayerManager: NSObject, ObservableObject {
 
         // 切歌立即暂停旧音频，避免新歌加载期间旧歌继续播放造成“切歌卡住”感
         player?.pause()
+        // 界面已切到另一首歌时清掉旧 item：杜绝新歌解析期间点播放把上一首重新唤醒
+        if activeItemSongKey != song.identityKey {
+            player?.replaceCurrentItem(with: nil)
+            activeItemSongKey = nil
+        }
         duration = song.duration
         progress = initialProgress
         isPlaying = false
@@ -1226,6 +1276,17 @@ final class PlayerManager: NSObject, ObservableObject {
                         }
                     } else {
                         ATMusicLogger.shared.log("⚠️ 试听热置换后台解析全曲未命中：\(song.name)", level: .warn)
+                        await MainActor.run {
+                            guard generation == self.loadGeneration else { return }
+                            self.hotSwapResolveFailedGeneration = generation
+                            if self.trialEndedGeneration == generation {
+                                self.advanceAfterPlaybackEnd(
+                                    expectedSongKey: song.identityKey,
+                                    generation: generation,
+                                    reason: "试听结束且热置换解析未命中"
+                                )
+                            }
+                        }
                     }
                 }
                 return
@@ -1711,6 +1772,69 @@ final class PlayerManager: NSObject, ObservableObject {
         return true
     }
 
+    /// 清理未完成的热置换候选（新一轮加载、交接失败、歌曲切换时调用）
+    private func cleanHotSwapCandidate() {
+        guard let candidate = hotSwapCandidate else { return }
+        hotSwapCandidate = nil
+        candidate.statusObservation?.invalidate()
+        candidate.playerStatusObservation?.invalidate()
+        candidate.executeHandover = nil
+        if !candidate.didHandover {
+            candidate.player.pause()
+            candidate.player.replaceCurrentItem(with: nil)
+        }
+    }
+
+    /// 置换明确失败且试听已经播完：不再等待，直接推进下一首
+    private func advanceAfterFailedHotSwap(candidate: HotSwapCandidate, reason: String) {
+        guard hotSwapCandidate === candidate else { return }
+        let songKey = candidate.songKey
+        let generation = candidate.generation
+        cleanHotSwapCandidate()
+        isHotSwapTrialActive = false
+        advanceAfterPlaybackEnd(expectedSongKey: songKey, generation: generation, reason: reason)
+    }
+
+    /// 试听播完时的收尾：置换已失败→立即切歌；置换还在路上→最多等 5 秒，超时切歌。
+    /// 此前这里只打日志无限等待，置换一旦失败/丢失就永久卡住（2026-10-21 实证卡死 2 小时 19 分）。
+    private func handleTrialPlaybackEnded(loadedSong: Song, generation: Int) {
+        trialEndedGeneration = generation
+        if playMode == .repeatOne {
+            // 单曲循环：试听重头播，置换完成会自动切到全曲
+            restartCurrent()
+            return
+        }
+        if let candidate = hotSwapCandidate, candidate.generation == generation {
+            candidate.trialEnded = true
+            if candidate.itemFailed {
+                advanceAfterFailedHotSwap(candidate: candidate, reason: "试听结束且热置换音轨加载失败")
+                return
+            }
+        }
+        if hotSwapResolveFailedGeneration == generation {
+            advanceAfterPlaybackEnd(
+                expectedSongKey: loadedSong.identityKey,
+                generation: generation,
+                reason: "试听结束且热置换解析未命中"
+            )
+            return
+        }
+        hotSwapTrialEndWaitWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.isHotSwapTrialActive,
+                  self.loadGeneration == generation,
+                  self.currentSong?.identityKey == loadedSong.identityKey else { return }
+            self.advanceAfterPlaybackEnd(
+                expectedSongKey: loadedSong.identityKey,
+                generation: generation,
+                reason: "试听结束热置换超时"
+            )
+        }
+        hotSwapTrialEndWaitWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+    }
+
     @MainActor
     func hotSwapAudioTrack(with resolved: UnblockService.Resolved, for song: Song, generation: Int) {
         guard generation == self.loadGeneration,
@@ -1718,11 +1842,15 @@ final class PlayerManager: NSObject, ObservableObject {
               !UnblockService.isCorruptOrAntiLeechURL(resolved.url),
               let currentActivePlayer = self.player else { return }
 
+        // 清理上一轮未完成的置换候选，避免多个候选并存
+        cleanHotSwapCandidate()
+
         let currentSeconds = currentActivePlayer.currentTime().seconds
         let resumeAt = (currentSeconds.isFinite && currentSeconds > 0) ? currentSeconds : 0
         ATMusicLogger.shared.log("⚡️ [Hot-Swap] 开始准备无缝热置换：\(song.name) 当前进度=\(String(format: "%.1f", resumeAt))s -> 完整音轨(\(resolved.sourceTitle))", level: .info)
 
-        // 1. 创建完整音轨的 PlayerItem 与后台候选 Player
+        // 1. 创建完整音轨的 PlayerItem 与候选 Player，交由 hotSwapCandidate 强引用持有，
+        //    函数返回后依然存活，状态回调才有机会触发交接
         let (nextItem, loader) = AudioHeadBlockPreloader.shared.makePlayerItem(
             url: resolved.url,
             headers: resolved.headers,
@@ -1733,31 +1861,39 @@ final class PlayerManager: NSObject, ObservableObject {
         nextPlayer.automaticallyWaitsToMinimizeStalling = false
         nextPlayer.volume = 0 // 静音缓冲，当前 trial player 仍在发声
 
+        let candidate = HotSwapCandidate(
+            player: nextPlayer,
+            item: nextItem,
+            songKey: song.identityKey,
+            generation: generation,
+            loader: loader
+        )
+        self.hotSwapCandidate = candidate
+
         // 2. 预定位到当前播放时间并预热解码器
         if resumeAt > 0.05 {
             let seekTime = CMTime(seconds: resumeAt, preferredTimescale: 600)
             nextPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
         }
 
-        var didHandover = false
-        var observation: NSKeyValueObservation?
-        var nextPlayerStatusObserver: NSKeyValueObservation?
-
-        let executeHandover = { [weak self, weak currentActivePlayer, weak nextPlayer, weak nextItem] in
-            guard let self, let currentActivePlayer, let nextPlayer, let nextItem else { return }
-            guard !didHandover else { return }
+        let executeHandover = { [weak self, weak currentActivePlayer, candidate] in
+            guard let self else { return }
+            guard self.hotSwapCandidate === candidate, !candidate.didHandover else { return }
             guard generation == self.loadGeneration, self.currentSong?.identityKey == song.identityKey else {
-                nextPlayer.pause()
-                nextPlayer.replaceCurrentItem(with: nil)
+                self.cleanHotSwapCandidate()
                 return
             }
-            didHandover = true
-            observation?.invalidate()
-            observation = nil
-            nextPlayerStatusObserver?.invalidate()
-            nextPlayerStatusObserver = nil
+            candidate.didHandover = true
+            candidate.executeHandover = nil
+            candidate.statusObservation?.invalidate()
+            candidate.playerStatusObservation?.invalidate()
+            self.hotSwapCandidate = nil
+            self.hotSwapTrialEndWaitWorkItem?.cancel()
+            self.hotSwapTrialEndWaitWorkItem = nil
 
-            let latestSeconds = currentActivePlayer.currentTime().seconds
+            let nextPlayer = candidate.player
+            let nextItem = candidate.item
+            let latestSeconds = currentActivePlayer?.currentTime().seconds ?? resumeAt
             let finalResume = (latestSeconds.isFinite && latestSeconds > 0) ? latestSeconds : resumeAt
             if abs(finalResume - resumeAt) > 0.25 {
                 nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -1766,8 +1902,8 @@ final class PlayerManager: NSObject, ObservableObject {
             // 平滑热切：Player B 播放并恢复音量，Player A 暂停
             nextPlayer.volume = self.targetVolume
             nextPlayer.playImmediately(atRate: Float(self.rate))
-            currentActivePlayer.pause()
-            currentActivePlayer.replaceCurrentItem(with: nil)
+            currentActivePlayer?.pause()
+            currentActivePlayer?.replaceCurrentItem(with: nil)
 
             self.isHotSwapTrialActive = false
             let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
@@ -1782,43 +1918,43 @@ final class PlayerManager: NSObject, ObservableObject {
                 isHotSwapTrial: false,
                 prewarmedPlayer: nextPlayer,
                 prewarmedItem: nextItem,
-                resourceLoader: loader
+                resourceLoader: candidate.loader
             )
             ATMusicLogger.shared.log("🚀 [Hot-Swap] 无缝热置换彻底完成！0ms中断平滑过渡至全曲：\(song.name)", level: .info)
         }
+        candidate.executeHandover = executeHandover
 
-        observation = nextItem.observe(\.status, options: [.new, .initial]) { [weak nextItem] item, _ in
+        candidate.statusObservation = nextItem.observe(\.status, options: [.new, .initial]) { [weak self, candidate] item, _ in
             if item.status == .readyToPlay {
-                DispatchQueue.main.async {
-                    executeHandover()
-                }
+                DispatchQueue.main.async { candidate.executeHandover?() }
             } else if item.status == .failed {
-                observation?.invalidate()
-                observation = nil
+                candidate.statusObservation?.invalidate()
+                candidate.itemFailed = true
                 ATMusicLogger.shared.log("⚠️ [Hot-Swap] 完整音轨预热加载失败，保留当前试听播放：\(song.name)", level: .warn)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.hotSwapCandidate === candidate, candidate.trialEnded else { return }
+                    self.advanceAfterFailedHotSwap(candidate: candidate, reason: "热置换音轨加载失败")
+                }
             }
         }
 
         let targetRate = Float(self.rate)
-        nextPlayerStatusObserver = nextPlayer.observe(\.status, options: [.new, .initial]) { [weak nextPlayer] observedPlayer, _ in
+        candidate.playerStatusObservation = nextPlayer.observe(\.status, options: [.new, .initial]) { [candidate] observedPlayer, _ in
             guard observedPlayer.status == .readyToPlay else { return }
-            nextPlayerStatusObserver?.invalidate()
-            nextPlayerStatusObserver = nil
-            observedPlayer.preroll(atRate: targetRate) { [weak nextPlayer] finished in
+            candidate.playerStatusObservation?.invalidate()
+            observedPlayer.preroll(atRate: targetRate) { finished in
                 if finished {
-                    DispatchQueue.main.async {
-                        executeHandover()
-                    }
+                    DispatchQueue.main.async { candidate.executeHandover?() }
                 }
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            if !didHandover && nextItem.status != .failed {
-                executeHandover()
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self, candidate] in
+            guard let self, self.hotSwapCandidate === candidate, !candidate.didHandover, candidate.item.status != .failed else { return }
+            candidate.executeHandover?()
         }
     }
+
 
     private func setupPlayer(
         url: URL,
@@ -1925,6 +2061,7 @@ final class PlayerManager: NSObject, ObservableObject {
         player.automaticallyWaitsToMinimizeStalling = false
         player.rate = Float(rate)
         self.player = player
+        activeItemSongKey = loadedSong.identityKey
 
         // 写入 AudioURLCache 内存池（试听片段不写入缓存，避免污染后续播放）
         if !isHotSwapTrial {
@@ -2083,6 +2220,7 @@ final class PlayerManager: NSObject, ObservableObject {
             guard let self else { return }
             if self.isHotSwapTrialActive {
                 ATMusicLogger.shared.log("⚠️ 试听音频播放完毕但全曲热置换仍在进行中，暂时保持等待...", level: .info)
+                self.handleTrialPlaybackEnded(loadedSong: loadedSong, generation: playbackGeneration)
                 return
             }
             if self.playMode == .repeatOne {
