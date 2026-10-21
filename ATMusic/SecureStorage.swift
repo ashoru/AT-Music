@@ -126,7 +126,7 @@ final class SecureStorage {
         if status == errSecItemNotFound {
             var add = query(key)
             add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(add as CFDictionary, nil)
         }
 
