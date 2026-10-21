@@ -53,7 +53,7 @@ struct SynologyMusicView: View {
                 await loadData()
             }
         }
-        .onChange(of: synology.libraryIndexRevision) { _, _ in
+        .onChange(of: synology.libraryIndexRevision) { _ in
             guard synology.isLoggedIn else { return }
             Task { await loadData() }
         }
