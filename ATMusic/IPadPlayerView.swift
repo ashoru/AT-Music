@@ -626,7 +626,7 @@ struct IPadPlayerView: View {
                     .padding(.horizontal, isCompact ? 20 : 32)
                 }
             }
-            .onChange(of: clock.currentTime) { _, currentTime in
+            .onChange(of: clock.currentTime) { currentTime in
                 guard autoScrollEnabled, !lyrics.isEmpty else { return }
                 if let currentLineID = findCurrentLineID(at: currentTime) {
                     withAnimation(.easeInOut(duration: 0.35)) {
