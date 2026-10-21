@@ -77,8 +77,10 @@ struct RootView: View {
                     showPlayer: $showPlayer,
                     nowPlayingTransition: nowPlayingTransition
                 )
-            } else {
+            } else if #available(iOS 26.0, *) {
                 modernSystemTabs
+            } else {
+                classicTabs
             }
         }
         .preferredColorScheme(themeMode.colorScheme)
@@ -257,6 +259,45 @@ struct RootView: View {
                     transitionNamespace: nowPlayingTransition
                 )
                 .environmentObject(player.clock)
+            }
+        }
+        .background {
+            TabBarAppearanceConfigurator(
+                hidesSystemTabBarOnLegacy: false,
+                hidesSystemTabBarOnModern: false,
+                onHomeLongPress: { showHomePlatformMenu = true }
+            )
+        }
+    }
+
+    /// iOS 16-25：传统 `TabView`（`.tabItem` 语法）。
+    /// iOS 26 及以上走 `modernSystemTabs` 的系统 Tab + Liquid Glass 容器。
+    private var classicTabs: some View {
+        TabView(selection: $selection) {
+            DiscoverView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("主页", systemImage: "house") }
+                .tag(RootTab.discover)
+            FeaturedView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("精选", systemImage: "square.grid.2x2") }
+                .tag(RootTab.featured)
+            MusicLibraryHomeView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("音乐库", systemImage: "rectangle.stack.badge.play") }
+                .tag(RootTab.library)
+            ProfileView()
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tag(RootTab.profile)
+            SearchView()
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tag(RootTab.search)
+        }
+        .tint(Color.atmusicAmber)
+        .modifier(ATMusicSystemTabGlobalStyle(style: uiStyle))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if player.currentSong != nil {
+                MiniPlayerView(showPlayer: $showPlayer, presentation: .dock)
+                    .environmentObject(player.clock)
+                    .environmentObject(theme)
+                    .environmentObject(favorites)
             }
         }
         .background {
