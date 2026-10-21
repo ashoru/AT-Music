@@ -2271,14 +2271,24 @@ struct AlbumDetailView: View {
     // MARK: - iPad 宽屏两栏全景专辑布局（对标 iPadOS Apple Music 专辑页规范）
 
     private var iPadAlbumLayout: some View {
-        HStack(alignment: .top, spacing: 32) {
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width
+            if availableWidth >= 740 {
+                wideAlbumLayout(availableWidth: availableWidth)
+            } else {
+                compactAlbumLayout(availableWidth: availableWidth)
+            }
+        }
+    }
+
+    private func wideAlbumLayout(availableWidth: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 28) {
             // 左栏：240pt 大封面 + 专辑属性与 NAS 规格看板 + 快捷播控
             VStack(alignment: .leading, spacing: 18) {
-                CoverImage(url: album.coverURL, size: 240, cornerRadius: 24)
-                    .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+                CoverImage(url: album.coverURL, size: 220, cornerRadius: 22)
+                    .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 8)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    // 音源专属属性胶囊（平台 vs NAS 无损库清晰区分）
                     sourceBadge
 
                     Text(album.name)
@@ -2315,7 +2325,6 @@ struct AlbumDetailView: View {
                     .foregroundStyle(Color.atmusicComment)
                 }
 
-                // NAS 专属高解析无损库看板
                 if album.source == .synology {
                     nasMasterSpecBar
                 }
@@ -2339,11 +2348,12 @@ struct AlbumDetailView: View {
 
                 Spacer(minLength: 0)
             }
-            .frame(width: 260)
-            .padding(.leading, 32)
+            .frame(width: 240)
+            .padding(.leading, 28)
             .padding(.top, 24)
 
-            // 右栏：多 CD 分盘或双列自适应歌曲网格
+            // 右栏：自适应网格或流畅滚动歌曲列表
+            let rightWidth = availableWidth - 240 - 28 - 28 - 28
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if discGroups.count > 1 {
@@ -2351,7 +2361,7 @@ struct AlbumDetailView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 discSectionHeader(discNumber: group.disc, songs: group.songs)
 
-                                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
                                         let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
                                         SongCell(
@@ -2383,9 +2393,9 @@ struct AlbumDetailView: View {
                         }
                         .padding(.top, 4)
 
-                        LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                        LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                             ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                               let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
                                 SongCell(
                                     song: song,
                                     glassRow: true,
@@ -2405,7 +2415,84 @@ struct AlbumDetailView: View {
                         }
                     }
                 }
-                .padding(.trailing, 32)
+                .padding(.trailing, 28)
+                .padding(.bottom, 120)
+            }
+        }
+    }
+
+    private func compactAlbumLayout(availableWidth: CGFloat) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                // 顶部横向摘要横幅
+                HStack(alignment: .top, spacing: 16) {
+                    CoverImage(url: album.coverURL, size: 130, cornerRadius: 16)
+                        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        sourceBadge
+                        Text(album.name)
+                            .font(ATMusicFont.appFont(18, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                            .lineLimit(2)
+
+                        Text(album.artistName.isEmpty ? "未知歌手" : album.artistName)
+                            .font(ATMusicFont.appFont(13, .medium))
+                            .foregroundStyle(Color.atmusicAmber)
+
+                        Text(atmusicSongCountText(sortedTracks.count))
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+
+                        Spacer(minLength: 4)
+
+                        HStack(spacing: 10) {
+                            GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                player.play(songs: sortedTracks, startAt: 0)
+                            }
+                            GlassIconButton(systemName: "shuffle", size: 38, active: false) {
+                                guard !sortedTracks.isEmpty else { return }
+                                player.play(songs: sortedTracks.shuffled(), startAt: 0)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                if album.source == .synology {
+                    nasMasterSpecBar.padding(.horizontal, 20)
+                }
+
+                HStack {
+                    Text("歌曲列表 (\(sortedTracks.count))")
+                        .font(ATMusicFont.appFont(16, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
+                    ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                        SongCell(
+                            song: song,
+                            glassRow: true,
+                            playbackContext: sortedTracks,
+                            playbackIndex: index,
+                            trackNumber: displayNo
+                        ) {
+                            player.play(songs: sortedTracks, startAt: index)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.primary.opacity(0.03))
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 120)
             }
         }

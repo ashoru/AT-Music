@@ -54,20 +54,34 @@ public struct DeviceLayoutHelper {
         }
     }
 
-    /// 自适应歌曲列表列配置
+    /// 自适应歌曲列表列配置（基于尺寸类与自适应宽度保护）
     /// - iPhone / Compact: 单列直排
-    /// - iPad Regular: 左右双列并排（类似 iPadOS Apple Music 歌单与搜索歌曲展示）
+    /// - iPad Regular: 采用自适应宽度（最小 280pt），容器空间不足时自动降级为 1 列，杜绝歌名被挤压消失
     public static func songListColumns(
         for horizontalSizeClass: UserInterfaceSizeClass?,
         spacing: CGFloat = 16
     ) -> [GridItem] {
         if isIPadRegular(horizontalSizeClass) {
             return [
-                GridItem(.flexible(), spacing: spacing),
-                GridItem(.flexible(), spacing: spacing)
+                GridItem(.adaptive(minimum: 280, maximum: .infinity), spacing: spacing)
             ]
         } else {
             return [GridItem(.flexible())]
+        }
+    }
+
+    /// 依据当前容器可用宽度动态分配歌曲网格列（对标 Apple Music iPad 官方流态）
+    /// - 容器宽度 < 580pt: 保证 1 列全宽展开（大屏竖屏、1/2 半分屏等场景完美呈现完整歌名、歌手与操作）
+    /// - 容器宽度 >= 580pt: 依据 280pt 最小跨度平滑呈现 2~3 列
+    public static func songListColumns(
+        forAvailableWidth width: CGFloat,
+        minWidth: CGFloat = 280,
+        spacing: CGFloat = 16
+    ) -> [GridItem] {
+        if width < 580 {
+            return [GridItem(.flexible())]
+        } else {
+            return [GridItem(.adaptive(minimum: minWidth, maximum: .infinity), spacing: spacing)]
         }
     }
 

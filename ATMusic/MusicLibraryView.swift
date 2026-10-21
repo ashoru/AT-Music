@@ -210,31 +210,7 @@ struct MusicLibraryHomeView: View {
     @State private var newPlaylistName = ""
 
     private var allFavoriteSongs: [Song] {
-        var songs: [Song] = []
-        var seen = Set<String>()
-        if let localFav = localStore.playlists.first(where: { $0.name == "我的收藏歌单" || $0.name == "三平台喜欢" }) {
-            for song in localFav.songs where !seen.contains(song.identityKey) {
-                seen.insert(song.identityKey)
-                songs.append(song)
-            }
-        }
-        for song in favorites.neteaseFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.qqFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.kugouFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.synologyFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        return songs
+        favorites.unifiedFavoriteSongs()
     }
 
     private var isNativeClean: Bool {
@@ -334,7 +310,16 @@ struct MusicLibraryHomeView: View {
             }
             .navigationBarHidden(true)
         }
-        .task { await playlistStore.load(auth: auth, force: false) }
+        .task {
+            async let p: () = playlistStore.load(auth: auth, force: false)
+            async let f: () = favorites.syncAllFromCloud()
+            _ = await (p, f)
+        }
+        .refreshable {
+            async let p: () = playlistStore.load(auth: auth, force: true)
+            async let f: () = favorites.syncAllFromCloud()
+            _ = await (p, f)
+        }
     }
 
     private var header: some View {
@@ -1800,39 +1785,35 @@ struct UnifiedFavoritesDetailView: View {
     @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var favorites = FavoritesStore.shared
     @State private var query = ""
+    @State private var selectedPlatformFilter: String = "全部"
+    @State private var isSyncing = false
 
     private var allSongs: [Song] {
-        var songs: [Song] = []
-        var seen = Set<String>()
-        if let localFav = localStore.playlists.first(where: { $0.name == "我的收藏歌单" || $0.name == "三平台喜欢" }) {
-            for song in localFav.songs where !seen.contains(song.identityKey) {
-                seen.insert(song.identityKey)
-                songs.append(song)
-            }
+        favorites.unifiedFavoriteSongs()
+    }
+
+    private var filteredByPlatformSongs: [Song] {
+        switch selectedPlatformFilter {
+        case "本地":
+            return allSongs.filter { $0.source == .local }
+        case "网易云":
+            return allSongs.filter { $0.source == .netease }
+        case "QQ":
+            return allSongs.filter { $0.source == .qq }
+        case "酷狗":
+            return allSongs.filter { $0.source == .kugou }
+        case "NAS":
+            return allSongs.filter { $0.source == .synology }
+        default:
+            return allSongs
         }
-        for song in favorites.neteaseFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.qqFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.kugouFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        for song in favorites.synologyFavoriteSongs where !seen.contains(song.identityKey) {
-            seen.insert(song.identityKey)
-            songs.append(song)
-        }
-        return songs
     }
 
     private var displayedSongs: [Song] {
+        let base = filteredByPlatformSongs
         let kw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return allSongs }
-        return allSongs.filter {
+        guard !kw.isEmpty else { return base }
+        return base.filter {
             $0.name.lowercased().contains(kw)
                 || $0.artists.lowercased().contains(kw)
                 || $0.album.lowercased().contains(kw)
@@ -1847,6 +1828,13 @@ struct UnifiedFavoritesDetailView: View {
                     iPadFavoritesLayout
                 } else {
                     List {
+                        Section {
+                            platformFilterBar
+                                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                        }
+
                         if !displayedSongs.isEmpty {
                             Section {
                                 HStack(spacing: 10) {
@@ -1907,32 +1895,117 @@ struct UnifiedFavoritesDetailView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+                HStack(spacing: 12) {
                     Button {
-                        DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                        Task {
+                            isSyncing = true
+                            ATMusicHaptics.tap()
+                            await favorites.syncAllFromCloud()
+                            isSyncing = false
+                            ToastCenter.shared.show("全平台红心同步已完成")
+                            ATMusicHaptics.success()
+                        }
                     } label: {
-                        Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                        if isSyncing {
+                            ProgressView().tint(Color.atmusicAmber)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
                     }
-                    .disabled(displayedSongs.isEmpty)
+                    .disabled(isSyncing)
+                    .accessibilityLabel("同步云端红心")
 
-                    if SynologyAPI.shared.isLoggedIn {
+                    Menu {
                         Button {
-                            DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                            DownloadManager.shared.startBatchDownload(songs: displayedSongs)
                         } label: {
-                            Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            Label("下载全部歌曲", systemImage: "arrow.down.circle")
                         }
                         .disabled(displayedSongs.isEmpty)
+
+                        if SynologyAPI.shared.isLoggedIn {
+                            Button {
+                                DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                            } label: {
+                                Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            }
+                            .disabled(displayedSongs.isEmpty)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    .accessibilityLabel("更多操作")
                 }
-                .accessibilityLabel("更多操作")
             }
+        }
+        .task {
+            await favorites.syncAllFromCloud()
+        }
+        .refreshable {
+            await favorites.syncAllFromCloud()
+        }
+    }
+
+    private var platformFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(["全部", "本地", "网易云", "QQ", "酷狗", "NAS"], id: \.self) { item in
+                    let isSelected = selectedPlatformFilter == item
+                    let count: Int = {
+                        switch item {
+                        case "本地": return allSongs.filter { $0.source == .local }.count
+                        case "网易云": return allSongs.filter { $0.source == .netease }.count
+                        case "QQ": return allSongs.filter { $0.source == .qq }.count
+                        case "酷狗": return allSongs.filter { $0.source == .kugou }.count
+                        case "NAS": return allSongs.filter { $0.source == .synology }.count
+                        default: return allSongs.count
+                        }
+                    }()
+                    Button {
+                        ATMusicHaptics.select()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedPlatformFilter = item
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(item)
+                            Text("\(count)")
+                                .font(ATMusicFont.appFont(10, .bold))
+                                .opacity(0.8)
+                        }
+                        .font(ATMusicFont.appFont(13, isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? Color.white : Color.atmusicComment)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background {
+                            if isSelected {
+                                Capsule().fill(Color.atmusicAmber)
+                            } else {
+                                Capsule().fill(Color.primary.opacity(0.06))
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
         }
     }
 
     private var iPadFavoritesLayout: some View {
-        HStack(alignment: .top, spacing: 32) {
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width
+            if availableWidth >= 740 {
+                wideFavoritesLayout(availableWidth: availableWidth)
+            } else {
+                compactFavoritesLayout(availableWidth: availableWidth)
+            }
+        }
+    }
+
+    private func wideFavoritesLayout(availableWidth: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -1943,35 +2016,35 @@ struct UnifiedFavoritesDetailView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 240, height: 240)
+                        .frame(width: 220, height: 220)
                         .shadow(color: Color.red.opacity(0.28), radius: 18, x: 0, y: 10)
 
                     let covers = Array(allSongs.compactMap(\.coverURL).prefix(4))
                     if covers.count >= 4 {
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
                             ForEach(0..<4, id: \.self) { idx in
-                                CoverImage(url: covers[idx], size: 108, cornerRadius: 10)
+                                CoverImage(url: covers[idx], size: 100, cornerRadius: 10)
                             }
                         }
-                        .frame(width: 224, height: 224)
+                        .frame(width: 206, height: 206)
                         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
                                 .fill(Color.black.opacity(0.25))
                             Image(systemName: "heart.fill")
-                                .font(.system(size: 64, weight: .bold))
+                                .font(.system(size: 60, weight: .bold))
                                 .foregroundStyle(.white)
                                 .shadow(radius: 6)
                         }
                     } else {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 80, weight: .bold))
+                            .font(.system(size: 76, weight: .bold))
                             .foregroundStyle(.white)
                             .shadow(radius: 6)
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("我喜欢的音乐")
                         .font(ATMusicFont.appFont(22, .bold))
                         .foregroundStyle(Color.atmusicLabel)
@@ -1981,7 +2054,7 @@ struct UnifiedFavoritesDetailView: View {
                         .foregroundStyle(Color.atmusicComment)
 
                     Text(atmusicSongCountText(displayedSongs.count))
-                        .font(ATMusicFont.appFont(13))
+                        .font(ATMusicFont.appFont(12))
                         .foregroundStyle(Color.atmusicComment)
                 }
 
@@ -1996,12 +2069,16 @@ struct UnifiedFavoritesDetailView: View {
                     }
                 }
 
+                platformFilterBar
+                    .padding(.horizontal, -16)
+
                 Spacer(minLength: 0)
             }
-            .frame(width: 260)
-            .padding(.leading, 32)
+            .frame(width: 240)
+            .padding(.leading, 28)
             .padding(.top, 24)
 
+            let rightWidth = availableWidth - 240 - 28 - 28 - 28
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -2012,7 +2089,7 @@ struct UnifiedFavoritesDetailView: View {
                     }
                     .padding(.top, 24)
 
-                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                         ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
                             SongCell(
                                 song: song,
@@ -2036,7 +2113,92 @@ struct UnifiedFavoritesDetailView: View {
                         }
                     }
                 }
-                .padding(.trailing, 32)
+                .padding(.trailing, 28)
+                .padding(.bottom, 120)
+            }
+        }
+    }
+
+    private func compactFavoritesLayout(availableWidth: CGFloat) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 16) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(red: 0.94, green: 0.22, blue: 0.35), Color(red: 0.88, green: 0.14, blue: 0.45)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 120, height: 120)
+
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 48, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 4)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("我喜欢的音乐")
+                            .font(ATMusicFont.appFont(18, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+
+                        Text("全平台与本地收藏聚合 · \(displayedSongs.count) 首")
+                            .font(ATMusicFont.appFont(12, .medium))
+                            .foregroundStyle(Color.atmusicComment)
+
+                        Spacer(minLength: 4)
+
+                        HStack(spacing: 10) {
+                            GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                player.play(songs: displayedSongs, startAt: 0)
+                            }
+                            GlassIconButton(systemName: "shuffle", size: 38, active: false) {
+                                player.play(songs: displayedSongs.shuffled(), startAt: 0)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                platformFilterBar
+                    .padding(.horizontal, 4)
+
+                HStack {
+                    Text("歌曲列表 (\(displayedSongs.count))")
+                        .font(ATMusicFont.appFont(16, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
+                    ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                        SongCell(
+                            song: song,
+                            glassRow: true,
+                            playbackContext: displayedSongs,
+                            playbackIndex: index,
+                            favoriteToggle: {
+                                Task {
+                                    await favorites.toggleFavorite(song)
+                                }
+                            }
+                        ) {
+                            player.play(songs: displayedSongs, startAt: index)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.primary.opacity(0.03))
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 120)
             }
         }

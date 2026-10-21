@@ -149,7 +149,7 @@ struct IPadPlayerView: View {
         }
         .sheet(isPresented: $showSignalPath) {
             AudioSignalPathSheet(song: song)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .environmentObject(player)
                 .environmentObject(theme)
         }

@@ -48,6 +48,37 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-105",
+            version: "1.9.36",
+            title: "全平台红心收藏聚合与 iPad 歌单大屏排版深度重塑",
+            features: [
+                "音乐库我喜欢的音乐深度对齐歌单管理：自动聚合网易云、QQ音乐、酷狗、群晖 NAS 云端红心及本地全部收藏歌单（含一键同步的多平台喜欢歌单），无缝去重展示",
+                "红心曲库支持云端并发双向同步：进入音乐库或详情页时自动并发拉取各平台最新红心数据，新增工具栏一键刷新与平台快速筛选胶囊（全部/本地/网易云/QQ/酷狗/NAS）",
+                "iPad 歌单、专辑与收藏详情页大屏自适应排版重构：引入基于可用宽度的双流态响应架构（宽屏两栏全景 / 窄屏竖屏顶部卡片+全宽歌曲流），彻底解决 iPad 竖屏与侧栏展开时歌曲名称被压缩遮挡、无法显示的排版缺陷",
+                "歌曲列表网格智能防截断算法：DeviceLayoutHelper.songListColumns 保证单列跨度不小于 280pt，容器宽度受限时自动平滑回退为舒适单列，保证歌名与元数据 100% 完整舒展"
+            ],
+            fixes: [
+                "彻底解决 iPad 竖屏状态下打开歌单歌曲名称无法显示的致命布局 Bug",
+                "修复音乐库首页我喜欢的音乐未能完整纳入歌单管理一键同步歌单的聚合缺陷"
+            ]
+        ),
+
+        VersionLog(
+            id: "1.9.36-build-104",
+            version: "1.9.36",
+            title: "彻底消除真机栈溢出闪退：AnyView 深度类型擦除与轻量化构建",
+            features: [
+                "对标 Apple 规范重塑 SettingsView 架构：将 5 大核心卡片、主体内容区及 Detail 路由全面接入 AnyView 类型擦除，将 static type 深度从数百层彻底斩断降维至 1 层",
+                "彻底解决真机（iOS 18+ / iOS 26+）在 NavigationStack.init 与 AttributeGraph 深度递归时触发 ___chkstk_darwin 栈溢出闪退致命缺陷",
+                "搜索匹配由直接传值改为延迟求值（@ViewBuilder 闭包），未命中时不进行任何子视图求值与堆栈压入",
+                "版本号展示修复为随 Bundle 自动读取动态构建号"
+            ],
+            fixes: [
+                "根治真机上打开设置立即崩溃（AttributeGraph 递归 / ___chkstk_darwin）问题"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-102",
             version: "1.9.36",
             title: "彻底修复 iPad 打开设置闪退，对齐 Apple Music 原生设置分栏",

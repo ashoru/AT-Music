@@ -54,7 +54,7 @@ struct SectionOrderSheet: View {
         Group {
             if #available(iOS 16.0, *) {
                 listView
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents(DeviceLayoutHelper.isIPad ? [.large] : [.medium, .large])
                     .presentationDragIndicator(.visible)
             } else {
                 listView

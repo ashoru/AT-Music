@@ -427,11 +427,13 @@ struct IPadRootView: View {
             .environmentObject(player)
             .environmentObject(theme)
         case .settings:
-            SettingsView()
-                .environmentObject(theme)
-                .environmentObject(player)
-                .environmentObject(auth)
-                .environmentObject(favorites)
+            AnyView(
+                SettingsView()
+                    .environmentObject(theme)
+                    .environmentObject(player)
+                    .environmentObject(auth)
+                    .environmentObject(favorites)
+            )
         }
     }
 

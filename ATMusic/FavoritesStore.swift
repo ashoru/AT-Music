@@ -142,6 +142,70 @@ final class FavoritesStore: ObservableObject {
         saveSongs(qqFavoriteSongs, key: qqKey)
     }
 
+    /// 从网易云云端同步“我喜欢的音乐”
+    @MainActor
+    func syncNetEaseFromCloud() async {
+        guard NetEaseAPI.shared.isLoggedIn, let uid = AuthStore.shared.user?.uid else { return }
+        guard let playlists = try? await NetEaseAPI.shared.userPlaylists(uid: uid) else { return }
+        guard let liked = playlists.first(where: { $0.specialType == 5 || $0.name == "我喜欢的音乐" || $0.name.contains("喜欢") }) else { return }
+        guard let songs = try? await NetEaseAPI.shared.playlistTracks(id: liked.id), !songs.isEmpty else { return }
+        neteaseFavoriteSongs = songs
+        saveSongs(neteaseFavoriteSongs, key: neteaseKey)
+    }
+
+    /// 从酷狗音乐云端同步“我的喜欢 / 默认收藏”
+    @MainActor
+    func syncKugouFromCloud() async {
+        guard KugouMusicAuth.shared.isLoggedIn else { return }
+        guard let playlists = try? await KugouMusicAPI.shared.userPlaylists() else { return }
+        guard let liked = playlists.first(where: {
+            let name = $0.name.replacingOccurrences(of: " ", with: "")
+            return name.contains("喜欢") || name.contains("收藏") || name.contains("红心")
+        }) else { return }
+        guard let songs = try? await KugouMusicAPI.shared.playlistSongs(listID: liked.id), !songs.isEmpty else { return }
+        kugouFavoriteSongs = songs
+        saveSongs(kugouFavoriteSongs, key: kugouKey)
+    }
+
+    /// 自动并发同步已登录各在线平台的红心收藏歌曲
+    @MainActor
+    func syncAllFromCloud() async {
+        async let qq: () = syncQQFromCloud()
+        async let netease: () = syncNetEaseFromCloud()
+        async let kugou: () = syncKugouFromCloud()
+        _ = await (qq, netease, kugou)
+    }
+
+    /// 聚合全平台与本地的所有红心收藏歌曲（严格聚合本地收藏歌单、一键同步歌单与多平台云端红心）
+    @MainActor
+    func unifiedFavoriteSongs() -> [Song] {
+        var songs: [Song] = []
+        var seen = Set<String>()
+        // 1. 本地所有包含“喜欢”、“收藏”、“红心”的歌单（包括一键同步生成的三平台喜欢、网易云+QQ喜欢等）
+        for localFav in LocalLibraryStore.shared.playlists where (localFav.name.contains("喜欢") || localFav.name.contains("收藏") || localFav.name.contains("红心")) {
+            for song in localFav.songs where seen.insert(song.identityKey).inserted {
+                songs.append(song)
+            }
+        }
+        // 2. 网易云已同步红心
+        for song in neteaseFavoriteSongs where seen.insert(song.identityKey).inserted {
+            songs.append(song)
+        }
+        // 3. QQ 音乐已同步红心
+        for song in qqFavoriteSongs where seen.insert(song.identityKey).inserted {
+            songs.append(song)
+        }
+        // 4. 酷狗音乐已同步红心
+        for song in kugouFavoriteSongs where seen.insert(song.identityKey).inserted {
+            songs.append(song)
+        }
+        // 5. 群晖 NAS 收藏
+        for song in synologyFavoriteSongs where seen.insert(song.identityKey).inserted {
+            songs.append(song)
+        }
+        return songs
+    }
+
     private func updateNetease(_ song: Song, liked: Bool) {
         if liked {
             neteaseFavoriteSongs.removeAll { $0.id == song.id }

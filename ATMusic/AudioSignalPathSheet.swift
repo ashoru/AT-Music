@@ -323,7 +323,7 @@ struct AudioQualityCapsule: View {
             .buttonStyle(.plain)
             .sheet(isPresented: $showSignalPath) {
                 AudioSignalPathSheet(song: song)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents(DeviceLayoutHelper.isIPad ? [.large] : [.medium, .large])
                     .environmentObject(theme)
                     .environmentObject(player)
             }

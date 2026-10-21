@@ -1,5 +1,25 @@
 # AT Music 更新日志
 
+## 1.9.36 build 105
+
+### 全平台红心收藏聚合与 iPad 歌单大屏排版深度重塑
+- **我喜欢的音乐深度对齐歌单管理**：
+  - 彻底打通多平台红心链路：FavoritesStore 补齐网易云（syncNetEaseFromCloud）与酷狗（syncKugouFromCloud）云端红心曲库同步，配合 QQ 音乐形成 syncAllFromCloud() 自动并发同步机制；
+  - 真正实现“全平台与本地聚合”：unifiedFavoriteSongs 自动整合本地所有包含“喜欢”、“收藏”、“红心”的歌单（涵盖歌单管理中“一键同步歌单”生成的各平台合并歌单）及各平台云端红心，智能去重保序；
+  - 详情页体验升级：新增多平台筛选胶囊（全部/本地/网易云/QQ/酷狗/NAS）、实时歌曲数量角标与工具栏一键全平台同步按钮。
+- **iPad 歌单与专辑详情页响应式重排（彻底解决竖屏歌名截断）**：
+  - 引入基于可用宽度的动态双流态架构（GeometryReader）：
+    - **可用宽度 >= 740pt（横屏/侧栏收起大分屏）**：采用规范的 Apple Music 两栏全景布局，左侧 240pt 高清封面与中控台，右侧自适应 2~3 列歌曲网格；
+    - **可用宽度 < 740pt（竖屏/侧栏常驻/半分屏）**：自动流转为顶部横向精致摘要横幅 + 下方全宽歌曲列表流，彻底告别双栏挤压；
+  - **自适应歌曲列智能防截断**：DeviceLayoutHelper.songListColumns 保证单列最小宽度至少 280pt，容器宽度受限时自动智能回退至 1 列，确保歌名、歌手、音质角标与播控按钮 100% 舒展显示、零文字遮挡。
+
+## 1.9.36 build 104
+
+### 彻底根除真机栈溢出闪退：AnyView 深度类型擦除与轻量化构建
+- **AnyView 扁平化类型树**：将 SettingsView 的 5 大核心卡片、settingsBodyContent 以及 iPad Detail 路由全面接入 AnyView。彻底打破单一 Swift struct 产生数百层嵌套泛型的怪圈，将 NavigationStack.init<Root> 的 Root 静态类型深度直接压至 1 层。
+- **根治 ___chkstk_darwin 栈溢出**：彻底消除 iOS 真机在 AttributeGraph 运行时对超深嵌套类型进行 swift_getTypeByMangledName 反混淆解析时耗尽调用栈导致的即刻崩溃。
+- **延迟加载与内存保护**：settingsCard 过滤改造为惰性闭包，搜索未命中时直接返回 AnyView(EmptyView())，不执行卡片内部视图构建，避免同时将 5 张大卡片压入栈帧。
+
 ## 1.9.36 build 102
 
 ### 彻底修复 iPad 打开设置闪退，对齐 Apple Music 原生设置分栏

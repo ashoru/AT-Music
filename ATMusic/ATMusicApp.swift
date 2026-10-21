@@ -4,7 +4,7 @@ import UIKit
 @main
 struct ATMusicApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var auth = AuthStore()
+    @StateObject private var auth = AuthStore.shared
     @StateObject private var player = PlayerManager()
     @StateObject private var theme = ThemeStore.shared
     @StateObject private var favorites = FavoritesStore.shared

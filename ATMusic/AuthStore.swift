@@ -1,6 +1,9 @@
 import Foundation
 
 final class AuthStore: ObservableObject {
+    /// 全局唯一登录态单例：供 FavoritesStore 等非 SwiftUI 组件读取当前账号
+    static let shared = AuthStore()
+
     @Published var user: NetEaseUser?
     @Published var isLoggedIn = false
     @Published var playlists: [Playlist] = []

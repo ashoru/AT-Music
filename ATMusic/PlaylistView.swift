@@ -215,8 +215,19 @@ struct PlaylistView: View {
     }
 
     private var iPadPlaylistLayout: some View {
-        HStack(alignment: .top, spacing: 32) {
-            // 左栏：固定封面与歌单主要信息 (类似 Apple Music iPad)
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width
+            if availableWidth >= 740 {
+                widePlaylistLayout(availableWidth: availableWidth)
+            } else {
+                compactPlaylistLayout(availableWidth: availableWidth)
+            }
+        }
+    }
+
+    private func widePlaylistLayout(availableWidth: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 28) {
+            // 左栏：固定封面与歌单主要信息 (类似 Apple Music iPad 宽屏两栏)
             VStack(alignment: .leading, spacing: 18) {
                 CoverImage(url: resolvedCoverURL ?? playlist.coverURL, size: 220, cornerRadius: 20)
                     .aspectRatio(1, contentMode: .fit)
@@ -273,10 +284,11 @@ struct PlaylistView: View {
                 Spacer(minLength: 0)
             }
             .frame(width: 240)
-            .padding(.leading, 32)
+            .padding(.leading, 28)
             .padding(.top, 24)
 
-            // 右栏：双列网格或流畅滚动歌曲列表
+            // 右栏：自适应网格或流畅滚动歌曲列表
+            let rightWidth = availableWidth - 240 - 28 - 28 - 28
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -287,7 +299,7 @@ struct PlaylistView: View {
                     }
                     .padding(.top, 24)
 
-                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
+                    LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                         ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
                             SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
                                 player.play(songs: displayedTracks, startAt: index)
@@ -301,7 +313,84 @@ struct PlaylistView: View {
                         }
                     }
                 }
-                .padding(.trailing, 32)
+                .padding(.trailing, 28)
+                .padding(.bottom, 120)
+            }
+        }
+    }
+
+    private func compactPlaylistLayout(availableWidth: CGFloat) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                // 顶部横向摘要横幅卡片：针对 iPad 竖屏、半分屏优化，杜绝左栏挤压
+                HStack(alignment: .top, spacing: 16) {
+                    CoverImage(url: resolvedCoverURL ?? playlist.coverURL, size: 130, cornerRadius: 16)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(width: 130, height: 130)
+                        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(playlist.name)
+                            .font(ATMusicFont.appFont(18, .bold))
+                            .foregroundStyle(Color.atmusicLabel)
+                            .lineLimit(2)
+
+                        HStack(spacing: 6) {
+                            SourceBadgeView(source: playlist.source)
+                            Text(displayCreatorName)
+                                .font(ATMusicFont.appFont(12, .medium))
+                                .foregroundStyle(Color.atmusicComment)
+                        }
+
+                        Text(atmusicSongCountText(tracks.isEmpty ? playlist.trackCount : tracks.count))
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+
+                        Spacer(minLength: 4)
+
+                        HStack(spacing: 10) {
+                            GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
+                                guard !displayedTracks.isEmpty else { return }
+                                player.play(songs: displayedTracks, startAt: 0)
+                            }
+                            .disabled(displayedTracks.isEmpty)
+
+                            GlassIconButton(systemName: "shuffle", size: 38, active: false) {
+                                guard !displayedTracks.isEmpty else { return }
+                                player.play(songs: displayedTracks.shuffled(), startAt: 0)
+                            }
+                            .disabled(displayedTracks.isEmpty)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                playlistSearchRow
+                    .padding(.horizontal, 20)
+
+                HStack {
+                    Text("歌曲列表 (\(displayedTracks.count))")
+                        .font(ATMusicFont.appFont(16, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
+                    ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                        SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
+                            player.play(songs: displayedTracks, startAt: index)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.primary.opacity(0.03))
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 120)
             }
         }

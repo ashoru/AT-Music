@@ -1936,7 +1936,8 @@ struct SettingsView: View {
     }
 
     // ① 卡片 1：账号与多平台服务
-    private var accountAndPlatformCard: some View {
+    private var accountAndPlatformCard: AnyView {
+        AnyView(
         settingsCardContainer(
             title: "账号与多平台服务",
             icon: "person.crop.circle.badge.checkmark",
@@ -1960,10 +1961,12 @@ struct SettingsView: View {
                 platformSection
             }
         }
+        )
     }
 
     // ② 卡片 2：音频品质与播放体验
-    private var audioQualityAndPlaybackCard: some View {
+    private var audioQualityAndPlaybackCard: AnyView {
+        AnyView(
         settingsCardContainer(
             title: "音频品质与播放体验",
             icon: "waveform.badge.magnifyingglass",
@@ -2106,10 +2109,12 @@ struct SettingsView: View {
                 }
             }
         }
+        )
     }
 
     // ③ 卡片 3：第三方音源与解封扩展
-    private var thirdPartySourcesCard: some View {
+    private var thirdPartySourcesCard: AnyView {
+        AnyView(
         settingsCardContainer(
             title: "第三方音源与解封扩展",
             icon: "shippingbox.and.arrow.backward.fill",
@@ -2118,10 +2123,12 @@ struct SettingsView: View {
         ) {
             thirdPartySourceSection
         }
+        )
     }
 
     // ④ 卡片 4：界面外观与主页定制
-    private var appearanceAndPersonalizationCard: some View {
+    private var appearanceAndPersonalizationCard: AnyView {
+        AnyView(
         settingsCardContainer(
             title: "界面外观与主页定制",
             icon: "paintpalette.fill",
@@ -2130,10 +2137,12 @@ struct SettingsView: View {
         ) {
             appearanceSection
         }
+        )
     }
 
     // ⑤ 卡片 5：存储、数据与关于
-    private var storageDataAndAboutCard: some View {
+    private var storageDataAndAboutCard: AnyView {
+        AnyView(
         settingsCardContainer(
             title: "存储、数据与关于",
             icon: "internaldrive.fill",
@@ -2164,6 +2173,7 @@ struct SettingsView: View {
                 referenceCheckUpdateRow
             }
         }
+        )
     }
 
     private var settingsSearchBar: some View {
@@ -2197,53 +2207,8 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ATMusicNavigationStack {
-            ZStack {
-                GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: isNativeClean ? 18 : 14) {
-                        // 顶部快捷搜索栏
-                        settingsSearchBar
-
-                        // 5 大高内聚核心卡片
-                        if settingsMatches("账号 登录 平台 网易云 QQ音乐 酷狗 群晖") {
-                            accountAndPlatformCard
-                        }
-
-                        if settingsMatches("播放 音质 均衡器 混音 续播 Hi-Res 无损 杜比 母带 触感 VIP") {
-                            audioQualityAndPlaybackCard
-                        }
-
-                        if settingsMatches("第三方 音源 脚本 解封 VIP 导入 规则 下载") {
-                            thirdPartySourcesCard
-                        }
-
-                        if settingsMatches("外观 主题 界面 样式 风格 壁纸 字体 底栏 动效 liquid clear compact native") {
-                            appearanceAndPersonalizationCard
-                        }
-
-                        if settingsMatches("存储 缓存 清理 备份 恢复 日志 运行环境 版本 关于 设备 更新") {
-                            storageDataAndAboutCard
-                        }
-
-                        footerNote
-                    }
-                    .padding(.horizontal, isNativeClean ? 18 : 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 40)
-                    .frame(maxWidth: 860)
-                    .frame(maxWidth: .infinity)
-                }
-                .atmusicScrollIndicatorsHidden()
-            }
-            .navigationTitle(isNativeClean ? "" : "设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(isNativeClean)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if !DeviceLayoutHelper.isIPad && !isNativeClean { Button("完成") { dismiss() } }
-                }
-            }
+        NavigationStack {
+            settingsBodyContent
         }
         .preferredColorScheme(themeMode.colorScheme)
         .onAppear {
@@ -2318,6 +2283,61 @@ struct SettingsView: View {
         }
     }
 
+
+    private var settingsBodyContent: AnyView {
+        AnyView(
+            ZStack {
+                GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: isNativeClean ? 18 : 14) {
+                        // 顶部快捷搜索栏
+                        settingsSearchBar
+
+                        // 5 大高内聚核心卡片：通过 settingsCard 闭包 + AnyView 彻底隔断泛型深度
+                        settingsCard("账号 登录 平台 网易云 QQ音乐 酷狗 群晖") {
+                            accountAndPlatformCard
+                        }
+                        settingsCard("播放 音质 均衡器 混音 续播 Hi-Res 无损 杜比 母带 触感 VIP") {
+                            audioQualityAndPlaybackCard
+                        }
+                        settingsCard("第三方 音源 脚本 解封 VIP 导入 规则 下载") {
+                            thirdPartySourcesCard
+                        }
+                        settingsCard("外观 主题 界面 样式 风格 壁纸 字体 底栏 动效 liquid clear compact native") {
+                            appearanceAndPersonalizationCard
+                        }
+                        settingsCard("存储 缓存 清理 备份 恢复 日志 运行环境 版本 关于 设备 更新") {
+                            storageDataAndAboutCard
+                        }
+
+                        footerNote
+                    }
+                    .padding(.horizontal, isNativeClean ? 18 : 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 40)
+                    .frame(maxWidth: 860)
+                    .frame(maxWidth: .infinity)
+                }
+                .atmusicScrollIndicatorsHidden()
+            }
+            .navigationTitle(isNativeClean ? "" : "设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(isNativeClean)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    if !DeviceLayoutHelper.isIPad && !isNativeClean { Button("完成") { dismiss() } }
+                }
+            }
+        )
+    }
+
+    /// 搜索过滤卡片：采用 AnyView 阻断泛型层级递归，从根本上防止 AttributeGraph 与 NavigationStack 栈溢出闪退。
+    private func settingsCard(_ keywords: String, @ViewBuilder content: () -> some View) -> AnyView {
+        guard settingsMatches(keywords) else {
+            return AnyView(EmptyView())
+        }
+        return AnyView(content())
+    }
 
     private var referenceCheckUpdateRow: some View {
         Button {
@@ -3706,7 +3726,7 @@ struct SettingsView: View {
 
     private var footerNote: some View {
         VStack(spacing: 6) {
-            Text("AT Music · v1.9.14 (Build 68)")
+            Text("AT Music · v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") (Build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"))")
                 .font(ATMusicFont.appFont(12, .semibold))
                 .foregroundStyle(Color.atmusicLabel.opacity(0.85))
             Text("仅供学习交流，纯 AI 实现此应用")
