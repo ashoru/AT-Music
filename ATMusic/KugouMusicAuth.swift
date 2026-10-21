@@ -12,11 +12,12 @@ final class KugouMusicAuth: ObservableObject {
     @Published private(set) var avatarURL: URL?
     @Published private(set) var vipBadge: String?
 
-    private let defaults = UserDefaults.standard
+    private let defaults = SecureStorage.shared
     private let key = "atmusic.kugou.auth.v2"
     private var auth: [String: String] = [:]
 
     private init() {
+        defaults.migrateFromUserDefaults([key])
         if let saved = defaults.dictionary(forKey: key) as? [String: String] {
             auth = saved
             apply(saved)
