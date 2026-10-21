@@ -980,6 +980,7 @@ struct SynologyAppleHomeSection: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedAlbum: Album?
+    @State private var recentlyAddedAlbums: [Album] = []
 
     private var nasHistory: [Song] {
         player.history.filter { $0.source == .synology }
@@ -1021,11 +1022,12 @@ struct SynologyAppleHomeSection: View {
             } else if let errorMessage, songs.isEmpty {
                 ErrorStateView(message: errorMessage) { Task { await load() } }
             } else {
-                // 与在线平台统一：推荐 → 歌单 → 最近内容 → 专辑 / 歌手。
+                // 与 NAS 音乐软件的时间线习惯统一：推荐 → 最近添加 → 最近播放 → 收藏 → 歌单 → 专辑 / 歌手。
                 synologySongSection(title: "今日推荐", songs: Array(todayRecommendations.prefix(12)), destination: SynologyRecommendationView(initialSongs: todayRecommendations))
-                synologyPlaylistSection
+                recentlyAddedSection
                 synologySongSection(title: "最近播放", songs: Array(nasHistory.prefix(12)), destination: SynologySongCollectionView(title: "最近播放", songs: nasHistory))
                 synologySongSection(title: "我最喜欢", songs: Array(favorites.synologyFavoriteSongs.prefix(12)), destination: SynologySongCollectionView(title: "我最喜欢", songs: favorites.synologyFavoriteSongs))
+                synologyPlaylistSection
                 synologyAlbumSection
                 synologyArtistSection
             }
@@ -1068,6 +1070,33 @@ struct SynologyAppleHomeSection: View {
                     }
                 }
                 .frame(height: 212)
+            }
+        }
+    }
+
+    private var recentlyAddedSection: some View {
+        Group {
+            if !recentlyAddedAlbums.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    synologySectionHeader(title: "最近添加", destination: SynologyRecentAlbumsView(albums: recentlyAddedAlbums, songs: songs))
+                    GeometryReader { proxy in
+                        let cardWidth = min(160, max(150, (proxy.size.width - 14) / 2))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(recentlyAddedAlbums.prefix(12)) { album in
+                                    Button {
+                                        selectedAlbum = album
+                                    } label: {
+                                        MediaSquareCard(title: album.name, subtitle: album.artistName, coverURL: album.coverURL, showSourceBadge: false)
+                                    }
+                                    .frame(width: cardWidth)
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 212)
+                }
             }
         }
     }
@@ -1193,11 +1222,13 @@ struct SynologyAppleHomeSection: View {
             // 避免大 NAS 曲库把“主页可见时间”绑在 1000 首歌曲请求上。
             async let initialSongs = synology.songs(offset: 0, limit: 240)
             async let fetchedPlaylists = synology.allPlaylists()
+            async let fetchedRecentAlbums = synology.recentlyAddedAlbums()
             let loadedSongs = try await initialSongs
             let loadedPlaylists = try await fetchedPlaylists
 
             songs = loadedSongs
             playlists = loadedPlaylists
+            recentlyAddedAlbums = await fetchedRecentAlbums
             if todayRecommendations.isEmpty || Date().timeIntervalSince(recommendationsUpdatedAt) >= 600 {
                 todayRecommendations = Array(loadedSongs.shuffled().prefix(20))
                 recommendationsUpdatedAt = Date()
@@ -1491,6 +1522,66 @@ struct SynologyAlbumCollectionView: View {
         .atmusicScrollContentBackgroundHidden()
         .listStyle(.plain)
         .navigationTitle("常听专辑")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 最近添加全部页面：顺序即 Audio Station 索引的入库时间倒序，不再二次排序。
+struct SynologyRecentAlbumsView: View {
+    let albums: [Album]
+    let songs: [Song]
+    @EnvironmentObject private var player: PlayerManager
+    @State private var query = ""
+    @State private var selectedAlbum: Album?
+
+    private var filteredAlbums: [Album] {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return albums }
+        return albums.filter {
+            $0.name.localizedCaseInsensitiveContains(keyword) || $0.artistName.localizedCaseInsensitiveContains(keyword)
+        }
+    }
+
+    var body: some View {
+        List {
+            ForEach(filteredAlbums) { album in
+                Button {
+                    selectedAlbum = album
+                } label: {
+                    SynologyLibraryRow(
+                        coverURL: album.coverURL ?? songs.first { $0.album == album.name }?.coverURL,
+                        title: album.name,
+                        subtitle: album.artistName,
+                        systemImage: "square.stack"
+                    )
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .buttonStyle(.plain)
+            }
+        }
+        .sheet(item: $selectedAlbum) { album in
+            ATMusicNavigationStack {
+                SynologyAlbumView(
+                    albumName: album.name,
+                    artistName: album.artistName,
+                    coverURL: album.coverURL,
+                    initialSongs: songs.filter { $0.album == album.name }
+                )
+            }
+            .environmentObject(player)
+        }
+        .overlay {
+            if filteredAlbums.isEmpty {
+                Text("暂无专辑")
+                    .font(ATMusicFont.appFont(14))
+                    .foregroundStyle(Color.atmusicComment)
+            }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索专辑")
+        .atmusicScrollContentBackgroundHidden()
+        .listStyle(.plain)
+        .navigationTitle("最近添加")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

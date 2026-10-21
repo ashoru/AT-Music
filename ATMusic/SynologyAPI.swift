@@ -610,6 +610,43 @@ final class SynologyAPI: ObservableObject {
         return songsArray.compactMap { self.parseSong($0) }
     }
 
+    /// 最近添加的专辑 (SYNO.AudioStation.Album, sort_by=time)。
+    /// 与 Audio Station 官方「最近添加」同款查法：服务端索引存有专辑入库时间，
+    /// 按 time 倒序即入库顺序（该排序值未见于公开文档，取自官方网页版客户端的实际调用）。
+    /// 失败返回空数组，不让首页因为这一块加载失败。
+    func recentlyAddedAlbums(limit: Int = 50) async -> [Album] {
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Album"),
+            URLQueryItem(name: "version", value: "3"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "sort_by", value: "time"),
+            URLQueryItem(name: "sort_direction", value: "DESC"),
+            URLQueryItem(name: "library", value: "all"),
+            URLQueryItem(name: "additional", value: "avg_rating")
+        ]
+
+        guard let json = try? await get("/webapi/AudioStation/album.cgi", query: query, authenticated: true),
+              let data = json["data"] as? [String: Any],
+              let items = data["albums"] as? [[String: Any]] else {
+            return []
+        }
+
+        return items.compactMap { item -> Album? in
+            guard let name = Self.stringValue(item["name"]), !name.isEmpty else { return nil }
+            let artist = Self.stringValue(item["display_artist"]) ?? Self.stringValue(item["album_artist"]) ?? Self.stringValue(item["artist"]) ?? ""
+            return Album(
+                id: "synology-album-\(Self.stableID(name + artist))",
+                name: name,
+                artistName: artist,
+                coverURL: coverURL(albumName: name, artistName: artist),
+                source: .synology,
+                trackCount: nil
+            )
+        }
+    }
+
     /// 分页读取完整音乐库。Audio Station 的搜索接口在不同 DSM/Audio Station 版本上
     /// 返回字段并不一致，因此搜索时会用这份完整目录做本地兜底匹配。
     func librarySongs(pageSize: Int = 500, forceRefresh: Bool = false) async throws -> [Song] {

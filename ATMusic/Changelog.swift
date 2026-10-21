@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-111",
+            version: "1.9.36",
+            title: "NAS 首页新增「最近添加」并重排板块顺序",
+            features: [
+                "新增「最近添加」：直接按群晖媒体索引的入库时间倒序列出最新入库的专辑（与 Audio Station 官方同款），打开即真实顺序；新放进 NAS 的专辑会自动顶到最前面，点专辑直接进入专辑页，「查看全部」可看完整列表并搜索",
+                "板块顺序重排：参考 Navidrome、Audio Station、Plexamp 的首页结构，调整为 今日推荐 → 最近添加 → 最近播放 → 我最喜欢 → 歌单 → 常听专辑 → 常听歌手，时间线内容优先、静态集合后移"
+            ],
+            fixes: []
+        ),
+
+        VersionLog(
             id: "1.9.36-build-110",
             version: "1.9.36",
             title: "内置音源换代：三合一聚合源（全豆要+星海）",
