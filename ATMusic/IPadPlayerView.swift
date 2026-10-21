@@ -707,7 +707,7 @@ struct IPadPlayerView: View {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 14, weight: .bold))
                                     .foregroundStyle(Color.atmusicAmber)
-                                    .symbolEffect(.variableColor.iterative.reversing)
+                                    .modifier(ATMusicWaveformEffect())
                             }
                         }
                         .padding(.horizontal, 20)
