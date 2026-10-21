@@ -498,6 +498,19 @@ struct ATMusicSymbolReplace: ViewModifier {
     }
 }
 
+/// 玻璃过渡容器：iOS 26+ 才支持 `glassEffectTransition`，低版本不施加。
+struct ATMusicGlassTransition: ViewModifier {
+    func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                content.glassEffectTransition(.materialize)
+            } else {
+                content
+            }
+        }
+    }
+}
+
 /// 播放中的 waveform 呼吸动画：iOS 17+ 使用符号特效，低版本静态显示。
 struct ATMusicWaveformEffect: ViewModifier {
     func body(content: Content) -> some View {
@@ -693,8 +706,8 @@ private struct ATMusicDetailMiniPlayerModifier: ViewModifier {
                         )
                         .environmentObject(player.clock)
                         .environmentObject(theme)
-                        .environmentObject(favorites)
-                        .glassEffectTransition(.materialize)
+                            .environmentObject(favorites)
+                            .modifier(ATMusicGlassTransition())
                     }
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
