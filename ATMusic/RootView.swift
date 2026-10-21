@@ -1270,10 +1270,10 @@ struct TabBarAppearanceConfigurator: UIViewControllerRepresentable {
 }
 
 private extension View {
-    /// 精选页滚动位置保持：返回列表页时恢复到原锚点（iOS 17+）。
+    /// 精选页滚动位置保持：返回列表页时恢复到原锚点（iOS 18+）。
     @ViewBuilder
     func atmusicScrollPosition(_ id: Binding<String?>) -> some View {
-        if #available(iOS 17.0, *) {
+        if #available(iOS 18.0, *) {
             scrollPosition(id: id)
         } else {
             self
