@@ -77,8 +77,10 @@ struct RootView: View {
                     showPlayer: $showPlayer,
                     nowPlayingTransition: nowPlayingTransition
                 )
-            } else {
+            } else if #available(iOS 26.0, *) {
                 modernSystemTabs
+            } else {
+                classicTabs
             }
         }
         .preferredColorScheme(themeMode.colorScheme)
@@ -107,7 +109,7 @@ struct RootView: View {
                 showWhatsNew = true
             }
         }
-        .onChange(of: disclaimerAccepted) { _, accepted in
+        .onChange(of: disclaimerAccepted) { accepted in
             if accepted, ChangelogStore.shouldShowWhatsNew {
                 showWhatsNew = true
             }
@@ -257,6 +259,45 @@ struct RootView: View {
                     transitionNamespace: nowPlayingTransition
                 )
                 .environmentObject(player.clock)
+            }
+        }
+        .background {
+            TabBarAppearanceConfigurator(
+                hidesSystemTabBarOnLegacy: false,
+                hidesSystemTabBarOnModern: false,
+                onHomeLongPress: { showHomePlatformMenu = true }
+            )
+        }
+    }
+
+    /// iOS 16-25：传统 `TabView`（`.tabItem` 语法）。
+    /// iOS 26 及以上走 `modernSystemTabs` 的系统 Tab + Liquid Glass 容器。
+    private var classicTabs: some View {
+        TabView(selection: $selection) {
+            DiscoverView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("主页", systemImage: "house") }
+                .tag(RootTab.discover)
+            FeaturedView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("精选", systemImage: "square.grid.2x2") }
+                .tag(RootTab.featured)
+            MusicLibraryHomeView(onOpenProfile: { selection = .profile })
+                .tabItem { Label("音乐库", systemImage: "rectangle.stack.badge.play") }
+                .tag(RootTab.library)
+            ProfileView()
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tag(RootTab.profile)
+            SearchView()
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tag(RootTab.search)
+        }
+        .tint(Color.atmusicAmber)
+        .modifier(ATMusicSystemTabGlobalStyle(style: uiStyle))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if player.currentSong != nil {
+                MiniPlayerView(showPlayer: $showPlayer, presentation: .dock)
+                    .environmentObject(player.clock)
+                    .environmentObject(theme)
+                    .environmentObject(favorites)
             }
         }
         .background {
@@ -519,7 +560,7 @@ struct FeaturedView: View {
             .onAppear {
                 categories = FeaturedSource.defaultCategories(for: featuredSource)
             }
-            .onChange(of: platformPrefs.selectedRaw) { _, _ in
+            .onChange(of: platformPrefs.selectedRaw) { _ in
                 let validSources = Set(availableFeaturedSources.compactMap(\.songSource))
                 if !isAggregate {
                     if !availableFeaturedSources.contains(featuredSource) {
@@ -533,7 +574,7 @@ struct FeaturedView: View {
                 }
                 Task { await load(reset: true) }
             }
-            .onChange(of: featuredSource) { _, newValue in
+            .onChange(of: featuredSource) { newValue in
                 selectedCategory = "全部"
                 query = ""
                 categories = FeaturedSource.defaultCategories(for: newValue)
@@ -1270,10 +1311,10 @@ struct TabBarAppearanceConfigurator: UIViewControllerRepresentable {
 }
 
 private extension View {
-    /// 精选页滚动位置保持：返回列表页时恢复到原锚点（iOS 17+）。
+    /// 精选页滚动位置保持：返回列表页时恢复到原锚点（iOS 18+）。
     @ViewBuilder
     func atmusicScrollPosition(_ id: Binding<String?>) -> some View {
-        if #available(iOS 17.0, *) {
+        if #available(iOS 18.0, *) {
             scrollPosition(id: id)
         } else {
             self

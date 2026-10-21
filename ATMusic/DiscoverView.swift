@@ -168,7 +168,7 @@ struct DiscoverView: View {
                 }
             }
             // 平台显示变化时立即无缝刷新并清除已隐藏平台的内容
-            .onChange(of: platformPrefs.selectedRaw) { _, _ in
+            .onChange(of: platformPrefs.selectedRaw) { _ in
                 let next = platformPrefs.ensureVisible(source)
                 if next != source {
                     homeSourceRaw = next.rawValue
@@ -194,11 +194,11 @@ struct DiscoverView: View {
                 if !enabledSources.contains(.kugou) { kugouTopLists = [] }
                 Task { await load(force: true) }
             }
-            .onChange(of: source) { _, _ in
+            .onChange(of: source) { _ in
                 guard !homeRenderingPaused else { return }
                 homeOrder = SectionOrderStore.load(SectionOrderStore.homeKey, defaults: availableSections)
             }
-            .onChange(of: disclaimerAccepted) { _, accepted in
+            .onChange(of: disclaimerAccepted) { accepted in
                 guard !homeRenderingPaused else { return }
                 // 免责声明确认进入后：若首页加载失败则自动刷新（无需手动下拉）
                 if accepted, errorMessage != nil {
@@ -2457,7 +2457,7 @@ private struct HomeUnifiedSearchSheet: View {
                 }
             }
         }
-        .onChange(of: keyword) { _, newValue in
+        .onChange(of: keyword) { newValue in
             debounceTask?.cancel()
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
