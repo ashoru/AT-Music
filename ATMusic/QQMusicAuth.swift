@@ -17,7 +17,7 @@ final class QQMusicAuth: ObservableObject {
     private var cookies: [String: String] = [:]
     private var qrsig = ""
 
-    private let defaults = UserDefaults.standard
+    private let defaults = SecureStorage.shared
     private let cookieKey = "atmusic.qqmusic.cookie.v1"
     private let nickKey = "atmusic.qqmusic.nickname.v1"
     private let vipKey = "atmusic.qqmusic.vip.v1"
@@ -25,6 +25,7 @@ final class QQMusicAuth: ObservableObject {
     private let redirectBlocker = NoRedirectDelegate()
 
     private init() {
+        defaults.migrateFromUserDefaults([cookieKey, nickKey, vipKey])
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.httpShouldSetCookies = false
