@@ -48,6 +48,19 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-110",
+            version: "1.9.36",
+            title: "内置音源换代：三合一聚合源（全豆要+星海）",
+            features: [
+                "内置音源整体换新：全豆要 + 星海双引擎聚合，解析失败自动换路回退，不再依赖单一接口",
+                "内置源随 App 升级自动替换：本次升级首次打开即自动换上新源，无需手动导入"
+            ],
+            fixes: [
+                "下线频繁超时、接口多已失效的旧内置「终极极速音源」（解析慢、切歌未命中的主要来源之一）"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-109",
             version: "1.9.36",
             title: "根治切到下一首却放出上一首歌（解析串线）",
