@@ -357,11 +357,11 @@ struct ImmersivePlayerView: View {
                 showLyrics = previewShowLyrics
             }
         }
-        .onChange(of: previewShowLyrics) { _, newValue in
+        .onChange(of: previewShowLyrics) { newValue in
             guard let newValue else { return }
             showLyrics = newValue
         }
-        .onChange(of: showLyrics) { _, isShowing in
+        .onChange(of: showLyrics) { isShowing in
             if isShowing {
                 hideControls = false
                 scheduleAutoHide(seconds: 3.5)

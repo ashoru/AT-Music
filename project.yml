@@ -2,7 +2,7 @@ name: ATMusic
 
 options:
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "16.0"
 
 settings:
   base:

@@ -279,12 +279,43 @@ final class ATMusicLXScriptBridge: NSObject, ATMusicLXScriptBridgeExports {
         session = URLSession(configuration: config)
     }
 
+    /// Scripts are user supplied, so their network requests must not turn the
+    /// device into a probe for the local network (SSRF) or reach non-HTTP
+    /// schemes. Set the `atmusic.script.allowLocalNetwork` user default to true
+    /// when a script legitimately needs to talk to a NAS on the LAN.
+    private func isRequestAllowed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        if UserDefaults.standard.bool(forKey: "atmusic.script.allowLocalNetwork") { return true }
+        guard let host = url.host?.lowercased(), !host.isEmpty else { return false }
+
+        if host == "localhost" || host == "::1" || host == "[::1]" || host == "0.0.0.0" || host.hasSuffix(".local") {
+            return false
+        }
+        if host.hasPrefix("127.") || host.hasPrefix("10.") || host.hasPrefix("192.168.") || host.hasPrefix("169.254.") {
+            return false
+        }
+        if host.hasPrefix("172.") {
+            let parts = host.split(separator: ".")
+            if parts.count > 1, let second = Int(parts[1]), (16...31).contains(second) { return false }
+        }
+        return true
+    }
+
     func request(_ url: String, _ options: JSValue?, _ callback: JSValue?) {
         guard let callback else { return }
         let requestOptions = dictionary(from: options?.toObject())
         guard let requestURL = URL(string: url) else {
             runtimeQueue.async {
                 callback.call(withArguments: [[ "message": "Invalid URL" ], NSNull()])
+            }
+            return
+        }
+
+        guard isRequestAllowed(requestURL) else {
+            runtimeQueue.async {
+                callback.call(withArguments: [[ "message": "Blocked: only public HTTP(S) endpoints are allowed" ], NSNull()])
             }
             return
         }

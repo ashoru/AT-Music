@@ -85,7 +85,7 @@ struct ATMusicApp: App {
                 theme.restoreWallpapersIfNeeded()
                 NASUserSyncManager.shared.checkAndAutoSyncOnLaunch()
             }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { phase in
                 if phase == .background {
                     NASUserSyncManager.shared.syncOnBackground()
                 } else if phase == .active {

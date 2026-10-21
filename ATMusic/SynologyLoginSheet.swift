@@ -251,7 +251,7 @@ struct SynologyLoginSheet: View {
                         .font(ATMusicFont.appFont(14))
                 }
                 .padding(.horizontal, 4)
-                .onChange(of: lanHTTPS) { _, enabled in
+                .onChange(of: lanHTTPS) { enabled in
                     if enabled && lanPortStr == "5000" {
                         lanPortStr = "5001"
                     } else if !enabled && lanPortStr == "5001" {
@@ -311,7 +311,7 @@ struct SynologyLoginSheet: View {
                         .font(ATMusicFont.appFont(14))
                 }
                 .padding(.horizontal, 4)
-                .onChange(of: wanHTTPS) { _, enabled in
+                .onChange(of: wanHTTPS) { enabled in
                     if enabled && wanPortStr == "5000" {
                         wanPortStr = "5001"
                     } else if !enabled && wanPortStr == "5001" {

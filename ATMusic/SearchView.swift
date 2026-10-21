@@ -326,7 +326,7 @@ struct SearchView: View {
         .task {
             await loadAllHotWords()
         }
-        .onChange(of: keyword) { _, newValue in
+        .onChange(of: keyword) { newValue in
             debounceTask?.cancel()
             nasIndexRefreshTask?.cancel()
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -354,7 +354,7 @@ struct SearchView: View {
                 await startSearch(trimmed)
             }
         }
-        .onChange(of: provider) { _, _ in
+        .onChange(of: provider) { _ in
             providerRaw = provider.rawValue
             // 聚合模式只关心 enabledSearchProviders；provider 只是下次单平台搜索的备用值，
             // 不能因为它变化就清空/重搜当前聚合页。
@@ -367,7 +367,7 @@ struct SearchView: View {
             searching = true
             scheduleScopeRefresh(trimmed)
         }
-        .onChange(of: aggregateSearch) { _, enabled in
+        .onChange(of: aggregateSearch) { enabled in
             invalidateSearchPipeline()
             aggregateOverview = enabled
             if !enabled, provider == .synology { resultType = .song }
@@ -376,7 +376,7 @@ struct SearchView: View {
             searching = true
             scheduleScopeRefresh(trimmed)
         }
-        .onChange(of: synology.libraryIndexRevision) { _, _ in
+        .onChange(of: synology.libraryIndexRevision) { _ in
             // 首次搜索先显示 Audio Station 的快速结果；完整 NAS 索引完成后，
             // 自动重搜当前关键词，把曲库后部的歌曲、歌手和专辑补进来。
             let nasParticipates = aggregateSearch
@@ -387,7 +387,7 @@ struct SearchView: View {
             guard !trimmed.isEmpty else { return }
             scheduleNASIndexRefresh(trimmed)
         }
-        .onChange(of: synology.isLibraryIndexLoading) { _, loading in
+        .onChange(of: synology.isLibraryIndexLoading) { loading in
             // 索引按分页更新 revision；只在整次索引结束后补搜一次，不能每页
             // 都重启聚合搜索，否则结果会在多组快照之间持续闪烁。
             guard !loading else { return }
@@ -403,7 +403,7 @@ struct SearchView: View {
         }
         // 直接观察值变化，不能订阅计算型 AnyPublisher。后者在视图重建时会
         // 重新订阅并立即回放当前值，形成“结果更新 → 重绘 → 再次搜索”的循环。
-        .onChange(of: platformPrefs.selectedRaw) { _, _ in
+        .onChange(of: platformPrefs.selectedRaw) { _ in
             let next = platformPrefs.ensureVisible(provider)
             if next != provider {
                 provider = next

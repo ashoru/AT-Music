@@ -17,6 +17,7 @@ final class NetEaseAPI {
     private let deviceId: String
     private let wnMcid: String
     private let cookiesKey = "atmusic.netease.cookies"
+    private let secureStore = SecureStorage.shared
     private var storedCookies: [String: String] = [:]
 
     init() {
@@ -30,7 +31,8 @@ final class NetEaseAPI {
         deviceId = Self.randomHex(length: 26)  // 52 位 hex
         wnMcid = "\(Self.randomLowercase(6)).\(Int(Date().timeIntervalSince1970 * 1000)).01.0"
 
-        if let data = UserDefaults.standard.data(forKey: cookiesKey),
+        secureStore.migrateFromUserDefaults([cookiesKey])
+        if let data = secureStore.data(forKey: cookiesKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             storedCookies = saved
         }
@@ -108,7 +110,7 @@ final class NetEaseAPI {
 
     func clearCookies() {
         storedCookies.removeAll()
-        UserDefaults.standard.removeObject(forKey: cookiesKey)
+        secureStore.removeObject(forKey: cookiesKey)
     }
 
     /// 是否已登录（存在 MUSIC_U 登录 Cookie）
@@ -124,7 +126,7 @@ final class NetEaseAPI {
             }
         }
         if changed, let data = try? JSONEncoder().encode(storedCookies) {
-            UserDefaults.standard.set(data, forKey: cookiesKey)
+            secureStore.set(data, forKey: cookiesKey)
         }
     }
 
@@ -145,7 +147,7 @@ final class NetEaseAPI {
         }
         if changed {
             if let data = try? JSONEncoder().encode(storedCookies) {
-                UserDefaults.standard.set(data, forKey: cookiesKey)
+                secureStore.set(data, forKey: cookiesKey)
             }
         }
     }

@@ -556,7 +556,7 @@ struct AllSourcesArtistHomeSheet: View {
             }
         }
         .task { await loadAllSources() }
-        .onChange(of: synology.libraryIndexRevision) { _, _ in
+        .onChange(of: synology.libraryIndexRevision) { _ in
             Task { await mergeFullNASArtist() }
         }
         .modifier(ATMusicSheetModifier(detents: [.large], dragIndicator: true))

@@ -100,7 +100,7 @@ struct IPadRootView: View {
         .onAppear {
             syncDestinationFromSelection()
         }
-        .onChange(of: selection) { _, _ in
+        .onChange(of: selection) { _ in
             syncDestinationFromSelection()
         }
         .sheet(isPresented: $showSettingsSheet) {

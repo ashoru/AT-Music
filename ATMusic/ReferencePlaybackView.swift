@@ -328,19 +328,19 @@ struct ReferencePlaybackView: View {
                         lyricScrollTarget = currentPlaybackLyricID
                         focusedLyricID = currentPlaybackLyricID
                     }
-                    .onChange(of: lyricScrollTarget) { _, target in
+                    .onChange(of: lyricScrollTarget) { target in
                         guard isDraggingLyrics, let target else { return }
                         focusedLyricID = target
                     }
-                    .onChange(of: currentPlaybackLyricID) { _, newID in
+                    .onChange(of: currentPlaybackLyricID) { newID in
                         guard let newID, !isDraggingLyrics else { return }
                         withAnimation { lyricScrollTarget = newID }
                         focusedLyricID = newID
                     }
-                    .onChange(of: lyricFontSize) { _, _ in
+                    .onChange(of: lyricFontSize) { _ in
                         recenterNativeLyricsAfterStyleChange()
                     }
-                    .onChange(of: lyricLineSpacing) { _, _ in
+                    .onChange(of: lyricLineSpacing) { _ in
                         recenterNativeLyricsAfterStyleChange()
                     }
                 }
@@ -373,7 +373,7 @@ struct ReferencePlaybackView: View {
                         GeometryReader { viewport in
                             Color.clear
                                 .onAppear { lyricsViewportHeight = viewport.size.height }
-                                .onChange(of: viewport.size.height) { _, newHeight in lyricsViewportHeight = newHeight }
+                                .onChange(of: viewport.size.height) { newHeight in lyricsViewportHeight = newHeight }
                         }
                     }
                     .onPreferenceChange(ReferenceLyricCenterKey.self) { centers in
@@ -386,14 +386,14 @@ struct ReferencePlaybackView: View {
                             scrollToPlaybackLyric(proxy: proxy, animated: false)
                         }
                     }
-                    .onChange(of: currentPlaybackLyricID) { _, _ in
+                    .onChange(of: currentPlaybackLyricID) { _ in
                         guard !isDraggingLyrics else { return }
                         scrollToPlaybackLyric(proxy: proxy, animated: true)
                     }
-                    .onChange(of: lyricFontSize) { _, _ in
+                    .onChange(of: lyricFontSize) { _ in
                         recenterLegacyLyricsAfterStyleChange(proxy: proxy)
                     }
-                    .onChange(of: lyricLineSpacing) { _, _ in
+                    .onChange(of: lyricLineSpacing) { _ in
                         recenterLegacyLyricsAfterStyleChange(proxy: proxy)
                     }
                 }

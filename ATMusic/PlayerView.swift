@@ -584,17 +584,17 @@ struct PlayerView: View {
             await loadLyrics()
             await extractCoverPalette()
         }
-        .onChange(of: song?.coverURL) { _, _ in
+        .onChange(of: song?.coverURL) { _ in
             Task { await extractCoverPalette() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { _ in
             dominantColor = nil
             Task { await extractCoverPalette() }
         }
-        .onChange(of: layoutData) { _, newValue in
+        .onChange(of: layoutData) { newValue in
             PlayerLayoutStore.save(newValue, for: legacyLayoutStyle)
         }
-        .onChange(of: coverPlayerStyleRaw) { _, _ in
+        .onChange(of: coverPlayerStyleRaw) { _ in
             guard coverPlayerStyle != .appleMusic else { return }
             let next = PlayerLayoutStore.load(for: legacyLayoutStyle)
             if next != layoutData { layoutData = next }
@@ -629,18 +629,18 @@ struct PlayerView: View {
                 }
             }
         }
-        .onChange(of: showLyrics) { _, newValue in
+        .onChange(of: showLyrics) { newValue in
             if previewShowLyrics == nil { lastLyricsPage = newValue }
         }
-        .onChange(of: previewShowLyrics) { _, newValue in
+        .onChange(of: previewShowLyrics) { newValue in
             guard let newValue, showLyrics != newValue else { return }
             showLyrics = newValue
         }
-        .onChange(of: lastLyricsPage) { _, newValue in
+        .onChange(of: lastLyricsPage) { newValue in
             guard previewShowLyrics == nil else { return }
             if showLyrics != newValue { showLyrics = newValue }
         }
-        .onChange(of: layoutPartRaw) { _, rawValue in
+        .onChange(of: layoutPartRaw) { rawValue in
             layoutPart = PlayerLayoutPart(rawValue: rawValue) ?? .progress
         }
         .sheet(isPresented: $showQueue) {
@@ -1194,7 +1194,7 @@ struct PlayerView: View {
                             }
                         }
                         .onAppear { vinylScrollTarget = vinylCurrentLyricIndex }
-                        .onChange(of: vinylCurrentLyricIndex) { _, newIndex in
+                        .onChange(of: vinylCurrentLyricIndex) { newIndex in
                             guard let newIndex, !vinylIsUserScrolling else { return }
                             var transaction = Transaction()
                             transaction.animation = nil
@@ -3299,10 +3299,10 @@ struct SeekBar: View {
             .onAppear {
                 if player.isPlaying, !reduceVisualMotion, flowPhase == 0 { flowPhase = 1 }
             }
-            .onChange(of: player.isPlaying) { _, playing in
+            .onChange(of: player.isPlaying) { playing in
                 flowPhase = (playing && !reduceVisualMotion) ? 1 : 0
             }
-            .onChange(of: reduceVisualMotion) { _, reduced in
+            .onChange(of: reduceVisualMotion) { reduced in
                 flowPhase = (player.isPlaying && !reduced) ? 1 : 0
             }
             .contentShape(Rectangle())
@@ -3405,7 +3405,7 @@ private struct WaveBar: View {
         .onAppear {
             if isPlaying, phase == 0 { phase = 1 }
         }
-        .onChange(of: isPlaying) { _, playing in
+        .onChange(of: isPlaying) { playing in
             phase = playing ? 1 : 0
         }
         .animation(isPlaying ? .linear(duration: 3).repeatForever(autoreverses: false) : .default, value: phase)
@@ -3571,20 +3571,20 @@ struct LyricsSection: View {
         .onAppear {
             scrollTarget = currentIndex
         }
-        .onChange(of: currentIndex) { _, newIndex in
+        .onChange(of: currentIndex) { newIndex in
             guard let newIndex, !isUserScrolling else { return }
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 scrollTarget = newIndex
             }
         }
         // 字号/行距动态变化后，强制高亮行按新行高重新对齐视口中心（scrollPosition 会重新计算锚点）
-        .onChange(of: baseFontSize) { _, _ in
+        .onChange(of: baseFontSize) { _ in
             recenterToCurrentLyric()
         }
-        .onChange(of: lineSpacing) { _, _ in
+        .onChange(of: lineSpacing) { _ in
             recenterToCurrentLyric()
         }
-        .onChange(of: showTranslation) { _, _ in
+        .onChange(of: showTranslation) { _ in
             recenterToCurrentLyric()
         }
     }

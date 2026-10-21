@@ -86,21 +86,21 @@ struct VinylTurntableView: View {
         .onAppear {
             if isPlaying && !reduceMotion { rotationState.start(at: Date()) }
         }
-        .onChange(of: isPlaying) { _, playing in
+        .onChange(of: isPlaying) { playing in
             if playing && !reduceMotion {
                 rotationState.start(at: Date())
             } else {
                 rotationState.stop(at: Date())
             }
         }
-        .onChange(of: reduceMotion) { _, reduced in
+        .onChange(of: reduceMotion) { reduced in
             if reduced {
                 rotationState.stop(at: Date())
             } else if isPlaying {
                 rotationState.start(at: Date())
             }
         }
-        .onChange(of: trackId) { _, _ in
+        .onChange(of: trackId) { _ in
             isTransitioningTrack = true
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 320_000_000)
