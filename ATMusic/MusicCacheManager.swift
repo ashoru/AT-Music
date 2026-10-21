@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AVFoundation
 
 /// AT Music 连续播放磁盘缓存。
 /// 只缓存为了播放加速而下载的音频；不进入“本地音乐”，也不会当作用户下载文件长期保存。
@@ -118,6 +119,14 @@ final class MusicCacheManager: ObservableObject {
             persistIndex()
             refreshPublishedUsage()
             ATMusicLogger.shared.log("🚫 发现并清除损坏/防盗链缓存文件：\(song.name) 大小=\(entry.fileSize) 时长=\(song.duration)s", level: .warn)
+            return nil
+        }
+        if Self.isSuspiciouslyTruncated(fileURL: url, nominalDuration: Double(song.duration)) {
+            try? fm.removeItem(at: url)
+            entries.removeValue(forKey: key)
+            persistIndex()
+            refreshPublishedUsage()
+            ATMusicLogger.shared.log("🚫 发现并清除时长异常的缓存文件：\(song.name) 标称=\(song.duration)s", level: .warn)
             return nil
         }
         entry.lastAccessAt = Date()
@@ -269,6 +278,11 @@ final class MusicCacheManager: ObservableObject {
             return false
         }
 
+        if Self.isSuspiciouslyTruncated(fileURL: download.url, nominalDuration: Double(song.duration)) {
+            ATMusicLogger.shared.log("🚫 拒绝写入时长异常的音频缓存：\(song.name) 标称=\(song.duration)s", level: .warn)
+            return false
+        }
+
         trimToLimit(requiredBytes: size, protecting: protectedKeys().union([key]))
         let retainedBytes = entries.values.reduce(Int64(0)) { $0 + $1.fileSize }
         guard retainedBytes + size <= limitBytes else {
@@ -399,6 +413,17 @@ final class MusicCacheManager: ObservableObject {
         }
         let attrs = try? fm.attributesOfFileSystem(forPath: directory.path)
         return (attrs?[.systemFreeSize] as? NSNumber)?.int64Value ?? Int64.max
+    }
+
+    /// 时长验货：标称 ≥45s 的歌曲，本地文件真实时长 <20s 且不足标称一半 → 防盗链/残缺文件。
+    /// 只在有确凿证据时判定（文件打不开/时长读不到一律放行，交给播放与自愈路径处理）。
+    nonisolated static func isSuspiciouslyTruncated(fileURL: URL, nominalDuration: Double) -> Bool {
+        guard nominalDuration >= 45,
+              let audioFile = try? AVAudioFile(forReading: fileURL),
+              audioFile.fileFormat.sampleRate > 0 else { return false }
+        let seconds = Double(audioFile.length) / audioFile.fileFormat.sampleRate
+        guard seconds.isFinite, seconds > 0 else { return false }
+        return seconds < 20 && seconds < nominalDuration * 0.5
     }
 
     private func cacheKey(song: Song, quality: ThirdPartyAudioQuality) -> String {

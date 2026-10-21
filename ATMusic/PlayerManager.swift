@@ -225,6 +225,10 @@ final class PlayerManager: NSObject, ObservableObject {
     private var trialEndedGeneration: Int?
     /// 当前 AVPlayer 中实际装载的歌曲 key，用于恢复播放时校验界面与音源一致性
     private var activeItemSongKey: String?
+    /// 缓存坏源自愈去重：同一代际内同一首歌只自愈一次，防死循环
+    private var corruptCacheHealGeneration: [String: Int] = [:]
+    /// 当前播放项是否来自热备池提升（截断拦截与短播自愈需要这个标记）
+    private var currentFromStandby = false
     private static let nowPlayingArtworkCache = NSCache<NSURL, UIImage>()
 
     private let historyKey = "atmusic.history"
@@ -752,6 +756,11 @@ final class PlayerManager: NSObject, ObservableObject {
         if let existing = standbyPlayback,
            existing.song.identityKey == nextSong.identityKey,
            existing.item.status != .failed {
+            return
+        }
+        if url.isFileURL,
+           MusicCacheManager.isSuspiciouslyTruncated(fileURL: url, nominalDuration: Double(nextSong.duration)) {
+            ATMusicLogger.shared.log("🚫 热备池拒绝时长异常的本地文件：\(nextSong.name) 标称=\(nextSong.duration)s", level: .warn)
             return
         }
         cleanStandbyPlayer()
@@ -2092,6 +2101,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 )
                 if fromPlaybackCache {
                     MainActor.assumeIsolated { MusicCacheManager.shared.removeCachedFile(for: loadedSong, quality: self.playbackCacheQuality()) }
+                    AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
                     ATMusicLogger.shared.log("播放缓存损坏，已删除并回退网络：\(loadedSong.name)", level: .debug)
                     self.loadCurrent(resumeAt: self.progress)
                     return
@@ -2125,6 +2135,7 @@ final class PlayerManager: NSObject, ObservableObject {
                         )
                         if fromPlaybackCache {
                             MainActor.assumeIsolated { MusicCacheManager.shared.removeCachedFile(for: loadedSong, quality: self.playbackCacheQuality()) }
+                            AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
                             ATMusicLogger.shared.log("播放缓存无响应，已删除并回退网络：\(loadedSong.name)", level: .debug)
                             self.loadCurrent(resumeAt: self.progress)
                             return
@@ -2160,7 +2171,7 @@ final class PlayerManager: NSObject, ObservableObject {
                           player.timeControlStatus == .playing,
                           item.status == .readyToPlay,
                           !self.playbackConfirmed else { return }
-                    if (isThirdParty || fromPlaybackCache),
+                    if (isThirdParty || fromPlaybackCache || prewarmedPlayer != nil),
                        let itemDuration = item.duration.seconds as Double?,
                        itemDuration.isFinite,
                        itemDuration <= 20,
@@ -2169,7 +2180,7 @@ final class PlayerManager: NSObject, ObservableObject {
                         AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
                         MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
                         player.pause()
-                        if fromPlaybackCache {
+                        if fromPlaybackCache || prewarmedPlayer != nil {
                             self.loadCurrent()
                             return
                         }
@@ -2211,6 +2222,7 @@ final class PlayerManager: NSObject, ObservableObject {
         lastListeningProgress = nil
         currentIsThirdParty = isThirdParty
         currentFromPlaybackCache = fromPlaybackCache
+        currentFromStandby = prewarmedPlayer != nil
         currentPlaybackURL = url
         if isInBackground && isPlaying {
             backgroundPlayDate = Date()
@@ -2222,6 +2234,21 @@ final class PlayerManager: NSObject, ObservableObject {
                 ATMusicLogger.shared.log("⚠️ 试听音频播放完毕但全曲热置换仍在进行中，暂时保持等待...", level: .info)
                 self.handleTrialPlaybackEnded(loadedSong: loadedSong, generation: playbackGeneration)
                 return
+            }
+            if (fromPlaybackCache || prewarmedPlayer != nil),
+               loadedSong.duration >= 45,
+               self.corruptCacheHealGeneration[loadedSong.identityKey] != playbackGeneration {
+                let playedSeconds = self.player?.currentTime().seconds ?? self.progress
+                if playedSeconds.isFinite, playedSeconds < 2 {
+                    // 本地缓存/热备的歌开播不到 2 秒就"播完"：文件是残缺的坏源，
+                    // 删缓存后把本首歌重新走网络解析，而不是无声跳到下一首
+                    self.corruptCacheHealGeneration[loadedSong.identityKey] = playbackGeneration
+                    AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
+                    MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
+                    ATMusicLogger.shared.log("🧹 本地音频异常短播（\(String(format: "%.1f", playedSeconds))s 即结束），判定缓存坏源：删缓存并重新解析本首：\(loadedSong.name)", level: .warn)
+                    self.loadCurrent()
+                    return
+                }
             }
             if self.playMode == .repeatOne {
                 self.restartCurrent()
@@ -2246,6 +2273,7 @@ final class PlayerManager: NSObject, ObservableObject {
             )
             if fromPlaybackCache {
                 MainActor.assumeIsolated { MusicCacheManager.shared.removeCachedFile(for: loadedSong, quality: self.playbackCacheQuality()) }
+                AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
                 ATMusicLogger.shared.log("播放缓存中断，已删除并回退网络：\(loadedSong.name)", level: .debug)
                 self.loadCurrent(resumeAt: self.progress)
                 return
@@ -2813,6 +2841,7 @@ final class PlayerManager: NSObject, ObservableObject {
         guard !isInBackground, let player = self.player, timeObserver == nil else { return }
         let isThirdParty = currentIsThirdParty
         let fromPlaybackCache = currentFromPlaybackCache
+        let fromStandby = currentFromStandby
         let playbackURL = currentPlaybackURL
         let playbackGeneration = loadGeneration
 
@@ -2846,14 +2875,14 @@ final class PlayerManager: NSObject, ObservableObject {
                 let seconds = itemDuration.seconds
                 if seconds.isFinite {
                     if let loadedSong = self.currentSong,
-                       (isThirdParty || fromPlaybackCache),
+                       (isThirdParty || fromPlaybackCache || fromStandby),
                        seconds <= 20,
                        loadedSong.duration >= 45 {
                         ATMusicLogger.shared.log("🚫 播放中拦截到防盗链/截断音频（时长仅 \(String(format: "%.1f", seconds))s，原歌曲为 \(loadedSong.duration)s），立即终止并熔断重试！", level: .warn)
                         AudioURLCache.shared.remove(songKey: loadedSong.identityKey)
                         MainActor.assumeIsolated { MusicCacheManager.shared.remove(song: loadedSong) }
                         player.pause()
-                        if fromPlaybackCache {
+                        if fromPlaybackCache || fromStandby {
                             self.loadCurrent()
                             return
                         }
