@@ -5,10 +5,11 @@ final class AuthStore: ObservableObject {
     @Published var isLoggedIn = false
     @Published var playlists: [Playlist] = []
 
-    private let defaults = UserDefaults.standard
+    private let defaults = SecureStorage.shared
     private let userKey = "atmusic.user"
 
     init() {
+        defaults.migrateFromUserDefaults([userKey])
         if let data = defaults.data(forKey: userKey),
            let saved = try? JSONDecoder().decode(NetEaseUser.self, from: data) {
             user = saved
