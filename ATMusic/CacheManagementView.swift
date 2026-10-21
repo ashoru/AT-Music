@@ -348,7 +348,7 @@ struct CacheManagementView: View {
             }
             .toggleStyle(.switch)
             .tint(Color.atmusicAmber)
-            .onChange(of: prefetchNextSong) { _, value in
+            .onChange(of: prefetchNextSong) { value in
                 musicCache.setPrefetchEnabled(value)
             }
 
