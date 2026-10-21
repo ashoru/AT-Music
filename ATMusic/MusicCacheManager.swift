@@ -49,6 +49,24 @@ final class MusicCacheManager: ObservableObject {
         reconcileIndex()
         refreshPublishedUsage()
 
+        // build 109 一次性清理：此前第三方脚本解析并发串线可能把 A 歌音频存进 B 歌的缓存条目，
+        // 这类错歌文件时长完整、常规验货发现不了，整体清一次防残留。
+        let purgedBuildKey = "atm_playback_cache_purged_build"
+        if defaults.integer(forKey: purgedBuildKey) < 109 {
+            let cachedFiles = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            var removedCount = 0
+            for file in cachedFiles where file.lastPathComponent != indexURL.lastPathComponent {
+                if (try? fm.removeItem(at: file)) != nil { removedCount += 1 }
+            }
+            entries.removeAll()
+            persistIndex()
+            refreshPublishedUsage()
+            defaults.set(109, forKey: purgedBuildKey)
+            if removedCount > 0 {
+                ATMusicLogger.shared.log("🧹 build 109 一次性清理播放缓存文件 \(removedCount) 个（防解析串线错歌文件残留）", level: .info)
+            }
+        }
+
         if defaults.object(forKey: Self.prefetchEnabledKey) == nil {
             defaults.set(true, forKey: Self.prefetchEnabledKey)
         }

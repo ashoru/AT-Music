@@ -431,6 +431,10 @@ final class ATMusicLXScriptRuntime {
     private let context: JSContext
     private let bridge: ATMusicLXScriptBridge
     private var handlers: [String: JSValue] = [:]
+    /// 同一脚本源的解析串行门：脚本运行时的结果交付走 JSContext 全局变量，
+    /// 两个解析并发时结果会串线（A 歌的地址交付给 B 歌的请求，当前歌曲与预缓存解析并发时必现），
+    /// 因此同一源的 invokeRequest 必须串行执行（与 LX 官方单请求语义一致）。
+    private let invocationGate = DispatchSemaphore(value: 1)
 
     init?(source: ThirdPartySource, script: String) {
         sourceID = source.id
@@ -659,6 +663,9 @@ final class ATMusicLXScriptRuntime {
     }
 
     func invokeRequest(payload: [String: Any], timeout: TimeInterval = 12.0) -> Any? {
+        // 串行化同一脚本源的解析，防结果串线（见 invocationGate 注释）。
+        // 等不到门（前一个调用卡死）也放行：本次交付已用局部捕获隔离，不会再收错结果。
+        let gateAcquired = invocationGate.wait(timeout: .now() + 45) == .success
         let semaphore = DispatchSemaphore(value: 0)
         var result: Any?
         let resultLock = NSLock()
@@ -714,15 +721,16 @@ final class ATMusicLXScriptRuntime {
             }
             _ = self.context.evaluateScript("""
             (function() {
+                var __done = __atmusicDone;
                 try {
                     Promise.resolve(
                         \(invocation)
                     ).then(
-                        function(value) { __atmusicDone.resolve(value); },
-                        function(error) { __atmusicDone.reject(error && error.message ? error.message : String(error)); }
+                        function(value) { __done.resolve(value); },
+                        function(error) { __done.reject(error && error.message ? error.message : String(error)); }
                     );
                 } catch (error) {
-                    __atmusicDone.reject(error && error.message ? error.message : String(error));
+                    __done.reject(error && error.message ? error.message : String(error));
                 }
             })();
             """)
@@ -736,6 +744,7 @@ final class ATMusicLXScriptRuntime {
         if semaphore.wait(timeout: deadline) == .timedOut {
             ATMusicLogger.shared.log("第三方脚本调用超时：\(sourceID) \(Int(timeout))s", level: .debug)
         }
+        if gateAcquired { invocationGate.signal() }
         resultLock.lock()
         let finalResult = result
         resultLock.unlock()
