@@ -930,7 +930,7 @@ struct LocalSearchAddSheet: View {
         .onAppear {
             provider = platformPrefs.ensureVisible(provider)
         }
-        .onChange(of: platformPrefs.selectedRaw) { _, _ in
+        .onChange(of: platformPrefs.selectedRaw) { _ in
             let next = platformPrefs.ensureVisible(provider)
             if next != provider { provider = next }
         }
