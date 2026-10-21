@@ -641,6 +641,21 @@ enum LyricParser {
             for i in lines.indices {
                 if let tr = byTime[lines[i].time], !tr.isEmpty {
                     lines[i].translation = tr
+                    continue
+                }
+                // 跨源翻译（如 NAS 歌曲挂网易/QQ 的翻译）与原文时间戳常有零点几秒偏差，
+                // 精确同刻对不上时就近挂到容差内最近的翻译行，避免整份翻译失效。
+                var bestDelta = 0.6
+                var bestText: String? = nil
+                for t in trans where !t.text.isEmpty {
+                    let delta = abs(t.time - lines[i].time)
+                    if delta <= bestDelta {
+                        bestDelta = delta
+                        bestText = t.text
+                    }
+                }
+                if let bestText {
+                    lines[i].translation = bestText
                 }
             }
         }

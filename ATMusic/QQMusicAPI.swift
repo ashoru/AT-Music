@@ -1122,6 +1122,61 @@ final class QQMusicAPI {
         return lyric
     }
 
+    /// QQ 音乐歌词 + 翻译。
+    /// 翻译（trans）被 QQ 登录态门控：匿名请求只回 hasMultiTrans 标记、不下发内容（2026-10-21 实测），
+    /// 因此带用户自己的 QQ 登录 Cookie 走 musicu GetPlayLyricInfo 取 trans；
+    /// 主歌词仍以旧接口的纯 LRC 为准，musicu 的 lyric 字段只作兜底。翻译取不到不影响主歌词。
+    func lyricWithTranslation(songmid: String, songID: Int, name: String = "", singer: String = "", album: String = "") async -> (lrc: String?, trans: String?) {
+        let lrc = (try? await lyric(songmid: songmid)) ?? nil
+        var trans: String? = nil
+        var musicuLyric: String? = nil
+
+        let qqAuth = QQMusicAuth.shared
+        if qqAuth.isLoggedIn {
+            let payload: [String: Any] = [
+                "comm": ["ct": 24, "cv": 0],
+                "request": [
+                    "method": "GetPlayLyricInfo",
+                    "module": "music.musichallSong.PlayLyricInfo",
+                    "param": [
+                        "songID": songID,
+                        "songName": name,
+                        "albumName": album,
+                        "singerName": singer,
+                        "songmid": songmid,
+                        "type": 0
+                    ]
+                ]
+            ]
+            if let json = try? await musicu(payload, cookie: qqAuth.cookieHeader, timeout: 10),
+               let data = (json["request"] as? [String: Any])?["data"] as? [String: Any] {
+                trans = Self.decodedLyricText(data["trans"] as? String)
+                musicuLyric = Self.decodedLyricText(data["lyric"] as? String)
+            }
+        }
+
+        if trans == nil, let mid = songmid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let json = try? await get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=\(mid)&format=json&nobase64=1&g_tk=5381",
+                                     referer: "https://y.qq.com/portal/player.html",
+                                     cookie: qqAuth.isLoggedIn ? qqAuth.cookieHeader : "") {
+            trans = Self.decodedLyricText(json["trans"] as? String)
+        }
+
+        return (lrc ?? musicuLyric, trans)
+    }
+
+    /// musicu 歌词字段可能是 base64 的 LRC，也可能直接是明文 LRC；统一解成明文，解不出/为空返回 nil。
+    private static func decodedLyricText(_ raw: String?) -> String? {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if raw.contains("[") && raw.contains("]") { return raw }
+        if let data = Data(base64Encoded: raw),
+           let text = String(data: data, encoding: .utf8),
+           text.contains("[") {
+            return text
+        }
+        return nil
+    }
+
     // MARK: - 评论区 / 排行榜 / 推荐 / 歌单
 
     /// QQ 音乐评论分页（fcg_global_comment_h5；topid 必须用数字 songid 并带 cid/reqtype，用 songmid 会返回空）

@@ -127,6 +127,22 @@ final class ATMusicCacheCoordinator: ObservableObject {
         return try? String(contentsOf: fileURL, encoding: .utf8)
     }
 
+    /// 翻译歌词与原文分开存（.tlrc），避免混进原文文件后被当成歌词正文解析；
+    /// 清理歌词缓存时 clearLyricCache 按目录全清，会一并清掉。
+    func cacheLyricTranslation(for song: Song, content: String) {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let filename = "\(song.identityKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? song.identityKey).tlrc"
+        let fileURL = lyricsDirectory.appendingPathComponent(filename)
+        try? content.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    func cachedLyricTranslation(for song: Song) -> String? {
+        let filename = "\(song.identityKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? song.identityKey).tlrc"
+        let fileURL = lyricsDirectory.appendingPathComponent(filename)
+        guard fm.fileExists(atPath: fileURL.path) else { return nil }
+        return try? String(contentsOf: fileURL, encoding: .utf8)
+    }
+
     @discardableResult
     func clearLyricCache() -> Int {
         let dir = lyricsDirectory

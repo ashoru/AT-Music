@@ -14,7 +14,7 @@ enum SongLyricsLoader {
 
         // 1. 优先检查本地歌词磁盘缓存
         if let cached = await ATMusicCacheCoordinator.shared.cachedLyric(for: song), !cached.isEmpty {
-            let parsed = LyricParser.parse(cached)
+            let parsed = LyricParser.parse(cached, translationRaw: await ATMusicCacheCoordinator.shared.cachedLyricTranslation(for: song))
             if !parsed.isEmpty { return parsed }
         }
 
@@ -57,13 +57,17 @@ enum SongLyricsLoader {
             if let raw = try? await SynologyAPI.shared.lyrics(song: song) {
                 rawLyrics = raw
             }
+            // Audio Station 只有内嵌歌词、没有翻译数据；有原文时也跨源配一份翻译挂上。
+            if rawLyrics != nil {
+                translationRaw = await matchedTranslation(for: song)
+            }
         } else if song.source == .kugou, let hash = song.kugouHash {
             let raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
             if !raw.isEmpty { rawLyrics = raw }
         } else if song.source == .qq, let mid = song.qqMid {
-            if let raw = try? await QQMusicAPI.shared.lyric(songmid: mid) {
-                rawLyrics = raw
-            }
+            let result = await QQMusicAPI.shared.lyricWithTranslation(songmid: mid, songID: song.id, name: song.name, singer: song.artists, album: song.album)
+            rawLyrics = result.lrc
+            translationRaw = result.trans
         } else if song.source == .netease {
             if let (lrc, tlyric) = try? await NetEaseAPI.shared.lyricWithTranslation(id: song.id) {
                 rawLyrics = lrc
@@ -75,15 +79,21 @@ enum SongLyricsLoader {
             let parsed = LyricParser.parse(rawLyrics, translationRaw: translationRaw)
             if !parsed.isEmpty {
                 await ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: rawLyrics)
+                if let translationRaw {
+                    await ATMusicCacheCoordinator.shared.cacheLyricTranslation(for: song, content: translationRaw)
+                }
                 return parsed
             }
         }
 
-        // 3. 跨源自动匹配
-        if let raw = await autoMatchedLyrics(for: song) {
-            let parsed = LyricParser.parse(raw)
+        // 3. 跨源自动匹配（候选源的翻译一并带回，不再丢弃）
+        if let matched = await autoMatchedLyrics(for: song) {
+            let parsed = LyricParser.parse(matched.lrc, translationRaw: matched.trans)
             if !parsed.isEmpty {
-                await ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw)
+                await ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: matched.lrc)
+                if let trans = matched.trans {
+                    await ATMusicCacheCoordinator.shared.cacheLyricTranslation(for: song, content: trans)
+                }
                 return parsed
             }
         }
@@ -91,7 +101,36 @@ enum SongLyricsLoader {
         return []
     }
 
-    private static func autoMatchedLyrics(for song: Song) async -> String? {
+    private static func autoMatchedLyrics(for song: Song) async -> (lrc: String, trans: String?)? {
+        let candidates = await lyricCandidates(for: song)
+
+        for candidate in candidates.sorted(by: { lyricMatchScore($0, to: song) > lyricMatchScore($1, to: song) }).prefix(8) {
+            if let pair = await fetchLyrics(for: candidate),
+               let lrc = pair.lrc,
+               !lrc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return (lrc, pair.trans)
+            }
+        }
+        return nil
+    }
+
+    /// 只找翻译：给已有原文歌词的歌曲（NAS 内嵌歌词）跨源配翻译。
+    /// 挂错翻译比没有翻译更糟，只接受高置信匹配（歌名精确一致且歌手至少部分对齐）。
+    private static func matchedTranslation(for song: Song) async -> String? {
+        let candidates = await lyricCandidates(for: song)
+        for candidate in candidates.sorted(by: { lyricMatchScore($0, to: song) > lyricMatchScore($1, to: song) }).prefix(8) {
+            guard lyricMatchScore(candidate, to: song) >= 120 else { continue }
+            if let pair = await fetchLyrics(for: candidate),
+               pair.lrc != nil,
+               let trans = pair.trans,
+               !trans.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return trans
+            }
+        }
+        return nil
+    }
+
+    private static func lyricCandidates(for song: Song) async -> [Song] {
         let candidates: [Song]
         if song.source == .synology {
             let matches = await SynologyAPI.shared.metadataCandidates(for: song)
@@ -109,26 +148,22 @@ enum SongLyricsLoader {
             let all = await (netease, qq, kugou)
             candidates = all.0 + all.1 + all.2
         }
-
-        for candidate in candidates.sorted(by: { lyricMatchScore($0, to: song) > lyricMatchScore($1, to: song) }).prefix(8) {
-            if let raw = await fetchLyrics(for: candidate), !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return raw
-            }
-        }
-        return nil
+        return candidates
     }
 
-    private static func fetchLyrics(for song: Song) async -> String? {
+    private static func fetchLyrics(for song: Song) async -> (lrc: String?, trans: String?)? {
         switch song.source {
         case .netease:
             guard let result = try? await NetEaseAPI.shared.lyricWithTranslation(id: song.id) else { return nil }
-            return result.lrc
+            return (result.lrc, result.tlyric)
         case .qq:
             guard let mid = song.qqMid else { return nil }
-            return try? await QQMusicAPI.shared.lyric(songmid: mid)
+            let result = await QQMusicAPI.shared.lyricWithTranslation(songmid: mid, songID: song.id, name: song.name, singer: song.artists, album: song.album)
+            return (result.lrc, result.trans)
         case .kugou:
             guard let hash = song.kugouHash else { return nil }
-            return await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
+            let raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
+            return (raw.isEmpty ? nil : raw, nil)
         case .synology, .local:
             return nil
         }
@@ -184,7 +219,7 @@ enum SongLyricsLoader {
                 return lrc
             }
         }
-        return await autoMatchedLyrics(for: song)
+        return await autoMatchedLyrics(for: song)?.lrc
     }
 
 }
