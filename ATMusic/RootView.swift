@@ -107,7 +107,7 @@ struct RootView: View {
                 showWhatsNew = true
             }
         }
-        .onChange(of: disclaimerAccepted) { _, accepted in
+        .onChange(of: disclaimerAccepted) { accepted in
             if accepted, ChangelogStore.shouldShowWhatsNew {
                 showWhatsNew = true
             }
@@ -519,7 +519,7 @@ struct FeaturedView: View {
             .onAppear {
                 categories = FeaturedSource.defaultCategories(for: featuredSource)
             }
-            .onChange(of: platformPrefs.selectedRaw) { _, _ in
+            .onChange(of: platformPrefs.selectedRaw) { _ in
                 let validSources = Set(availableFeaturedSources.compactMap(\.songSource))
                 if !isAggregate {
                     if !availableFeaturedSources.contains(featuredSource) {
@@ -533,7 +533,7 @@ struct FeaturedView: View {
                 }
                 Task { await load(reset: true) }
             }
-            .onChange(of: featuredSource) { _, newValue in
+            .onChange(of: featuredSource) { newValue in
                 selectedCategory = "全部"
                 query = ""
                 categories = FeaturedSource.defaultCategories(for: newValue)
