@@ -167,6 +167,7 @@ final class PlayerManager: NSObject, ObservableObject {
     private var timeControlStatusObserver: NSKeyValueObservation?
     private var equalizerSettingsObserver: NSObjectProtocol?
     private var backgroundObserver: NSObjectProtocol?
+    private var favoritesObserver: NSObjectProtocol?
     private var foregroundObserver: NSObjectProtocol?
     private var terminateObserver: NSObjectProtocol?
     private var backgroundPlayDate: Date?
@@ -409,6 +410,13 @@ final class PlayerManager: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.handleWillTerminate()
         }
+        favoritesObserver = NotificationCenter.default.addObserver(
+            forName: FavoritesStore.favoritesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.syncRemoteLikeCommandState()
+        }
     }
 
     deinit {
@@ -423,6 +431,9 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         if let terminateObserver {
             NotificationCenter.default.removeObserver(terminateObserver)
+        }
+        if let favoritesObserver {
+            NotificationCenter.default.removeObserver(favoritesObserver)
         }
         flushListeningSeconds()
     }
@@ -2995,6 +3006,7 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         WatchSyncService.shared.syncCurrentPlaybackState()
+        syncRemoteLikeCommandState()
     }
 
     /// 使用原始封面尺寸响应系统的多个请求，锁屏和控制中心就能拿到足够大的方形 artwork。
@@ -3054,6 +3066,17 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    /// 锁屏/控制中心星标与 App 内红心联动：星标激活态 = 当前歌曲的红心状态（isSongLiked，与红心图标同源）。
+    /// 切歌/刷新 NowPlaying、收藏变化通知、锁屏点星后都会走到这里对齐。
+    private func syncRemoteLikeCommandState() {
+        let center = MPRemoteCommandCenter.shared()
+        guard let song = currentSong else {
+            center.likeCommand.isActive = false
+            return
+        }
+        center.likeCommand.isActive = FavoritesStore.shared.isSongLiked(song)
     }
 
     private func setupRemoteCommands() {
@@ -3117,7 +3140,8 @@ final class PlayerManager: NSObject, ObservableObject {
             self?.performOnMain { [weak self] in
                 guard let song = self?.currentSong else { return }
                 Task {
-                    _ = await FavoritesStore.shared.toggle(song)
+                    // 与 App 内红心完全一致的动作（统一收藏入口），状态变化经通知回同步星标激活态。
+                    await FavoritesStore.shared.toggleFavorite(song)
                 }
             }
             return .success

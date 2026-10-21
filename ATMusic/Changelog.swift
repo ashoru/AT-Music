@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-113",
+            version: "1.9.36",
+            title: "锁屏星标与红心联动",
+            features: [
+                "锁屏/控制中心播放栏的星标与 App 内红心打通：点星标 = 点红心（本地收藏歌单与平台收藏一起切换）",
+                "星标点亮状态实时跟随红心：在 App 里收藏后锁屏星标同步点亮，锁屏取消后红心同步熄灭，切歌自动对齐新歌的收藏状态"
+            ],
+            fixes: []
+        ),
+
+        VersionLog(
             id: "1.9.36-build-112",
             version: "1.9.36",
             title: "QQ 与 NAS 歌词补上翻译",

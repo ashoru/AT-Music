@@ -3,6 +3,9 @@ import Foundation
 /// 收藏管理（红心）：网易云登录后同步到网易云云端；QQ 本地持久化，
 /// 登录 QQ 时尽力同步到 QQ 云端（music.srfDissong），失败不影响本地收藏。
 final class FavoritesStore: ObservableObject {
+    /// 统一红心状态变化通知：播放器据此把锁屏/控制中心星标与 App 内红心实时对齐。
+    static let favoritesDidChange = Notification.Name("ATMusicFavoritesDidChange")
+
     static let shared = FavoritesStore()
 
     /// QQ 红心收藏（本地持久化，供音乐库展示）
@@ -79,6 +82,7 @@ final class FavoritesStore: ObservableObject {
             ToastCenter.shared.show("已添加到收藏")
             ATMusicHaptics.success()
         }
+        NotificationCenter.default.post(name: Self.favoritesDidChange, object: self)
     }
 
     /// 切换平台收藏状态；返回是否成功
