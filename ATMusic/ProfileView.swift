@@ -1493,7 +1493,7 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
             .tint(Color.atmusicAmber)
-            .onChange(of: prefetchNextSong) { _, value in
+            .onChange(of: prefetchNextSong) { value in
                 musicCache.setPrefetchEnabled(value)
             }
 
@@ -2021,7 +2021,7 @@ struct SettingsView: View {
                     }
                     .toggleStyle(.switch)
                     .tint(Color.atmusicAmber)
-                    .onChange(of: mixesWithOthers) { _, value in
+                    .onChange(of: mixesWithOthers) { value in
                         PlayerManager.applyAudioMixPreference(value)
                     }
 
