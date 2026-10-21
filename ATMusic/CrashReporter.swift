@@ -28,7 +28,9 @@ final class CrashReporter {
             CrashReporter.writeCrash(detail)
         }
 
-        // 崩溃信号
+        // 崩溃信号：先预备好信号专用日志路径（handler 内只能用 async-signal-safe 的 POSIX write）
+        Self.prepareSignalCrashFile()
+
         for sig in [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE] {
             signal(sig, Self.signalHandler)
         }
@@ -39,10 +41,39 @@ final class CrashReporter {
         UserDefaults.standard.set(false, forKey: Self.launchKey)
     }
 
-    /// 崩溃信号处理：记录信号类型后恢复默认并重新抛出，保持系统崩溃行为
+    /// 信号崩溃专用日志路径（启动时预先算好；handler 内禁止调用 Foundation/String/DateFormatter，
+    /// 这些都不是 async-signal-safe 的，可能在处理崩溃时二次死锁）
+    private static var signalCrashPath: [CChar] = []
+
+    private static func prepareSignalCrashFile() {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("ATMusicLogs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        signalCrashPath = Array(dir.appendingPathComponent("crash-signal.log").path.utf8CString)
+    }
+
+    /// 崩溃信号处理：只用 POSIX open/write/close 落一行信号编号，随后恢复默认并重新抛出，保持系统崩溃行为。
+    /// 详细崩溃日志由系统崩溃报告与下次启动的异常退出检测兜底。
     private static let signalHandler: @convention(c) (Int32) -> Void = { sig in
-        let names: [Int32: String] = [SIGABRT: "SIGABRT", SIGSEGV: "SIGSEGV", SIGBUS: "SIGBUS", SIGILL: "SIGILL", SIGFPE: "SIGFPE"]
-        CrashReporter.writeCrash("[崩溃信号] \(names[sig] ?? "\(sig)")")
+        if !CrashReporter.signalCrashPath.isEmpty {
+            let fd = open(CrashReporter.signalCrashPath, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+            if fd >= 0 {
+                var msg: [UInt8] = [99, 114, 97, 115, 104, 32, 115, 105, 103, 110, 97, 108, 61] // "crash signal="
+                var digits: [UInt8] = []
+                var value = sig
+                if value == 0 { digits.append(48) }
+                while value > 0 {
+                    digits.append(UInt8(48 + value % 10))
+                    value /= 10
+                }
+                msg.append(contentsOf: digits.reversed())
+                msg.append(10) // "\n"
+                msg.withUnsafeBufferPointer { buf in
+                    _ = write(fd, buf.baseAddress, buf.count)
+                }
+                close(fd)
+            }
+        }
         signal(sig, SIG_DFL)
         raise(sig)
     }

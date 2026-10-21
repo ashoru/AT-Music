@@ -44,11 +44,13 @@ final class SecureStorage {
             removeObject(forKey: key)
             return
         }
-        if let data = value as? Data, !data.isEmpty {
+        // Empty Data/String are meaningful clears (e.g. wiping a VIP badge):
+        // write() routes empty data to the fallback store, so do not drop them.
+        if let data = value as? Data {
             write(data, key)
             return
         }
-        if let string = value as? String, !string.isEmpty {
+        if let string = value as? String {
             write(Data(string.utf8), key)
             return
         }

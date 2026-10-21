@@ -88,6 +88,7 @@
 		BA615F2B555803B9CED78512 /* CommentsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7136E334BE1CFD4515E767 /* CommentsSheet.swift */; };
 		BDBBF045B1D5344A33C8780C /* AudioURLCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C281DE6BBA57ECFB8BF4B2FF /* AudioURLCache.swift */; };
 		C01498F50E9811A8A808412F /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4861CDFA0BDA2706539CA9 /* QueueView.swift */; };
+		C01A1C2E12A56327AE66719F /* SecureStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8791EED254F153C868E24F20 /* SecureStorage.swift */; };
 		C10ACF21E2EDB096CAF5E0B1 /* DetailSongsCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6390340F3608312BB8E8D250 /* DetailSongsCache.swift */; };
 		C1B724AE6BEA12284AAEE28F /* SongCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 342A8A3ABD041E2B522B25B6 /* SongCell.swift */; };
 		C21E23BDE27BE44DF4DC5AA4 /* NetEaseWebLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610C10359085CFFFA3E49044 /* NetEaseWebLoginSheet.swift */; };
@@ -170,6 +171,7 @@
 		7D5E5968F75AB736812E6B78 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		810044AD24E71FD337BC8D03 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		82AA3624A107A89B2153DACB /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		8791EED254F153C868E24F20 /* SecureStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStorage.swift; sourceTree = "<group>"; };
 		8798336209FB3B7B9C9943EC /* UnifiedSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSongStore.swift; sourceTree = "<group>"; };
 		88F511212A06A697177B6B75 /* SynologyLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyLoginSheet.swift; sourceTree = "<group>"; };
 		8C8279AB8CFD592AD86A5FC3 /* ATMusicApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATMusicApp.swift; sourceTree = "<group>"; };
@@ -276,6 +278,7 @@
 				755E5E34911145179BEF534A /* KugouMusicAuth.swift */,
 				F1754D4A96A6C0292E55E1EC /* Language.swift */,
 				4F35518EE32FB54B3B0F559F /* LibraryView.swift */,
+				36A24885673A93DC23499773 /* Localizable.strings */,
 				CEB34D56EF6CB027C4038CE1 /* LocalLibraryStore.swift */,
 				FD81682400062D3794713DC5 /* LocalMusicSection.swift */,
 				594BBCBA148DC9CCF21B5EC1 /* LoginView.swift */,
@@ -316,6 +319,7 @@
 				67E215C1FB3EA4221CD91944 /* SearchView.swift */,
 				99D096F472149597B4BEC187 /* SectionOrderStore.swift */,
 				A45881FE84469298FE68EE7A /* SecureCredentialStore.swift */,
+				8791EED254F153C868E24F20 /* SecureStorage.swift */,
 				6EB48D12AA209B8AFCC85CB2 /* SettingsSubviews.swift */,
 				1C46C18D14DB38C08EDD9822 /* SleepTimerSheet.swift */,
 				342A8A3ABD041E2B522B25B6 /* SongCell.swift */,
@@ -339,7 +343,6 @@
 				EBCCF63778BCE2868BEEB0B5 /* VinylPlayerView.swift */,
 				F0F2E731040063614BB6A267 /* WatchSyncService.swift */,
 				00A05ADFA71A97C2375F6C12 /* WebLoginDataCleaner.swift */,
-				36A24885673A93DC23499773 /* Localizable.strings */,
 			);
 			path = ATMusic;
 			sourceTree = "<group>";
@@ -389,10 +392,9 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 0F42D41C290CBB4184AC7B22 /* Build configuration list for PBXProject "ATMusic" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -403,7 +405,6 @@
 			mainGroup = 8BEE8C24BEBB2E5DB04E95A1;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 807D2F8DDC64C23B11A2BE25 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -510,6 +511,7 @@
 				0465B52B4298AA137DB7A771 /* SearchView.swift in Sources */,
 				C2431A55E797A6B4A32DA8C1 /* SectionOrderStore.swift in Sources */,
 				0CF4556E9CC4D13CCC70C795 /* SecureCredentialStore.swift in Sources */,
+				C01A1C2E12A56327AE66719F /* SecureStorage.swift in Sources */,
 				A0A78C37A936345FC168389B /* SettingsSubviews.swift in Sources */,
 				D921B34152F241B71F9C6BFE /* SleepTimerSheet.swift in Sources */,
 				C1B724AE6BEA12284AAEE28F /* SongCell.swift in Sources */,
@@ -556,7 +558,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 105;
+				CURRENT_PROJECT_VERSION = 106;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -615,7 +617,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -631,7 +633,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 105;
+				CURRENT_PROJECT_VERSION = 106;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -696,7 +698,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

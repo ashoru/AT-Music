@@ -48,6 +48,22 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-106",
+            version: "1.9.36",
+            title: "安全加固：凭证迁入 Keychain 与 iOS 16 兼容",
+            features: [
+                "账号凭证安全升级：网易云、QQ音乐、酷狗登录信息迁入系统 Keychain 加密存储，升级自动迁移、无需重新登录",
+                "最低系统版本降至 iOS 16：iOS 16–25 设备使用经典标签页界面，iOS 26 设备继续享受液态玻璃体验",
+                "第三方音源脚本新增内网访问防护：默认禁止脚本访问本机与局域网地址，保护 NAS 等内网设备"
+            ],
+            fixes: [
+                "修复崩溃日志在信号处理中可能二次卡死的问题",
+                "音频地址缓存新增容量上限，长时间播放更稳定",
+                "修复 QQ 音乐 VIP 徽标清除后仍残留显示的问题"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-105",
             version: "1.9.36",
             title: "全平台红心收藏聚合与 iPad 歌单大屏排版深度重塑",

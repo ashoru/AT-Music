@@ -1,5 +1,18 @@
 # AT Music 更新日志
 
+## 1.9.36 build 106
+
+### 安全加固与 iOS 16 兼容（GitHub 安全线合入 + 专项核查修复）
+- **账号凭证迁入 Keychain**：网易云登录态/Cookie、QQ 音乐 Cookie、酷狗登录 Token 不再明文存 UserDefaults；新增 SecureStorage 组件，首次启动自动迁移，老用户不掉登录，Keychain 不可用时自动兜底。
+- **仓库签名材料清除**：iPad 证书压缩包与密码文件已从仓库移除，.gitignore 全面加固（证书/密钥/压缩包/交接文档），发布脚本改白名单添加，杜绝 `git add -A` 误推机密。
+- **第三方音源脚本 SSRF 防护**：脚本网络请求默认禁止访问本机/局域网私网段与非 HTTP(S) 协议，避免恶意脚本探测内网与 NAS。
+- **最低系统降至 iOS 16**：新增经典 TabView 回退界面，液态玻璃、符号动画、scrollPosition 等新系统特性全部加版本守卫；iOS 26 设备体验不变。
+- **CI 改进**：push 只做构建测试，Release 改为手动触发或打 tag 发布，产物附 SHA-256 校验文件。
+- **CrashReporter 信号处理改 async-signal-safe 实现**：崩溃信号处理中只用 POSIX write 落盘信号编号，不再调用 DateFormatter/FileManager，消除处理崩溃时二次死锁风险。
+- **AudioURLCache 容量上限**：新增 300 条上限（先清过期、再按最早过期淘汰），并修正注释与实现不一致（TTL 实际为 40 分钟）。
+- **修复 QQ 音乐 VIP 徽标清除不生效**：SecureStorage 写空值现在正确落盘，不再残留旧徽标。
+- **文档同步**：说明.md 版本信息更新至 1.9.36 build 106。
+
 ## 1.9.36 build 105
 
 ### 全平台红心收藏聚合与 iPad 歌单大屏排版深度重塑
