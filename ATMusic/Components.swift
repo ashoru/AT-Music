@@ -476,13 +476,38 @@ struct GlassCard<Content: View>: View {
 /// 播放/暂停图标切换过渡：iOS 17+ 使用符号替换动画，低版本回退透明度过渡
 struct ATMusicContentFade: ViewModifier {
     func body(content: Content) -> some View {
-        content.contentTransition(.opacity)
+        Group {
+            if #available(iOS 17.0, *) {
+                content.contentTransition(.opacity)
+            } else {
+                content
+            }
+        }
     }
 }
 
 struct ATMusicSymbolReplace: ViewModifier {
     func body(content: Content) -> some View {
-        content.contentTransition(.symbolEffect(.replace))
+        Group {
+            if #available(iOS 17.0, *) {
+                content.contentTransition(.symbolEffect(.replace))
+            } else {
+                content
+            }
+        }
+    }
+}
+
+/// 播放中的 waveform 呼吸动画：iOS 17+ 使用符号特效，低版本静态显示。
+struct ATMusicWaveformEffect: ViewModifier {
+    func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 17.0, *) {
+                content.symbolEffect(.variableColor.iterative.reversing)
+            } else {
+                content
+            }
+        }
     }
 }
 
