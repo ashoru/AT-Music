@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-125",
+            version: "1.9.36",
+            title: "聚合页 NAS 今日推荐跨小时不换批修复",
+            features: [],
+            fixes: [
+                "NAS 今日推荐按小时轮换，但聚合页常驻或回前台时不会重新取数，旧批次一直挂着像没变化：聚合页现记录加载所属小时，回前台与每分钟巡检发现跨小时即自动重新加载换批（小时内保持稳定）"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-124",
             version: "1.9.36",
             title: "试听切第三方改为真无缝",

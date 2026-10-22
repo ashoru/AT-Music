@@ -78,6 +78,10 @@ struct DiscoverView: View {
     @State private var activeLoadKey: String?
     @State private var lastLoadedKey = ""
     @State private var lastLoadedAt = Date.distantPast
+    /// 聚合页上次完成加载所属的小时桶（NAS 今日推荐按小时换批的依据）；
+    /// 页面常驻时靠它发现“已跨小时”，触发重新取数换批。
+    @State private var aggregateHourBucket: Int?
+    @Environment(\.scenePhase) private var scenePhase
     /// 首次启动免责声明：确认进入后若加载失败自动刷新
     @AppStorage("atmusic.disclaimerAccepted") private var disclaimerAccepted = false
     /// 网易云歌单广场当前分类（「全部」展示官方精品歌单）
@@ -227,6 +231,14 @@ struct DiscoverView: View {
                 guard !homeRenderingPaused else { return }
                 guard loggedIn, platformPrefs.isEnabled(SearchProvider.synology) else { return }
                 reloadAfterLoginUpdate(.synology)
+            }
+            // 跨小时换批触发：NAS 今日推荐按小时种子轮换，但页面常驻/回前台时
+            // .task 不会重新触发，旧批次会一直挂着（用户实报“NAS 歌单没变化”）。
+            .onChange(of: scenePhase) { phase in
+                if phase == .active { checkHourRollover() }
+            }
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+                checkHourRollover()
             }
             .sheet(isPresented: $showSectionSort) {
                 SectionOrderSheet(
@@ -1272,6 +1284,17 @@ struct DiscoverView: View {
         errorMessage = hasAnyData ? nil : "暂时没有获取到聚合首页内容"
         lastLoadedKey = loadKey
         lastLoadedAt = Date()
+        aggregateHourBucket = Int(Date().timeIntervalSince1970 / 3600)
+    }
+
+    /// 当前小时与上次聚合加载的小时不同（NAS 今日推荐应换批）时重新加载。
+    /// 小时内保持稳定是既定设计（116），这里只补“跨小时页面还活着”的触发缺口。
+    private func checkHourRollover() {
+        guard isHomeAggregate, !homeRenderingPaused else { return }
+        let bucket = Int(Date().timeIntervalSince1970 / 3600)
+        if let loaded = aggregateHourBucket, loaded != bucket {
+            Task { await load() }
+        }
     }
 
     private func combineAggregateSnapshots(_ snapshots: [DiscoverCache.Snapshot]) -> DiscoverCache.Snapshot {
