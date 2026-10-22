@@ -695,12 +695,28 @@ final class NetEaseAPI {
             crypto: "weapi"
         )
         let data = json["data"] as? [[String: Any]] ?? []
-        return data.compactMap { item in
+        var songs = data.compactMap { item in
             if let songInfo = item["songInfo"] as? [String: Any] {
                 return Song(json: songInfo)
             }
             return Song(json: item)
         }
+        // 心动模式接口对个别歌曲只下发推荐条目（仅 id、无 songInfo），会解析出
+        // 歌名/歌手/封面全空的空壳歌；入队前按 ID 批量补拉官方详情替换，保持顺序。
+        let missingIds = songs.filter { $0.name.isEmpty }.map(\.id)
+        if !missingIds.isEmpty, let details = try? await songDetails(ids: missingIds) {
+            let detailById = Dictionary(details.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var filledCount = 0
+            songs = songs.map { song in
+                guard song.name.isEmpty, let full = detailById[song.id], !full.name.isEmpty else { return song }
+                filledCount += 1
+                return full
+            }
+            if filledCount > 0 {
+                ATMusicLogger.shared.log("心动模式：已补全 \(filledCount) 首缺失信息的歌曲", level: .info)
+            }
+        }
+        return songs
     }
 
     /// 网易云私人漫游：一次预取 30 首，避免只有 12 首时很快播放完。

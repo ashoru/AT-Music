@@ -203,6 +203,8 @@ final class PlayerManager: NSObject, ObservableObject {
     /// 记录 QQ 官方 vkey 已经尝试过的 BR，官方地址实际打不开时继续换档位。
     private var attemptedQQOfficialBRsBySong: [String: Set<String>] = [:]
     private var activeQQOfficialBR: String?
+    /// 正在按 ID 补拉详情的空壳歌（仅 ID、无歌名/封面），避免重复补拉。
+    private var metadataEnrichInFlightSongKeys: Set<String> = []
     /// KVO 与 AVPlayerItemFailedToPlayToEndTime 可能同时报告同一次失败。
     private var playbackRecoveryInFlightSongKey: String?
     /// 同一首歌的多个 AVFoundation 失败回调只允许弹一次提示并自动切歌一次。
@@ -1074,9 +1076,34 @@ final class PlayerManager: NSObject, ObservableObject {
         updateNowPlaying()
     }
 
+    /// 队列里个别网易云歌曲可能只有 ID、歌名/歌手/封面全空（例如心动模式接口
+    /// 只下发推荐条目），播放地址只靠 ID 仍可播、但信息永远显示不出来。
+    /// 播放时按 ID 补拉一次官方详情并回填队列，同一首只补一次。
+    private func enrichSongMetadataIfNeeded(_ song: Song) {
+        guard song.source == .netease, song.name.isEmpty else { return }
+        let key = song.identityKey
+        guard metadataEnrichInFlightSongKeys.insert(key).inserted else { return }
+        Task {
+            let details = try? await NetEaseAPI.shared.songDetails(ids: [song.id])
+            await MainActor.run {
+                self.metadataEnrichInFlightSongKeys.remove(key)
+                guard let full = details?.first, !full.name.isEmpty,
+                      let idx = self.queue.firstIndex(where: { $0.identityKey == key }),
+                      self.queue[idx].name.isEmpty else { return }
+                self.queue[idx] = full
+                ATMusicLogger.shared.log("🔎 已补全歌曲信息：\(full.name) - \(full.artists)", level: .info)
+                if idx == self.currentIndex {
+                    self.updateNowPlaying()
+                    self.savePersistedPlaybackState()
+                }
+            }
+        }
+    }
+
     private func loadCurrent(resumeAt: Double? = nil, forceKugouStandard: Bool = false) {
         guard ensurePlaybackAllowed() else { return }
         guard let song = currentSong else { return }
+        enrichSongMetadataIfNeeded(song)
         currentLyrics = []
         currentLyricsSongIdentity = nil
         let cacheQuality = playbackCacheQuality()

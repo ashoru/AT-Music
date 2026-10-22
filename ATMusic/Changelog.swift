@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-114",
+            version: "1.9.36",
+            title: "修心动模式个别歌曲无歌名无封面",
+            features: [],
+            fixes: [
+                "心动模式里个别歌曲（如后弦《西厢》）只有声音、歌名歌手封面一直空白：这类歌曲接口只下发了 ID，App 现在会在入队前自动补齐官方详情",
+                "加了播放兜底：队列中歌名为空的网易云歌曲，开始播放时自动按 ID 补拉信息并回填，来回切歌也能恢复正常显示"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-113",
             version: "1.9.36",
             title: "锁屏星标与红心联动",
