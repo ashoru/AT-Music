@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-123",
+            version: "1.9.36",
+            title: "聚合页今日推荐 NAS 缺席修复",
+            features: [],
+            fixes: [
+                "聚合页给 NAS 的加载竞速只有 10 秒，整库首次建索引必然超时被静默丢弃，大曲库设备上今日推荐永远没有 NAS：NAS 预算放宽至 30 秒、歌单与曲库改并行取数；发现页补齐 NAS 会话恢复自动刷新（与其余三平台对齐），并在加载收尾时对 NAS 缺席自动补拉自愈"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-122",
             version: "1.9.36",
             title: "歌名滚动改单向无缝循环",

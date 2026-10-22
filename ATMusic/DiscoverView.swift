@@ -16,6 +16,7 @@ struct DiscoverView: View {
     @EnvironmentObject private var player: PlayerManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var synologySession = SynologyAPI.shared
 
     @State private var topLists: [TopList] = []
     @State private var dailySongs: [Song] = []
@@ -219,6 +220,13 @@ struct DiscoverView: View {
                 guard !homeRenderingPaused else { return }
                 guard platformPrefs.isEnabled(SearchProvider.kugou) else { return }
                 reloadAfterLoginUpdate(.kugou)
+            }
+            // NAS 会话恢复/登录晚于聚合页首次加载时补刷新——其余三个平台都有登录刷新，
+            // 此前唯独 NAS 缺失，会话一慢聚合页里 NAS 就整场缺席（2026-10-22 iPad 实报）。
+            .onChange(of: synologySession.isLoggedIn) { loggedIn in
+                guard !homeRenderingPaused else { return }
+                guard loggedIn, platformPrefs.isEnabled(SearchProvider.synology) else { return }
+                reloadAfterLoginUpdate(.synology)
             }
             .sheet(isPresented: $showSectionSort) {
                 SectionOrderSheet(
@@ -1242,6 +1250,24 @@ struct DiscoverView: View {
                 apply(finalSnapshot)
             }
         }
+        // 自愈：NAS 已启用且会话有效，但合并结果里一首 NAS 歌都没有（多半是会话恢复
+        // 晚于本次加载、或整库首建超时被竞速丢弃），单独补拉一次 NAS 并合并进来——
+        // 不能让 NAS 在聚合页整场缺席、只能等用户手动下拉刷新。
+        if providers.contains(.synology),
+           SynologyAPI.shared.isLoggedIn,
+           !finalSnapshot.dailySongs.contains(where: { $0.source == .synology }) {
+            let nasSnapshot = await fetchNASHomeSnapshot()
+            if !nasSnapshot.isEmpty {
+                snapshotsByProvider[.synology] = nasSnapshot
+                cache.save(nasSnapshot, for: .synology)
+                let healedSnapshot = combineAggregateSnapshots(homeProviders.compactMap { snapshotsByProvider[$0] })
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    apply(healedSnapshot)
+                }
+            }
+        }
         loading = false
         errorMessage = hasAnyData ? nil : "暂时没有获取到聚合首页内容"
         lastLoadedKey = loadKey
@@ -1269,7 +1295,10 @@ struct DiscoverView: View {
 
     private func fetchAggregatePart(for provider: SearchProvider) async -> (SearchProvider, DiscoverCache.Snapshot) {
         // 某个平台不可用时不能让聚合首页永远停在等待状态。
-        await withTaskGroup(of: (SearchProvider, DiscoverCache.Snapshot).self) { group in
+        // NAS 首次加载要整库建索引，明显慢于在线平台：单独放宽到 30 秒，
+        // 否则大曲库设备上 NAS 快照永远赢不了竞速、聚合页永远没有 NAS。
+        let timeoutNanoseconds: UInt64 = provider == .synology ? 30_000_000_000 : 10_000_000_000
+        return await withTaskGroup(of: (SearchProvider, DiscoverCache.Snapshot).self) { group in
             group.addTask { [self] in
                 switch provider {
                 case .synology:
@@ -1280,7 +1309,7 @@ struct DiscoverView: View {
                 }
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
                 return (provider, DiscoverCache.Snapshot())
             }
             let first = await group.next() ?? (provider, DiscoverCache.Snapshot())
@@ -1345,8 +1374,11 @@ struct DiscoverView: View {
     private func fetchNASHomeSnapshot() async -> DiscoverCache.Snapshot {
         var snapshot = DiscoverCache.Snapshot()
         guard SynologyAPI.shared.isLoggedIn else { return snapshot }
-        snapshot.personalized = (try? await SynologyAPI.shared.allPlaylists(pageSize: 18)) ?? []
-        if let songs = try? await SynologyAPI.shared.librarySongs() {
+        // 歌单与整库并行取，避免串行耗时叠加后被聚合竞速丢弃
+        async let playlistsTask: [Playlist] = SynologyAPI.shared.allPlaylists(pageSize: 18)
+        async let libraryTask: [Song] = SynologyAPI.shared.librarySongs()
+        snapshot.personalized = (try? await playlistsTask) ?? []
+        if let songs = try? await libraryTask {
             snapshot.dailySongs = SynologyAPI.hourlyRecommendedSongs(from: songs, count: 30)
         }
         return snapshot
