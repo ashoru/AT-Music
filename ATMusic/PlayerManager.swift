@@ -1947,58 +1947,72 @@ final class PlayerManager: NSObject, ObservableObject {
             let nextItem = candidate.item
             let latestSeconds = currentActivePlayer?.currentTime().seconds ?? resumeAt
             let finalResume = (latestSeconds.isFinite && latestSeconds > 0) ? latestSeconds : resumeAt
-            // 漂移在 1.5s 内直接沿用候选已灌注的位置起播：对远程大文件做零容差
-            // 精确 seek 会丢弃已缓冲数据、从文件中间冷拉流，置换后数秒静音
-            // （2026-10-22 心动模式实证静音约 8s）。漂移过大才 seek，且用宽容差
-            // 让播放器复用目标点附近的已缓冲数据。
-            if abs(finalResume - resumeAt) > 1.5 {
-                let tolerance = CMTime(seconds: 2, preferredTimescale: 600)
-                nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance)
+            // 精确对齐交接（build 124）：交接点必定位于候选已缓冲区间之内（下方判据
+            // 与追锚逻辑保证），区间内零容差 seek 不丢缓冲、瞬时完成——旧做法拿准备
+            // 时刻冻结的锚点起播（漂移 ≤1.5s 不 seek）、或 ±2s 宽容差 seek，用户实测
+            // 有 1~2 秒错位；冷拉流的真因是 seek 到未缓冲位置，而非精确 seek 本身。
+            // seek 完成回调里才翻转播放，回调前试听持续发声，听感同点接续。
+            nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak currentActivePlayer, candidate] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    // 平滑热切：Player B 播放并恢复音量，Player A 暂停
+                    nextPlayer.volume = self.targetVolume
+                    nextPlayer.playImmediately(atRate: Float(self.rate))
+                    currentActivePlayer?.pause()
+                    currentActivePlayer?.replaceCurrentItem(with: nil)
+
+                    self.isHotSwapTrialActive = false
+                    let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
+                    self.setupPlayer(
+                        url: resolved.url,
+                        thirdPartyVIPNotice: notice,
+                        resumeAt: finalResume,
+                        isThirdParty: true,
+                        thirdPartyQuality: resolved.quality,
+                        customHeaders: resolved.headers,
+                        fromPlaybackCache: false,
+                        isHotSwapTrial: false,
+                        prewarmedPlayer: nextPlayer,
+                        prewarmedItem: nextItem,
+                        resourceLoader: candidate.loader
+                    )
+                    ATMusicLogger.shared.log("🚀 [Hot-Swap] 无缝热置换彻底完成！0ms中断平滑过渡至全曲：\(song.name)", level: .info)
+                }
             }
-
-            // 平滑热切：Player B 播放并恢复音量，Player A 暂停
-            nextPlayer.volume = self.targetVolume
-            nextPlayer.playImmediately(atRate: Float(self.rate))
-            currentActivePlayer?.pause()
-            currentActivePlayer?.replaceCurrentItem(with: nil)
-
-            self.isHotSwapTrialActive = false
-            let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
-            self.setupPlayer(
-                url: resolved.url,
-                thirdPartyVIPNotice: notice,
-                resumeAt: finalResume,
-                isThirdParty: true,
-                thirdPartyQuality: resolved.quality,
-                customHeaders: resolved.headers,
-                fromPlaybackCache: false,
-                isHotSwapTrial: false,
-                prewarmedPlayer: nextPlayer,
-                prewarmedItem: nextItem,
-                resourceLoader: candidate.loader
-            )
-            ATMusicLogger.shared.log("🚀 [Hot-Swap] 无缝热置换彻底完成！0ms中断平滑过渡至全曲：\(song.name)", level: .info)
         }
         candidate.executeHandover = executeHandover
 
-        // 交接判据：不只是 item 可达（readyToPlay），还要目标位置附近已有可播
-        // 缓冲。此前 readyToPlay 一到就交接，远程大文件在目标位置其实没有数据，
-        // 交接后播放器长时间 waitingToPlayAtSpecifiedRate 静音。
-        let bufferedEnoughAtTarget: () -> Bool = {
+        // 交接判据（build 124 改为动态对齐）：以交接瞬间试听的实时进度为目标点，
+        // 候选的已缓冲区间必须覆盖目标点、且其后至少留 1.2s 余量。候选锚在准备
+        // 时刻的位置、缓冲只向前生长，目标点天然落在区间内；若候选落下太多
+        // （目标点已越过缓冲前沿），把静音候选重新锚定到试听实时位置继续追，
+        // 而不是拿冻结锚点或宽容差硬交接（旧逻辑造成 1~2 秒错位，用户实测）。
+        var candidateAnchor = resumeAt
+        var lastReanchorAt = Date.distantPast
+        let bufferedCoveringTrialNow: () -> Bool = {
             guard nextItem.status == .readyToPlay else { return false }
-            if nextItem.isPlaybackLikelyToKeepUp { return true }
-            let target = max(resumeAt, 0)
+            let trialNow = currentActivePlayer.currentTime().seconds
+            let target = (trialNow.isFinite && trialNow > 0) ? trialNow : resumeAt
             for range in nextItem.loadedTimeRanges {
                 let timeRange = range.timeRangeValue
                 let start = timeRange.start.seconds
                 guard start.isFinite, timeRange.duration.seconds.isFinite else { continue }
-                if start <= target + 0.5, start + timeRange.duration.seconds >= target + 2.0 { return true }
+                if start <= target + 0.25, start + timeRange.duration.seconds >= target + 1.2 { return true }
             }
             return false
         }
         let handoverIfBuffered = {
-            guard bufferedEnoughAtTarget() else { return }
-            DispatchQueue.main.async { candidate.executeHandover?() }
+            if bufferedCoveringTrialNow() {
+                DispatchQueue.main.async { candidate.executeHandover?() }
+                return
+            }
+            // 候选落后于试听进度：静音重锚到实时位置，让缓冲在前沿重建（节流 0.8s）
+            let trialNow = currentActivePlayer.currentTime().seconds
+            if trialNow.isFinite, trialNow - candidateAnchor > 1.0, Date().timeIntervalSince(lastReanchorAt) > 0.8 {
+                lastReanchorAt = Date()
+                candidateAnchor = trialNow
+                nextPlayer.seek(to: CMTime(seconds: trialNow, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            }
         }
         candidate.bufferObservation = nextItem.observe(\.loadedTimeRanges, options: [.new]) { [candidate] _, _ in
             handoverIfBuffered()

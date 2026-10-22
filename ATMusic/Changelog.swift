@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-124",
+            version: "1.9.36",
+            title: "试听切第三方改为真无缝",
+            features: [],
+            fixes: [
+                "热置换交接此前用准备时刻的冻结位置起播（漂移内不定位、漂移大用 ±2 秒宽容差），切到第三方全曲时有 1~2 秒重复/跳过感：改为以交接瞬间试听进度为目标点、候选缓冲须覆盖该点才交接，落后则静音追锚，交接在已缓冲区间内零容差精确对齐后才翻转播放，同点接续无错位"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-123",
             version: "1.9.36",
             title: "聚合页今日推荐 NAS 缺席修复",
