@@ -332,8 +332,12 @@ final class NetEaseAPI {
     /// 歌曲播放地址 + 试听标记（用于灰色/VIP 歌曲解锁判断）
     struct SongURLInfo {
         let url: String?
-        /// 存在 freeTrialInfo 表示仅返回试听片段（VIP 歌曲）
+        /// 返回的媒体被判定为试听片段（仅认媒体证据，见 songURLInfo 实现）
         let freeTrial: Bool
+        /// 服务端明确给出的试听区间（freeTrialInfo 含 start/end）：最硬的试听证据
+        let trialByBounds: Bool
+        /// 服务端返回媒体的时长（毫秒），供解析层与歌曲全长交叉校验
+        let timeMs: Int
     }
 
     func songURLInfo(ids: [Int], level: String = "standard") async throws -> [Int: SongURLInfo] {
@@ -345,14 +349,24 @@ final class NetEaseAPI {
             guard let id = item["id"] as? Int else { continue }
             let rawURL = item["url"] as? String
             let url = (rawURL?.isEmpty ?? true) ? nil : rawURL
-            let hasFreeTrialInfo = (item["freeTrialInfo"] as? [String: Any]) != nil
-            let hasFreePrivilege = (item["freeTimeTrialPrivilege"] as? [String: Any]) != nil
             let fee = item["fee"] as? Int ?? 0
             let timeMs = item["time"] as? Int ?? 0
-            // 网易云试听音频特征：明确包含 freeTrialInfo，或时长 <= 65s 且属于收费曲目 (fee != 0)
+            // 试听判定只认“返回媒体本身”的证据（build 126 收紧）：
+            // ① freeTrialInfo 含真实 start/end 区间——服务端明说这段 URL 是截取片段；
+            // ② 返回时长 <= 65s 且收费曲目——媒体本身就是短片段。
+            // 此前把 freeTimeTrialPrivilege（账号试听特权描述，全长响应里也常驻）
+            // 也算试听，导致全天所有网易解析都被误判试听、官方命中 0 次，
+            // VIP 歌曲全被拉去走试听+第三方热置换（2026-10-22 用户实报开头卡顿）。
+            var trialByBounds = false
+            if let trialInfo = item["freeTrialInfo"] as? [String: Any],
+               let start = (trialInfo["start"] as? NSNumber)?.doubleValue,
+               let end = (trialInfo["end"] as? NSNumber)?.doubleValue,
+               end > start {
+                trialByBounds = true
+            }
             let isShortTrial = (timeMs > 0 && timeMs <= 65_000 && fee > 0)
-            let freeTrial = hasFreeTrialInfo || hasFreePrivilege || isShortTrial
-            result[id] = SongURLInfo(url: url, freeTrial: freeTrial)
+            let freeTrial = trialByBounds || isShortTrial
+            result[id] = SongURLInfo(url: url, freeTrial: freeTrial, trialByBounds: trialByBounds, timeMs: timeMs)
         }
         return result
     }

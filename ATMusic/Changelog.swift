@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-126",
+            version: "1.9.36",
+            title: "网易 VIP 误判试听修复",
+            features: [],
+            fixes: [
+                "试听判定误把账号特权描述字段当作试听证据，网易官方命中全天为 0，VIP 歌曲全被拉去试听+第三方热置换、开头卡顿：判定改为只认返回媒体证据（真实试听区间或返回时长过短），解析层再以返回时长与歌曲全长交叉校验，全长媒体一律按官方完整命中，不再跌入第三方"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-125",
             version: "1.9.36",
             title: "聚合页 NAS 今日推荐跨小时不换批修复",

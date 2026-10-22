@@ -1453,7 +1453,18 @@ final class PlayerManager: NSObject, ObservableObject {
                 if info.freeTrial != true {
                     ATMusicLogger.shared.log("网易云官方原生命中(级别=\(lvl))：\(song.name)", level: .info)
                     return (urlString: u, resolvedThirdParty: nil, isHotSwapTrial: false)
-                } else if trialURL == nil {
+                }
+                // 全长媒体覆盖：被标试听但服务端并未给出试听区间、且返回时长已达
+                // 歌曲全长的 90%——返回的分明是完整音轨，元数据标记不可信，
+                // 按官方完整命中处理（VIP 先官方的硬规则，媒体证据优先于标记）。
+                if !info.trialByBounds,
+                   song.duration > 0,
+                   info.timeMs >= Int(song.duration * 900) {
+                    ATMusicLogger.shared.log("网易云官方返回全长媒体(级别=\(lvl) 时长=\(info.timeMs)ms/全长=\(Int(song.duration * 1000))ms)，忽略试听误判：\(song.name)", level: .info)
+                    return (urlString: u, resolvedThirdParty: nil, isHotSwapTrial: false)
+                }
+                ATMusicLogger.shared.log("网易云该级别判试听(级别=\(lvl) 时长=\(info.timeMs)ms 区间证据=\(info.trialByBounds))：\(song.name)", level: .debug)
+                if trialURL == nil {
                     trialURL = u
                 }
             }
