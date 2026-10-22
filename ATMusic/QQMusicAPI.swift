@@ -203,8 +203,48 @@ final class QQMusicAPI {
 
     // MARK: - 搜索
 
-    /// 搜索歌曲（client_search_cp，本机与手机网络均可）
+    /// 搜索歌曲（musicu 桌面搜索为主，client_search_cp 兜底）。
+    /// client_search_cp 的 albummid 对部分专辑只回数字 ID（如 23082334，其实是 albumid），
+    /// 拼出的封面地址必然 404——QQ 搜索结果封面大面积空白就是这么来的；
+    /// musicu 的 album.mid 恒为字母 mid，封面可靠，且与歌手搜索同为一条已验证通道。
     func searchSongs(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Song] {
+        if let json = try? await musicu(musicuSearchPayload(keyword: keyword, limit: limit, offset: offset, type: .song)) {
+            let list = nestedArray(json, path: ["req_1", "data", "body", "song", "list"])
+            var songs: [Song] = []
+            for item in list {
+                guard let songid = item["id"] as? Int, let mid = item["mid"] as? String else { continue }
+                let singer = (item["singer"] as? [[String: Any]]) ?? []
+                let artists = singer.compactMap { $0["name"] as? String }.joined(separator: " / ")
+                let album = item["album"] as? [String: Any]
+                let interval = (item["interval"] as? Int) ?? 0
+                let pay = item["pay"] as? [String: Any]
+                let fee = (pay?["pay_play"] as? Int) ?? 0
+                let file = item["file"] as? [String: Any]
+                let mediaMid = file?["media_mid"] as? String
+                let discNo = ((item["index_cd"] as? Int) ?? 0) + 1
+                let trackNo = (item["index_album"] as? Int) ?? 0
+                songs.append(Song(
+                    id: songid,
+                    name: item["title"] as? String ?? item["name"] as? String ?? "",
+                    artists: artists,
+                    album: album?["name"] as? String ?? "",
+                    coverURL: Self.photoURL(album?["mid"] as? String),
+                    duration: TimeInterval(interval),
+                    source: .qq,
+                    qqMid: mid,
+                    qqMediaMid: mediaMid,
+                    discNumber: max(1, discNo),
+                    trackNumber: max(0, trackNo),
+                    fee: fee
+                ))
+            }
+            if !songs.isEmpty { return songs }
+        }
+        return try await searchSongsViaClientCP(keyword: keyword, limit: limit, offset: offset)
+    }
+
+    /// 搜索歌曲兜底通道（client_search_cp，本机与手机网络均可）
+    func searchSongsViaClientCP(keyword: String, limit: Int = 30, offset: Int = 0) async throws -> [Song] {
         let pageSize = max(limit, 1)
         let page = max(offset, 0) / pageSize + 1
         guard let url = clientSearchURL(keyword: keyword, limit: pageSize, type: 0, page: page) else {
@@ -219,7 +259,9 @@ final class QQMusicAPI {
             guard let songid = item["songid"] as? Int, let mid = item["songmid"] as? String else { continue }
             let singer = (item["singer"] as? [[String: Any]]) ?? []
             let artists = singer.compactMap { $0["name"] as? String }.joined(separator: " / ")
-            let albumMid = item["albummid"] as? String ?? item["albumMID"] as? String
+            let rawAlbumMid = item["albummid"] as? String ?? item["albumMID"] as? String
+            // 纯数字的是 albumid 不是字母 mid，拼封面必 404；宁可无封面也不发必死请求
+            let albumMid = (rawAlbumMid?.allSatisfy { $0.isNumber } == true) ? nil : rawAlbumMid
             let interval = (item["interval"] as? Int) ?? 0
             let pay = item["pay"] as? [String: Any]
             let fee = (item["fee"] as? Int) ?? (pay?["pay_play"] as? Int) ?? (pay?["payplay"] as? Int) ?? 0

@@ -22,7 +22,33 @@ enum SearchResultRelevance {
         for value in secondary {
             best = min(best, matchScore(query: query, value: value, base: 20))
         }
-        return best
+        // 整句评分之外再算一遍跨字段词元覆盖：查询词分散命中歌名与歌手/专辑时
+        // （如“周杰伦 稻香”），单字段永远凑不齐，必须合并看才算真相关。
+        return min(best, tokenCoverageScore(query: query, primary: primary, secondary: secondary))
+    }
+
+    /// 按词元覆盖率给分（550 起，覆盖越全越靠前，排在整句包含匹配之后、无关结果之前）。
+    /// 整句未命中时单个字段逐个比对会让多词查询全部并列最低分，排序退化为
+    /// “同分 NAS 优先 + 后端顺序”，真正的目标歌曲被不相干的本地结果压到后面
+    /// （用户实报：搜 my songs knows what，聚合结果全是 NAS 里的黎明）。
+    private static func tokenCoverageScore(query: String, primary: String, secondary: [String]) -> Int {
+        let queryTokens = query.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        guard !queryTokens.isEmpty else { return 10_000 }
+        let fields = ([primary] + secondary).map(normalize).filter { !$0.isEmpty }
+        guard !fields.isEmpty else { return 10_000 }
+        let fieldTokens = fields.flatMap { $0.split(separator: " ").map(String.init) }
+        var matched = 0
+        for token in queryTokens {
+            if fields.contains(where: { $0.contains(token) }) { matched += 1; continue }
+            // 词形容差：know/knows 这类词形差异，任一为另一方前缀即算命中（短词不启用防噪声）
+            if token.count >= 3,
+               fieldTokens.contains(where: { $0.count >= 3 && ($0.hasPrefix(token) || token.hasPrefix($0)) }) {
+                matched += 1
+            }
+        }
+        guard matched > 0 else { return 10_000 }
+        let coverage = Double(matched) / Double(queryTokens.count)
+        return 550 + Int((1 - coverage) * 250) + min(normalize(primary).count, 60) / 4
     }
 
     private static func matchScore(query: String, value: String, base: Int) -> Int {

@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-120",
+            version: "1.9.36",
+            title: "QQ 搜索封面恢复 + 聚合搜索排序修正",
+            features: [],
+            fixes: [
+                "QQ 音乐搜索结果封面大面积空白：老搜索接口对部分专辑返回纯数字专辑 ID，拼出的封面地址必然 404；搜索改走桌面端接口（专辑编号恒为字母型），封面恢复显示",
+                "聚合搜索结果排错位：多词查询只要一个词对不上就全部结果并列最低分、被 NAS 结果压住；新增跨字段词元覆盖评分，英文长歌名与“歌手+歌名”组合查询也能把目标歌曲排到前面"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-119",
             version: "1.9.36",
             title: "归档到 NAS 丢歌手等信息——根因修复",
