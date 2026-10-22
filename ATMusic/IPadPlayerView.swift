@@ -657,10 +657,29 @@ struct IPadPlayerView: View {
 
     // MARK: - 实时待播列表（Queue）
 
+    /// 待播行身份：同一首歌在队列里出现多次时用出现序号区分，避免 ForEach 身份重复。
+    private struct InlineQueueEntry: Identifiable {
+        let id: String
+        let index: Int
+        let song: Song
+    }
+
+    private func inlineQueueEntries(_ songs: [Song]) -> [InlineQueueEntry] {
+        var occurrences: [String: Int] = [:]
+        return songs.enumerated().map { index, song in
+            let key = song.identityKey
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            return InlineQueueEntry(id: "\(key)#\(occurrence)", index: index, song: song)
+        }
+    }
+
     private var inlineQueueListView: some View {
         let queuedSongs = player.queue
         return ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
+            // 必须是 LazyVStack：普通 VStack 会一次性实例化全部待播行（每行带一个
+            // 封面加载器），队列上千首时光建行就卡死（手机端 QueueView 用 List 无此问题）。
+            LazyVStack(spacing: 8) {
                 if queuedSongs.isEmpty {
                     Text("当前待播列表为空")
                         .font(ATMusicFont.appFont(15))
@@ -682,7 +701,9 @@ struct IPadPlayerView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 8)
 
-                    ForEach(Array(queuedSongs.enumerated()), id: \.element.identityKey) { index, item in
+                    ForEach(inlineQueueEntries(queuedSongs)) { entry in
+                        let item = entry.song
+                        let index = entry.index
                         let isPlayingThis = (item.identityKey == player.currentSong?.identityKey)
 
                         HStack(spacing: 14) {

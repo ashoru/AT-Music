@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-118",
+            version: "1.9.36",
+            title: "iPad 待播清单千首不卡 + NAS 歌单计数缓存",
+            features: [],
+            fixes: [
+                "iPad 播放页待播清单改为懒加载：队列上千首也只渲染屏幕附近的行，不再一次性建满全部行卡死",
+                "NAS 歌单歌曲数加 10 分钟缓存，反复打开歌单列表不再每次全量向 NAS 重新点数"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-117",
             version: "1.9.36",
             title: "修 NAS 歌单歌曲数量全是 0",

@@ -128,6 +128,8 @@ final class SynologyAPI: ObservableObject {
     private var librarySongsCacheUpdatedAt = Date.distantPast
     private var librarySongsLoadingTask: Task<[Song], Error>?
     private let librarySongsCacheTTL: TimeInterval = 600
+    /// 歌单歌曲数缓存：点数要逐张请求 NAS，缓存 10 分钟避免每次进列表都全量重数。
+    private var playlistCountCache: [String: (count: Int, at: Date)] = [:]
     private var didRestorePersistentLibraryIndex = false
     private var librarySongsIndex: [String: Song] = [:]
     private let indexLock = NSLock()
@@ -1151,12 +1153,22 @@ final class SynologyAPI: ObservableObject {
     /// 全部落空，官方网页端代码里也没有这个字段），歌单数量只能自己点数补齐。
     /// 单个歌单失败不阻塞整个列表，保留原值。
     private func fillPlaylistCounts(_ playlists: [Playlist]) async -> [Playlist] {
-        let missingIds = playlists
+        let candidateIds = playlists
             .filter { $0.trackCount <= 0 }
             .compactMap { $0.synologyPlaylistId }
             .filter { !$0.isEmpty }
-        guard !missingIds.isEmpty else { return playlists }
+        guard !candidateIds.isEmpty else { return playlists }
+        // 10 分钟内的计数直接用缓存，只给缺失/过期的歌单重新点数。
         var counts: [String: Int] = [:]
+        let now = Date()
+        let missingIds = candidateIds.filter { pid in
+            if let cached = playlistCountCache[pid],
+               now.timeIntervalSince(cached.at) < librarySongsCacheTTL {
+                counts[pid] = cached.count
+                return false
+            }
+            return true
+        }
         // 分批并发，避免歌单很多时同时压 NAS 太多请求。
         for start in stride(from: 0, to: missingIds.count, by: 8) {
             let slice = Array(missingIds[start..<min(start + 8, missingIds.count)])
@@ -1165,7 +1177,10 @@ final class SynologyAPI: ObservableObject {
                     group.addTask { (pid, await self.playlistSongCount(playlistId: pid)) }
                 }
                 for await (pid, count) in group {
-                    if let count { counts[pid] = count }
+                    if let count {
+                        counts[pid] = count
+                        playlistCountCache[pid] = (count, Date())
+                    }
                 }
             }
         }
