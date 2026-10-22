@@ -1229,8 +1229,8 @@ struct SynologyAppleHomeSection: View {
             songs = loadedSongs
             playlists = loadedPlaylists
             recentlyAddedAlbums = await fetchedRecentAlbums
-            if todayRecommendations.isEmpty || Date().timeIntervalSince(recommendationsUpdatedAt) >= 600 {
-                todayRecommendations = Array(loadedSongs.shuffled().prefix(20))
+            if todayRecommendations.isEmpty || Date().timeIntervalSince(recommendationsUpdatedAt) >= 3600 {
+                todayRecommendations = SynologyAPI.hourlyRecommendedSongs(from: loadedSongs, count: 20)
                 recommendationsUpdatedAt = Date()
             }
             isLoading = false

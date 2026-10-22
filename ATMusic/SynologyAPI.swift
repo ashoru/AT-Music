@@ -73,6 +73,15 @@ struct SynologyMetadataCandidate: Identifiable, Hashable {
     let providerName: String
 }
 
+/// 可播种随机数生成器（按小时确定性打乱用，与 QQ 每日推荐的 SeededRNG 同款 LCG）
+private struct HourlySeedRNG: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
+    }
+}
+
 final class SynologyAPI: ObservableObject {
     static let shared = SynologyAPI()
 
@@ -649,6 +658,18 @@ final class SynologyAPI: ObservableObject {
 
     /// 分页读取完整音乐库。Audio Station 的搜索接口在不同 DSM/Audio Station 版本上
     /// 返回字段并不一致，因此搜索时会用这份完整目录做本地兜底匹配。
+    /// NAS 今日推荐的按小时轮换挑选：以当前小时为种子确定性洗牌——同一小时内
+    /// 多次进入/刷新结果一致，跨过整点自动换一批。NAS 首页与聚合首页共用，
+    /// 避免聚合页永远取排序后的前 30 首、NAS 首页每 10 分钟乱换一轮的问题。
+    static func hourlyRecommendedSongs(from songs: [Song], count: Int) -> [Song] {
+        guard songs.count > count else { return songs }
+        let hourBucket = UInt64(Date().timeIntervalSince1970 / 3600)
+        var rng = HourlySeedRNG(state: hourBucket &* 2862933555777941757 &+ 3037000493)
+        var shuffled = songs
+        shuffled.shuffle(using: &rng)
+        return Array(shuffled.prefix(count))
+    }
+
     func librarySongs(pageSize: Int = 500, forceRefresh: Bool = false) async throws -> [Song] {
         restorePersistentLibraryIndexIfNeeded()
         if !forceRefresh,

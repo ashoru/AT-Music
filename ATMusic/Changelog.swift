@@ -48,6 +48,17 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-116",
+            version: "1.9.36",
+            title: "NAS 今日推荐改为每小时轮换",
+            features: [
+                "聚合首页与 NAS 首页的 NAS 今日推荐统一按小时轮换：每小时从整个曲库抽一批新歌，同一小时内稳定不变，整点自动换批",
+                "修复聚合页 NAS 推荐永远固定取曲库排序前 30 首、新歌永远轮不到的问题"
+            ],
+            fixes: []
+        ),
+
+        VersionLog(
             id: "1.9.36-build-115",
             version: "1.9.36",
             title: "修心动模式播两秒就停（热置换缓冲修复）",

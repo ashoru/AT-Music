@@ -1347,7 +1347,7 @@ struct DiscoverView: View {
         guard SynologyAPI.shared.isLoggedIn else { return snapshot }
         snapshot.personalized = (try? await SynologyAPI.shared.allPlaylists(pageSize: 18)) ?? []
         if let songs = try? await SynologyAPI.shared.librarySongs() {
-            snapshot.dailySongs = Array(songs.prefix(30))
+            snapshot.dailySongs = SynologyAPI.hourlyRecommendedSongs(from: songs, count: 30)
         }
         return snapshot
     }
