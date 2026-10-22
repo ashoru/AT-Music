@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-122",
+            version: "1.9.36",
+            title: "歌名滚动改单向无缝循环",
+            features: [],
+            fixes: [
+                "歌名跑马灯重写为 Apple Music 式单向无缝循环（双份文本恒速滚动），消除回卷跳变与界面刷新导致的重启卡顿；iPad 放慢速度并延迟起滚，减轻与歌词同屏滚动的视觉干扰"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-121",
             version: "1.9.36",
             title: "QQ 会员播不了官方源真因修复 + 歌名滚动与徽章下移",

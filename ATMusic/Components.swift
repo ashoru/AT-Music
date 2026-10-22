@@ -1115,41 +1115,51 @@ private struct MarqueeTextWidthKey: PreferenceKey {
     }
 }
 
-/// 歌名跑马灯：放得下时静止，放不下时横向滚动（停顿 → 匀速滚到结尾 → 停顿 → 回卷），
-/// 与 Apple Music 一致；超宽时右缘渐隐提示还有内容。isPaused 时停在开头（如正在拖动进度条）。
+/// 歌名跑马灯（Apple Music 式）：放得下时静止；放不下时渲染两份相同文本，
+/// 以恒定速度单向无缝循环滚动——第二份与第一份完全一致，绕回瞬间画面无跳变、无回弹。
+/// 切歌/尺寸变化后先停留 startDelay 再起滚；isPaused 时回到开头静止（如正在拖动进度条）。
+/// 滚动动画只由 scrolling 开关驱动（repeatForever），父视图刷新不会重启，避免卡顿。
 struct MarqueeText: View {
     let text: String
     let font: Font
     var color: Color = .white
     var height: CGFloat = 26
     var isPaused: Bool = false
+    /// 滚动速度（pt/s）：越慢越不抢眼，与歌词同屏时宜更慢。
+    var speed: CGFloat = 34
+    /// 每次（重新）起滚前的停留秒数，先让开头可读。
+    var startDelay: Double = 1.6
 
     @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
-    @State private var offsetX: CGFloat = 0
+    @State private var scrolling = false
+
+    private let copyGap: CGFloat = 56
 
     private var needsScroll: Bool {
         containerWidth > 0 && textWidth > containerWidth + 1
     }
 
-    private var scrollKey: String {
-        "\(text)#\(Int(textWidth))#\(Int(containerWidth))#\(needsScroll)#\(isPaused)"
-    }
+    private var loopDistance: CGFloat { textWidth + copyGap }
+    private var loopDuration: Double { Double(loopDistance / max(speed, 1)) }
+    private var eligibilityKey: String { "\(text)#\(needsScroll)#\(isPaused)" }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Text(text)
-                    .font(font)
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .background(
-                        GeometryReader { textGeo in
-                            Color.clear.preference(key: MarqueeTextWidthKey.self, value: textGeo.size.width)
-                        }
-                    )
-                    .offset(x: offsetX)
+                HStack(spacing: copyGap) {
+                    label
+                    if needsScroll {
+                        label
+                    }
+                }
+                .offset(x: scrolling ? -loopDistance : 0)
+                .animation(
+                    scrolling
+                        ? .linear(duration: loopDuration).repeatForever(autoreverses: false)
+                        : .easeOut(duration: 0.25),
+                    value: scrolling
+                )
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
             .clipped()
@@ -1168,33 +1178,37 @@ struct MarqueeText: View {
                     Rectangle().fill(.white)
                 }
             }
-            .onAppear { containerWidth = geo.size.width }
+            .onAppear {
+                if abs(containerWidth - geo.size.width) > 0.5 { containerWidth = geo.size.width }
+            }
             .onChange(of: geo.size.width) { newWidth in
-                containerWidth = newWidth
+                if abs(containerWidth - newWidth) > 0.5 { containerWidth = newWidth }
             }
         }
         .frame(height: height)
-        .onPreferenceChange(MarqueeTextWidthKey.self) { textWidth = $0 }
-        .task(id: scrollKey) { await runMarquee() }
+        .onPreferenceChange(MarqueeTextWidthKey.self) { newWidth in
+            if abs(textWidth - newWidth) > 0.5 { textWidth = newWidth }
+        }
+        .task(id: eligibilityKey) {
+            scrolling = false
+            guard needsScroll, !isPaused else { return }
+            try? await Task.sleep(nanoseconds: UInt64(startDelay * 1_000_000_000))
+            if Task.isCancelled { return }
+            scrolling = true
+        }
     }
 
-    private func runMarquee() async {
-        offsetX = 0
-        guard needsScroll, !isPaused else { return }
-        let distance = textWidth - containerWidth
-        let duration = Double(distance) / 42.0
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            if Task.isCancelled { return }
-            withAnimation(.linear(duration: duration)) { offsetX = -distance }
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000) + 250_000_000)
-            if Task.isCancelled { return }
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            if Task.isCancelled { return }
-            withAnimation(.easeInOut(duration: 0.45)) { offsetX = 0 }
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            if Task.isCancelled { return }
-        }
+    private var label: some View {
+        Text(text)
+            .font(font)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .background(
+                GeometryReader { textGeo in
+                    Color.clear.preference(key: MarqueeTextWidthKey.self, value: textGeo.size.width)
+                }
+            )
     }
 }
 

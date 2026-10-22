@@ -264,10 +264,14 @@ struct IPadPlayerView: View {
             // 歌曲信息排版
             VStack(alignment: .leading, spacing: 6) {
                 // 歌名超长时横向滚动（与 iPhone 播放页一致）；徽章本就在顶栏与信息行，不与歌名抢位
+                // iPad 右侧歌词同屏滚动，歌名滚动刻意放慢、延迟起滚，降低双滚动的视觉干扰
                 MarqueeText(
                     text: song?.title ?? "未在播放",
                     font: ATMusicFont.appFont(isCompact ? 20 : 25, .bold),
-                    height: isCompact ? 25 : 31
+                    height: isCompact ? 25 : 31,
+                    isPaused: isDraggingScrubber,
+                    speed: 26,
+                    startDelay: 2.2
                 )
 
                 SongSubtitleMenu(
