@@ -256,7 +256,9 @@ final class QQMusicAPI {
         let list = song["list"] as? [[String: Any]] ?? []
         var songs: [Song] = []
         for item in list {
-            guard let songid = item["songid"] as? Int, let mid = item["songmid"] as? String else { continue }
+            // 老接口对部分曲目只回占位 songmid "0"，收下等于收一首播不了的歌，直接跳过
+            guard let songid = item["songid"] as? Int, let mid = item["songmid"] as? String,
+                  Self.isValidQQMid(mid) else { continue }
             let singer = (item["singer"] as? [[String: Any]]) ?? []
             let artists = singer.compactMap { $0["name"] as? String }.joined(separator: " / ")
             let rawAlbumMid = item["albummid"] as? String ?? item["albumMID"] as? String
@@ -848,13 +850,14 @@ final class QQMusicAPI {
     // MARK: - 播放 / 歌词
 
     /// 指定音质获取播放地址（br: M800=320kbps 高质量 / M500=128kbps 低质量），下载用
-    func songURL(songmid: String, mediaMid: String? = nil, br: String) async throws -> String? {
+    func songURL(songmid: String, mediaMid: String? = nil, br: String, songid: Int? = nil) async throws -> String? {
         let qqAuth = QQMusicAuth.shared
         let uin = qqAuth.isLoggedIn ? qqAuth.uin : "0"
         let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
         let guid = Self.deviceGuid
-        let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
-        return try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth)
+        let ids = await resolveIdentifiers(songmid: songmid, songid: songid, provided: mediaMid, qqAuth: qqAuth)
+        guard Self.isValidQQMid(ids.songmid) else { return nil }
+        return try await vkeyURL(songmid: ids.songmid, mediaMid: ids.mediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth)
     }
 
     struct SongURLResult {
@@ -876,19 +879,21 @@ final class QQMusicAPI {
     func songURL(
         songmid: String,
         mediaMid: String? = nil,
-        quality: ATMusicAudioQuality = .current
+        quality: ATMusicAudioQuality = .current,
+        songid: Int? = nil
     ) async throws -> String? {
         let qqAuth = QQMusicAuth.shared
         let uin = qqAuth.isLoggedIn ? qqAuth.uin : "0"
         let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
         let guid = Self.deviceGuid
-        let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
+        let ids = await resolveIdentifiers(songmid: songmid, songid: songid, provided: mediaMid, qqAuth: qqAuth)
+        guard Self.isValidQQMid(ids.songmid) else { return nil }
         let preferredBR = Self.qqBR(for: quality)
         let fallbackBRs = [preferredBR, "F000", "M800", "M500", "C400"]
         var seenBRs = Set<String>()
         // 独家 VIP 曲库并不保证所有档位都存在；避免同一 BR 因不同显示音质重复请求。
         for br in fallbackBRs where seenBRs.insert(br).inserted {
-            if let url = try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth) {
+            if let url = try await vkeyURL(songmid: ids.songmid, mediaMid: ids.mediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth) {
                 return url
             }
         }
@@ -899,13 +904,17 @@ final class QQMusicAPI {
     func songURLResult(
         songmid: String,
         mediaMid: String? = nil,
-        quality: ATMusicAudioQuality = .current
+        quality: ATMusicAudioQuality = .current,
+        songid: Int? = nil
     ) async throws -> SongURLResult? {
         let qqAuth = QQMusicAuth.shared
         let uin = qqAuth.isLoggedIn ? qqAuth.uin : "0"
         let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
         let guid = Self.deviceGuid
-        let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
+        let ids = await resolveIdentifiers(songmid: songmid, songid: songid, provided: mediaMid, qqAuth: qqAuth)
+        guard Self.isValidQQMid(ids.songmid) else { return nil }
+        let resolvedMediaMid = ids.mediaMid
+        let resolvedSongmid = ids.songmid
         let preferredBR = Self.qqBR(for: quality)
         let fallbackBRs = qqAuth.isVIP ? [preferredBR, "F000", "M800", "M500"] : [preferredBR, "M800"]
         var seenBRs = Set<String>()
@@ -913,7 +922,7 @@ final class QQMusicAPI {
         for br in fallbackBRs where seenBRs.insert(br).inserted {
             attemptedBRs.append(br)
             if let url = try await vkeyURL(
-                songmid: songmid,
+                songmid: resolvedSongmid,
                 mediaMid: resolvedMediaMid,
                 br: br,
                 uin: uin,
@@ -933,15 +942,33 @@ final class QQMusicAPI {
         try await songURL(songmid: songmid, mediaMid: mediaMid, quality: .current)
     }
 
+    /// QQ mid 是否可用。老搜索接口（client_search_cp）对部分曲目只回占位 mid "0"
+    /// （实证：搜 my songs knows what 整页都是 "0"），拿它调详情/vkey/歌词必然失败。
+    static func isValidQQMid(_ mid: String?) -> Bool {
+        guard let mid, !mid.isEmpty else { return false }
+        return mid != "0"
+    }
+
+    /// 解析可用的 (songmid, media_mid)。
     /// 搜索接口经常不返回 file.media_mid；独家 VIP 歌曲的 media_mid 又常与 songmid 不同，必须补拉详情。
-    private func resolveMediaMid(songmid: String, provided: String?, qqAuth: QQMusicAuth) async -> String {
-        if let provided, !provided.isEmpty { return provided }
+    /// mid 本身无效（占位 "0"）时改按数字 song_id 补拉详情，一次把真实 mid 与 media_mid 都换回来——
+    /// 否则详情按 mid 查恒 404、vkey 恒 101404，会员账号也播不了官方源（2026-10-22 日志实证）。
+    private func resolveIdentifiers(songmid: String, songid: Int?, provided: String?, qqAuth: QQMusicAuth) async -> (songmid: String, mediaMid: String) {
+        let param: [String: Any]
+        if Self.isValidQQMid(songmid) {
+            if let provided, !provided.isEmpty { return (songmid, provided) }
+            param = ["song_mid": songmid]
+        } else if let songid, songid > 0 {
+            param = ["song_id": songid]
+        } else {
+            return (songmid, provided ?? songmid)
+        }
         let payload: [String: Any] = [
             "comm": ["ct": 24, "cv": 0, "uin": qqAuth.isLoggedIn ? qqAuth.uin : "0"],
             "songinfo": [
                 "module": "music.pf_song_detail_svr",
                 "method": "get_song_detail_yqq",
-                "param": ["song_mid": songmid],
+                "param": param,
             ],
         ]
         guard let json = try? await musicu(payload, cookie: qqAuth.isLoggedIn ? qqAuth.cookieHeader : ""),
@@ -952,10 +979,14 @@ final class QQMusicAPI {
               let mediaMid = file["media_mid"] as? String,
               !mediaMid.isEmpty else {
             ATMusicLogger.shared.log("QQ 歌曲详情未返回 media_mid，回退 songmid", level: .debug)
-            return songmid
+            return (songmid, provided ?? songmid)
         }
-        ATMusicLogger.shared.log("QQ 歌曲详情：media_mid=已获取 是否不同=\(mediaMid == songmid ? "否" : "是")", level: .debug)
-        return mediaMid
+        let realMid = (track["mid"] as? String).flatMap { Self.isValidQQMid($0) ? $0 : nil } ?? songmid
+        if realMid != songmid {
+            ATMusicLogger.shared.log("QQ 歌曲详情：已用 song_id 修复占位 mid", level: .debug)
+        }
+        ATMusicLogger.shared.log("QQ 歌曲详情：media_mid=已获取 是否不同=\(mediaMid == realMid ? "否" : "是")", level: .debug)
+        return (realMid, mediaMid)
     }
 
     /// 单次 vkey 请求（GET musicu.fcg，data 参数格式与 wp_MusicApi 完全一致）
@@ -1157,7 +1188,8 @@ final class QQMusicAPI {
 
     /// QQ 音乐歌词（LRC 文本）
     func lyric(songmid: String) async throws -> String? {
-        guard let mid = songmid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        guard Self.isValidQQMid(songmid),
+              let mid = songmid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         let url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=\(mid)&format=json&nobase64=1&g_tk=5381"
         let json = try await get(url, referer: "https://y.qq.com/portal/player.html")
         guard let lyric = json["lyric"] as? String, !lyric.isEmpty else { return nil }
@@ -1197,7 +1229,8 @@ final class QQMusicAPI {
             }
         }
 
-        if trans == nil, let mid = songmid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        if trans == nil, Self.isValidQQMid(songmid),
+           let mid = songmid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let json = try? await get("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=\(mid)&format=json&nobase64=1&g_tk=5381",
                                      referer: "https://y.qq.com/portal/player.html",
                                      cookie: qqAuth.isLoggedIn ? qqAuth.cookieHeader : "") {

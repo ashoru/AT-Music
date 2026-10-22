@@ -1105,6 +1105,99 @@ struct SourceBadgeView: View {
     }
 }
 
+
+// MARK: - 超长文本横向滚动（跑马灯）
+
+private struct MarqueeTextWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// 歌名跑马灯：放得下时静止，放不下时横向滚动（停顿 → 匀速滚到结尾 → 停顿 → 回卷），
+/// 与 Apple Music 一致；超宽时右缘渐隐提示还有内容。isPaused 时停在开头（如正在拖动进度条）。
+struct MarqueeText: View {
+    let text: String
+    let font: Font
+    var color: Color = .white
+    var height: CGFloat = 26
+    var isPaused: Bool = false
+
+    @State private var textWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var offsetX: CGFloat = 0
+
+    private var needsScroll: Bool {
+        containerWidth > 0 && textWidth > containerWidth + 1
+    }
+
+    private var scrollKey: String {
+        "\(text)#\(Int(textWidth))#\(Int(containerWidth))#\(needsScroll)#\(isPaused)"
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Text(text)
+                    .font(font)
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background(
+                        GeometryReader { textGeo in
+                            Color.clear.preference(key: MarqueeTextWidthKey.self, value: textGeo.size.width)
+                        }
+                    )
+                    .offset(x: offsetX)
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
+            .clipped()
+            .mask {
+                if needsScroll {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white, location: 0),
+                            .init(color: .white, location: 0.86),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                } else {
+                    Rectangle().fill(.white)
+                }
+            }
+            .onAppear { containerWidth = geo.size.width }
+            .onChange(of: geo.size.width) { newWidth in
+                containerWidth = newWidth
+            }
+        }
+        .frame(height: height)
+        .onPreferenceChange(MarqueeTextWidthKey.self) { textWidth = $0 }
+        .task(id: scrollKey) { await runMarquee() }
+    }
+
+    private func runMarquee() async {
+        offsetX = 0
+        guard needsScroll, !isPaused else { return }
+        let distance = textWidth - containerWidth
+        let duration = Double(distance) / 42.0
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.linear(duration: duration)) { offsetX = -distance }
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000) + 250_000_000)
+            if Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.easeInOut(duration: 0.45)) { offsetX = 0 }
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if Task.isCancelled { return }
+        }
+    }
+}
+
 // MARK: - 会员标识小标（SVIP 金色 / VIP 红色）
 
 struct VIPBadgeView: View {

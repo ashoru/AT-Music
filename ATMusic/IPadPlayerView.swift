@@ -263,10 +263,12 @@ struct IPadPlayerView: View {
 
             // 歌曲信息排版
             VStack(alignment: .leading, spacing: 6) {
-                Text(song?.title ?? "未在播放")
-                    .font(ATMusicFont.appFont(isCompact ? 20 : 25, .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                // 歌名超长时横向滚动（与 iPhone 播放页一致）；徽章本就在顶栏与信息行，不与歌名抢位
+                MarqueeText(
+                    text: song?.title ?? "未在播放",
+                    font: ATMusicFont.appFont(isCompact ? 20 : 25, .bold),
+                    height: isCompact ? 25 : 31
+                )
 
                 SongSubtitleMenu(
                     song: song,

@@ -1414,7 +1414,8 @@ final class DownloadManager: ObservableObject {
             if let result = try? await QQMusicAPI.shared.songURLResult(
                 songmid: mid,
                 mediaMid: song.qqMediaMid,
-                quality: quality.atmusicQuality
+                quality: quality.atmusicQuality,
+                songid: song.id
             ),
             let url = URL(string: result.url),
             !UnblockService.isCorruptOrAntiLeechURL(url) {

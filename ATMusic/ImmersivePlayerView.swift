@@ -698,27 +698,13 @@ struct ImmersivePlayerView: View {
     private var songInfoAndActions: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                // 歌名 + VIP 标签 + 音频质量胶囊
-                HStack(spacing: 6) {
-                    Text(song?.name ?? "未在播放")
-                        .font(ATMusicFont.appFont(21, .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-
-                    if song?.isVIP == true {
-                        Text("VIP")
-                            .font(ATMusicFont.appFont(10, .bold))
-                            .foregroundStyle(.white.opacity(0.88))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(
-                                Color.white.opacity(0.18),
-                                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            )
-                    }
-
-                    AudioQualityCapsule(song: song)
-                }
+                // 歌名独占整行：超长时横向滚动；VIP/音质徽章已移至进度条下方的时间行
+                MarqueeText(
+                    text: song?.name ?? "未在播放",
+                    font: ATMusicFont.appFont(21, .bold),
+                    height: 26,
+                    isPaused: isDraggingSlider
+                )
 
                 // 歌手与专辑（点击弹小框分别链接歌手与专辑页）
                 SongSubtitleMenu(
@@ -844,9 +830,26 @@ struct ImmersivePlayerView: View {
 
                 Spacer()
 
-                Text("高清臻音")
-                    .font(ATMusicFont.appFont(10.5, .medium))
-                    .foregroundStyle(.white.opacity(0.65))
+                // 平台 / VIP / 音质徽章行（自歌名行移来；原静态“高清臻音”文案已删除，音质由胶囊表达）
+                if let song {
+                    HStack(spacing: 5) {
+                        SourceBadgeView(source: song.source)
+
+                        if song.isVIP {
+                            Text("VIP")
+                                .font(ATMusicFont.appFont(10, .bold))
+                                .foregroundStyle(.white.opacity(0.88))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Color.white.opacity(0.18),
+                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                )
+                        }
+
+                        AudioQualityCapsule(song: song)
+                    }
+                }
 
                 Spacer()
 

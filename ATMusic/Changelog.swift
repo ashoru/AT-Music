@@ -48,6 +48,18 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-121",
+            version: "1.9.36",
+            title: "QQ 会员播不了官方源真因修复 + 歌名滚动与徽章下移",
+            features: [
+                "播放页歌名超长时横向滚动（Apple Music 式），VIP/音质徽章移到进度条下方并新增平台标识，写死的“高清臻音”文案删除；iPad 同步滚动"
+            ],
+            fixes: [
+                "QQ 老搜索接口对部分曲目只回占位编号“0”，导致详情/播放地址/歌词全部失败、会员也播不了官方源：播放时按歌曲 ID 自动换回真实编号，兜底搜索过滤占位条目，存量收藏同样自动修复"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-120",
             version: "1.9.36",
             title: "QQ 搜索封面恢复 + 聚合搜索排序修正",

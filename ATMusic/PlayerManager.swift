@@ -925,7 +925,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             } else if nextSong.source == .qq, let mid = nextSong.qqMid {
                 // QQ 音乐官方原生优先
-                let official = try? await QQMusicAPI.shared.songURLResult(songmid: mid, mediaMid: nextSong.qqMediaMid, quality: targetQuality)
+                let official = try? await QQMusicAPI.shared.songURLResult(songmid: mid, mediaMid: nextSong.qqMediaMid, quality: targetQuality, songid: nextSong.id)
                 if let u = official?.url {
                     resolvedURL = URL(string: u)
                 } else if enableUnblock {
@@ -1254,7 +1254,8 @@ final class PlayerManager: NSObject, ObservableObject {
                 let officialResult = try? await QQMusicAPI.shared.songURLResult(
                     songmid: mid,
                     mediaMid: song.qqMediaMid,
-                    quality: quality
+                    quality: quality,
+                    songid: song.id
                 )
                 if let official = officialResult {
                     urlString = official.url
@@ -1732,7 +1733,8 @@ final class PlayerManager: NSObject, ObservableObject {
             let urlString = try? await QQMusicAPI.shared.songURL(
                 songmid: qqMid,
                 mediaMid: song.qqMediaMid,
-                br: nextBR
+                br: nextBR,
+                songid: song.id
             )
             await MainActor.run {
                 guard generation == self.loadGeneration,
