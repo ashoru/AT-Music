@@ -48,6 +48,18 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-115",
+            version: "1.9.36",
+            title: "修心动模式播两秒就停（热置换缓冲修复）",
+            features: [
+                "心动模式等场景的试听转全曲热置换不再中途静音：交接改用已缓冲位置起播、判据改看目标位置实际缓冲，置换后缓冲预算单独放宽"
+            ],
+            fixes: [
+                "修复 VIP 歌曲热置换时被两次精确 seek 打掉缓冲、置换后数秒无声甚至被误判失败停播的问题"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-114",
             version: "1.9.36",
             title: "修心动模式个别歌曲无歌名无封面",

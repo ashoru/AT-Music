@@ -141,6 +141,7 @@ final class PlayerManager: NSObject, ObservableObject {
         let loader: AudioHeadBlockResourceLoader?
         var statusObservation: NSKeyValueObservation?
         var playerStatusObservation: NSKeyValueObservation?
+        var bufferObservation: NSKeyValueObservation?
         var executeHandover: (() -> Void)?
         var didHandover = false
         var itemFailed = false
@@ -1825,6 +1826,7 @@ final class PlayerManager: NSObject, ObservableObject {
         hotSwapCandidate = nil
         candidate.statusObservation?.invalidate()
         candidate.playerStatusObservation?.invalidate()
+        candidate.bufferObservation?.invalidate()
         candidate.executeHandover = nil
         if !candidate.didHandover {
             candidate.player.pause()
@@ -1934,6 +1936,7 @@ final class PlayerManager: NSObject, ObservableObject {
             candidate.executeHandover = nil
             candidate.statusObservation?.invalidate()
             candidate.playerStatusObservation?.invalidate()
+            candidate.bufferObservation?.invalidate()
             self.hotSwapCandidate = nil
             self.hotSwapTrialEndWaitWorkItem?.cancel()
             self.hotSwapTrialEndWaitWorkItem = nil
@@ -1942,8 +1945,13 @@ final class PlayerManager: NSObject, ObservableObject {
             let nextItem = candidate.item
             let latestSeconds = currentActivePlayer?.currentTime().seconds ?? resumeAt
             let finalResume = (latestSeconds.isFinite && latestSeconds > 0) ? latestSeconds : resumeAt
-            if abs(finalResume - resumeAt) > 0.25 {
-                nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+            // 漂移在 1.5s 内直接沿用候选已灌注的位置起播：对远程大文件做零容差
+            // 精确 seek 会丢弃已缓冲数据、从文件中间冷拉流，置换后数秒静音
+            // （2026-10-22 心动模式实证静音约 8s）。漂移过大才 seek，且用宽容差
+            // 让播放器复用目标点附近的已缓冲数据。
+            if abs(finalResume - resumeAt) > 1.5 {
+                let tolerance = CMTime(seconds: 2, preferredTimescale: 600)
+                nextPlayer.seek(to: CMTime(seconds: finalResume, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance)
             }
 
             // 平滑热切：Player B 播放并恢复音量，Player A 暂停
@@ -1971,9 +1979,32 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         candidate.executeHandover = executeHandover
 
+        // 交接判据：不只是 item 可达（readyToPlay），还要目标位置附近已有可播
+        // 缓冲。此前 readyToPlay 一到就交接，远程大文件在目标位置其实没有数据，
+        // 交接后播放器长时间 waitingToPlayAtSpecifiedRate 静音。
+        let bufferedEnoughAtTarget: () -> Bool = {
+            guard nextItem.status == .readyToPlay else { return false }
+            if nextItem.isPlaybackLikelyToKeepUp { return true }
+            let target = max(resumeAt, 0)
+            for range in nextItem.loadedTimeRanges {
+                let timeRange = range.timeRangeValue
+                let start = timeRange.start.seconds
+                guard start.isFinite, timeRange.duration.seconds.isFinite else { continue }
+                if start <= target + 0.5, start + timeRange.duration.seconds >= target + 2.0 { return true }
+            }
+            return false
+        }
+        let handoverIfBuffered = {
+            guard bufferedEnoughAtTarget() else { return }
+            DispatchQueue.main.async { candidate.executeHandover?() }
+        }
+        candidate.bufferObservation = nextItem.observe(\.loadedTimeRanges, options: [.new]) { [candidate] _, _ in
+            handoverIfBuffered()
+        }
+
         candidate.statusObservation = nextItem.observe(\.status, options: [.new, .initial]) { [weak self, candidate] item, _ in
             if item.status == .readyToPlay {
-                DispatchQueue.main.async { candidate.executeHandover?() }
+                handoverIfBuffered()
             } else if item.status == .failed {
                 candidate.statusObservation?.invalidate()
                 candidate.itemFailed = true
@@ -1991,13 +2022,15 @@ final class PlayerManager: NSObject, ObservableObject {
             candidate.playerStatusObservation?.invalidate()
             observedPlayer.preroll(atRate: targetRate) { finished in
                 if finished {
-                    DispatchQueue.main.async { candidate.executeHandover?() }
+                    handoverIfBuffered()
                 }
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self, candidate] in
-            guard let self, self.hotSwapCandidate === candidate, !candidate.didHandover, candidate.item.status != .failed else { return }
+        // 兜底：观察链路万一没触发，6 秒后只要 item 已就绪就强制交接
+        // （交接后的缓冲预算已单独放宽，不会立刻被判失败）。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self, candidate] in
+            guard let self, self.hotSwapCandidate === candidate, !candidate.didHandover, candidate.item.status == .readyToPlay else { return }
             candidate.executeHandover?()
         }
     }
@@ -2188,7 +2221,10 @@ final class PlayerManager: NSObject, ObservableObject {
                         )
                     }
                     self.playbackStallWorkItem = stall
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: stall)
+                    // 热置换后的播放器要在目标位置冷拉流，给更长的缓冲预算，
+                    // 避免置换刚完成就被当成“长时间未响应”判失败（2026-10-22 实证）。
+                    let stallBudget: TimeInterval = prewarmedPlayer != nil ? 20 : 8
+                    DispatchQueue.main.asyncAfter(deadline: .now() + stallBudget, execute: stall)
                     return
                 }
                 self.playbackStallWorkItem?.cancel()
@@ -2241,9 +2277,15 @@ final class PlayerManager: NSObject, ObservableObject {
             }
         }
         if resumeAt > 0.05 {
-            let seekTime = CMTime(seconds: resumeAt, preferredTimescale: 600)
-            player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            progress = resumeAt
+            if prewarmedPlayer != nil {
+                // 热置换交接已把播放器定位到 resumeAt 附近并起播，这里再做一次
+                // 零容差精确 seek 只会打掉刚灌注的缓冲、重新冷拉流（同上实证）。
+                progress = resumeAt
+            } else {
+                let seekTime = CMTime(seconds: resumeAt, preferredTimescale: 600)
+                player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                progress = resumeAt
+            }
         }
         player.playImmediately(atRate: Float(rate))
         isPlaying = true
