@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-117",
+            version: "1.9.36",
+            title: "修 NAS 歌单歌曲数量全是 0",
+            features: [],
+            fixes: [
+                "NAS 歌单列表接口不下发歌曲数导致数量全显示 0：列表加载后自动向 NAS 轻量点数补齐真实数量"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-116",
             version: "1.9.36",
             title: "NAS 今日推荐改为每小时轮换",

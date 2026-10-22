@@ -1143,7 +1143,77 @@ final class SynologyAPI: ObservableObject {
             if page.count < safePageSize { break }
         }
         var seen = Set<String>()
-        return result.filter { seen.insert($0.synologyPlaylistId ?? "\($0.id)").inserted }
+        let unique = result.filter { seen.insert($0.synologyPlaylistId ?? "\($0.id)").inserted }
+        return await fillPlaylistCounts(unique)
+    }
+
+    /// Playlist list 接口不下发歌曲数（试过 song_count/songCount/trackCount/count
+    /// 全部落空，官方网页端代码里也没有这个字段），歌单数量只能自己点数补齐。
+    /// 单个歌单失败不阻塞整个列表，保留原值。
+    private func fillPlaylistCounts(_ playlists: [Playlist]) async -> [Playlist] {
+        let missingIds = playlists
+            .filter { $0.trackCount <= 0 }
+            .compactMap { $0.synologyPlaylistId }
+            .filter { !$0.isEmpty }
+        guard !missingIds.isEmpty else { return playlists }
+        var counts: [String: Int] = [:]
+        // 分批并发，避免歌单很多时同时压 NAS 太多请求。
+        for start in stride(from: 0, to: missingIds.count, by: 8) {
+            let slice = Array(missingIds[start..<min(start + 8, missingIds.count)])
+            await withTaskGroup(of: (String, Int?).self) { group in
+                for pid in slice {
+                    group.addTask { (pid, await self.playlistSongCount(playlistId: pid)) }
+                }
+                for await (pid, count) in group {
+                    if let count { counts[pid] = count }
+                }
+            }
+        }
+        guard !counts.isEmpty else { return playlists }
+        return playlists.map { playlist in
+            guard playlist.trackCount <= 0,
+                  let pid = playlist.synologyPlaylistId,
+                  let count = counts[pid] else { return playlist }
+            return Playlist(
+                id: playlist.id,
+                name: playlist.name,
+                coverURL: playlist.coverURL,
+                trackCount: count,
+                source: .synology,
+                synologyPlaylistId: pid
+            )
+        }
+    }
+
+    /// 用 getinfo 只取 songs（不带 song_tag/song_audio 等重字段）分页点数。
+    private func playlistSongCount(playlistId: String) async -> Int? {
+        var total = 0
+        var offset = 0
+        let pageSize = 500
+        while total < 100_000 {
+            let query: [URLQueryItem] = [
+                URLQueryItem(name: "api", value: "SYNO.AudioStation.Playlist"),
+                URLQueryItem(name: "version", value: "2"),
+                URLQueryItem(name: "method", value: "getinfo"),
+                URLQueryItem(name: "id", value: playlistId),
+                URLQueryItem(name: "limit", value: "\(pageSize)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+                URLQueryItem(name: "library", value: "all"),
+                URLQueryItem(name: "additional", value: "songs")
+            ]
+            guard let json = try? await get("/webapi/AudioStation/playlist.cgi", query: query, authenticated: true),
+                  let data = json["data"] as? [String: Any],
+                  let playlistsArray = data["playlists"] as? [[String: Any]],
+                  let first = playlistsArray.first,
+                  let additional = first["additional"] as? [String: Any],
+                  let songsArray = additional["songs"] as? [[String: Any]] else {
+                return total > 0 ? total : nil
+            }
+            total += songsArray.count
+            if songsArray.count < pageSize { break }
+            offset += songsArray.count
+        }
+        return total
     }
 
     /// 获取指定歌单内的歌曲
