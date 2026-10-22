@@ -31,6 +31,7 @@
 		32E692D30D1BB14B62B25FC0 /* QQLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCBDE17B8061DB6C1A7C796 /* QQLoginSheet.swift */; };
 		34BD71C5486E4514862594D7 /* LocalMusicSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD81682400062D3794713DC5 /* LocalMusicSection.swift */; };
 		37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */; };
+		BE119AAA00000000000000B1 /* AudioTagEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE119AAA00000000000000F1 /* AudioTagEmbedder.swift */; };
 		3982D30F2F74623D7080F63C /* KugouMusicAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E17CDC9DE544C01A2316BC3 /* KugouMusicAPI.swift */; };
 		486B7644AA0E163D7906899C /* UnifiedSongModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0308426454F86BC0196485A /* UnifiedSongModel.swift */; };
 		48E3699B012FD3A163ECCB9D /* DJVisualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BD7AAAA5F5713CAF045448 /* DJVisualView.swift */; };
@@ -165,6 +166,7 @@
 		6EB48D12AA209B8AFCC85CB2 /* SettingsSubviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSubviews.swift; sourceTree = "<group>"; };
 		6FCBDE17B8061DB6C1A7C796 /* QQLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQLoginSheet.swift; sourceTree = "<group>"; };
 		7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		BE119AAA00000000000000F1 /* AudioTagEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTagEmbedder.swift; sourceTree = "<group>"; };
 		755E5E34911145179BEF534A /* KugouMusicAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KugouMusicAuth.swift; sourceTree = "<group>"; };
 		765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricBackgroundStore.swift; sourceTree = "<group>"; };
 		7AEB3C7462435ADDB41D2C14 /* QQMusicAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQMusicAuth.swift; sourceTree = "<group>"; };
@@ -261,6 +263,7 @@
 				C85AF1A1169E446F5B96FC2B /* DiscoverView.swift */,
 				66BD7AAAA5F5713CAF045448 /* DJVisualView.swift */,
 				7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */,
+				BE119AAA00000000000000F1 /* AudioTagEmbedder.swift */,
 				95D7170E959581C41DF1EFA6 /* FavoritePlaylistStore.swift */,
 				8E791FF8CB1DF14CEDCE4193 /* FavoritesStore.swift */,
 				1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */,
@@ -455,6 +458,7 @@
 				91F79CDC29A93AB8413F386B /* DiscoverCache.swift in Sources */,
 				E67286851BAD3BD891AEDAFC /* DiscoverView.swift in Sources */,
 				37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */,
+				BE119AAA00000000000000B1 /* AudioTagEmbedder.swift in Sources */,
 				828DE3C3CD07DDFE70F324B6 /* FavoritePlaylistStore.swift in Sources */,
 				F8483EDD015C5B9F0405AE44 /* FavoritesStore.swift in Sources */,
 				8056859434F32FC523BD9903 /* FeaturedAggregateCache.swift in Sources */,
@@ -558,7 +562,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 118;
+				CURRENT_PROJECT_VERSION = 119;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -633,7 +637,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 118;
+				CURRENT_PROJECT_VERSION = 119;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

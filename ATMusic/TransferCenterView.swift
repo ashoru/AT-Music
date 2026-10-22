@@ -13,6 +13,7 @@ struct TransferCenterView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTab: Int = 0
+    @State private var isRepairingArchiveTags = false
     @State private var offlineFilter: Int = 0 // 0: 单曲, 1: 专辑, 2: 歌手
     @State private var shareFile: ShareFileItem?
 
@@ -968,6 +969,56 @@ struct TransferCenterView: View {
         }
     }
 
+    /// 旧版本归档时标签回写被入口作用域校验拦截，归档文件只剩源文件自带标签（可能为空）。
+    /// 用账本里保存的歌名/歌手/专辑，经归档专用入口把标签补写回 NAS 上的文件。
+    private func repairArchivedTags() {
+        guard !isRepairingArchiveTags else { return }
+        isRepairingArchiveTags = true
+        Task {
+            var fixed = 0
+            var skipped = 0
+            var failed = 0
+            for record in archiveStore.recentRecords {
+                do {
+                    let state = try await SynologyAPI.shared.archivedTagState(path: record.nasPath)
+                    if !state.artist.isEmpty {
+                        skipped += 1
+                        continue
+                    }
+                    let recordSong = Song(
+                        id: 0,
+                        name: record.songName,
+                        artists: record.artistName,
+                        album: record.albumName,
+                        coverURL: record.coverURL,
+                        duration: 0,
+                        source: .synology,
+                        synologyPath: record.nasPath
+                    )
+                    let patch = SynologyTagPatch(
+                        title: record.songName,
+                        artist: record.artistName,
+                        album: record.albumName,
+                        albumArtist: record.artistName,
+                        genre: nil,
+                        year: nil,
+                        comment: "AT Music 归档"
+                    )
+                    try await SynologyAPI.shared.applyArchiveMetadata(nasPath: record.nasPath, song: recordSong, patch: patch, coverData: nil)
+                    fixed += 1
+                } catch {
+                    failed += 1
+                    ATMusicLogger.shared.log("⚠️ 归档标签修复失败：\(record.songName) - \(error.localizedDescription)", level: .error)
+                }
+            }
+            ATMusicLogger.shared.log("🧰 归档标签修复完成：补写 \(fixed) 首，已有标签 \(skipped) 首，失败 \(failed) 首", level: .info)
+            await MainActor.run {
+                isRepairingArchiveTags = false
+                ToastCenter.shared.show("标签修复：已补 \(fixed) 首 · 无需修复 \(skipped) 首 · 失败 \(failed) 首")
+            }
+        }
+    }
+
     private var archivedHistorySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -981,6 +1032,13 @@ struct TransferCenterView: View {
                 }
                 Spacer()
                 if !archiveStore.recentRecords.isEmpty {
+                    Button(isRepairingArchiveTags ? "修复中…" : "修复标签") {
+                        repairArchivedTags()
+                    }
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .buttonStyle(.plain)
+                    .disabled(isRepairingArchiveTags)
                     Button("清空记录") {
                         archiveStore.clearHistory()
                         ATMusicHaptics.tap()

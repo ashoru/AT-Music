@@ -48,6 +48,19 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.36-build-119",
+            version: "1.9.36",
+            title: "归档到 NAS 丢歌手等信息——根因修复",
+            features: [
+                "传输中心历史归档记录新增「修复标签」：把以前归档时丢掉的歌名/歌手/专辑一键补写回 NAS 文件"
+            ],
+            fixes: [
+                "归档标签回写被入口作用域校验拦截且错误被静默吞掉，导致归档文件只剩源文件自带标签：改为上传前先把完整标签写进文件本体（MP3/FLAC），NAS 端回走归档专用入口，失败留痕并自动重试",
+                "归档标签补齐此前从未写入的曲目号与碟号"
+            ]
+        ),
+
+        VersionLog(
             id: "1.9.36-build-118",
             version: "1.9.36",
             title: "iPad 待播清单千首不卡 + NAS 歌单计数缓存",

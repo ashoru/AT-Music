@@ -1122,9 +1122,35 @@ final class DownloadManager: ObservableObject {
             }
             let mimeType = AudioFormatDetector.mimeType(forExtension: ext)
 
+            // 2.5 先取封面，并把完整标签直接写进待上传文件本体（MP3/FLAC）。
+            // 文件自带标签后不依赖 NAS 端回写成败；回写退化为第二层保险。
+            let coverData = await fetchOrExtractCoverData(for: song, stagingURL: localAudioURL)
+            var uploadURL = localAudioURL
+            let tagSet = AudioTagSet(
+                title: song.name,
+                artist: song.artists,
+                album: song.album,
+                albumArtist: (song.albumArtist?.isEmpty == false ? song.albumArtist! : song.artists),
+                genre: song.genre,
+                year: song.year,
+                comment: "AT Music 归档",
+                track: song.trackNumber,
+                disc: song.discNumber,
+                coverData: coverData
+            )
+            if let embedded = AudioTagEmbedder.embed(tags: tagSet, into: localAudioURL) {
+                uploadURL = embedded
+                ATMusicLogger.shared.log("🏷 已把完整标签写入待归档文件本体：\(song.name)", level: .info)
+            }
+            defer {
+                if uploadURL != localAudioURL {
+                    try? FileManager.default.removeItem(at: uploadURL)
+                }
+            }
+
             do {
                 let nasPath = try await SynologyAPI.shared.uploadFileToNAS(
-                    localFileURL: localAudioURL,
+                    localFileURL: uploadURL,
                     destinationFolder: task.destinationFolder,
                     filename: destFilename,
                     mimeType: mimeType,
@@ -1160,8 +1186,7 @@ final class DownloadManager: ObservableObject {
                     try? FileManager.default.removeItem(at: tempLRC)
                 }
 
-                // 3.5 上传封面文件至 NAS 目标专辑目录 (cover.jpg 与 folder.jpg)
-                let coverData = await fetchOrExtractCoverData(for: song, stagingURL: localAudioURL)
+                // 3.5 上传封面文件至 NAS 目标专辑目录 (cover.jpg 与 folder.jpg；coverData 已在上传前取好)
                 if let coverData, !coverData.isEmpty {
                     let tempCover = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
                     if (try? coverData.write(to: tempCover)) != nil {
@@ -1181,7 +1206,8 @@ final class DownloadManager: ObservableObject {
                     }
                 }
 
-                // 4. 写入 NAS Audio Station 媒体标签与封面绑定
+                // 4. 写入 NAS Audio Station 媒体标签与封面绑定（第二层保险）。
+                // 必须走归档专用入口补齐服务器作用域；且失败要留痕并重试一次，绝不再 try? 静默吞掉。
                 task.status = .syncingTags
                 let patch = SynologyTagPatch(
                     title: song.name,
@@ -1190,24 +1216,21 @@ final class DownloadManager: ObservableObject {
                     albumArtist: (song.albumArtist?.isEmpty == false ? song.albumArtist! : song.artists),
                     genre: song.genre,
                     year: song.year,
-                    comment: "AT Music 归档"
+                    comment: "AT Music 归档",
+                    track: song.trackNumber > 0 ? String(song.trackNumber) : nil,
+                    disc: song.discNumber > 0 ? String(song.discNumber) : nil
                 )
-                let remoteSong = Song(
-                    id: song.id,
-                    name: song.name,
-                    artists: song.artists,
-                    album: song.album,
-                    coverURL: song.coverURL,
-                    duration: song.duration,
-                    source: .synology,
-                    synologyPath: nasPath
-                )
-                try? await SynologyAPI.shared.applyMetadata(
-                    song: remoteSong,
-                    patch: patch,
-                    coverURL: (song.coverURL?.isFileURL == false) ? song.coverURL : nil,
-                    coverData: coverData
-                )
+                do {
+                    try await SynologyAPI.shared.applyArchiveMetadata(nasPath: nasPath, song: song, patch: patch, coverData: coverData)
+                } catch {
+                    ATMusicLogger.shared.log("⚠️ 《\(song.name)》NAS 端标签回写失败，稍后重试一次：\(error.localizedDescription)", level: .error)
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    do {
+                        try await SynologyAPI.shared.applyArchiveMetadata(nasPath: nasPath, song: song, patch: patch, coverData: coverData)
+                    } catch {
+                        ATMusicLogger.shared.log("⚠️ 《\(song.name)》NAS 端标签回写重试仍失败（文件本体已带标签，归档不受影响）：\(error.localizedDescription)", level: .error)
+                    }
+                }
 
                 task.status = .completed
                 task.progress = 1.0

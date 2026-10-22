@@ -61,9 +61,11 @@ struct SynologyTagPatch {
     let genre: String?
     let year: String?
     let comment: String?
+    var track: String? = nil
+    var disc: String? = nil
 
     var isEmpty: Bool {
-        [title, artist, album, albumArtist, genre, year, comment].allSatisfy { $0 == nil }
+        [title, artist, album, albumArtist, genre, year, comment, track, disc].allSatisfy { $0 == nil }
     }
 }
 
@@ -1783,6 +1785,37 @@ final class SynologyAPI: ObservableObject {
         }
     }
 
+    /// 归档专用标签回写。文件刚上传到“当前已登录的这台 NAS”，天然属于当前服务器作用域；
+    /// 而 accepts() 对无作用域标记的歌曲要求其封面 URL 携带当前会话 _sid（给曲库内歌曲防串台用），
+    /// 归档歌曲的封面来自原平台 CDN，永远过不了那一关——这正是历史上归档标签回写每次都在
+    /// 入口被拦下、又被调用方 try? 吞掉，导致归档文件只剩源文件自带标签的根因。
+    /// 这里显式补上当前作用域再走同一条 applyMetadata 写入通道。
+    func applyArchiveMetadata(nasPath: String, song: Song, patch: SynologyTagPatch, coverData: Data?) async throws {
+        let scopedSong = Song(
+            id: song.id,
+            name: song.name,
+            artists: song.artists,
+            album: song.album,
+            coverURL: song.coverURL,
+            duration: song.duration,
+            source: .synology,
+            synologyServerScope: currentServerScope,
+            synologyPath: nasPath
+        )
+        try await applyMetadata(
+            song: scopedSong,
+            patch: patch,
+            coverURL: (song.coverURL?.isFileURL == false) ? song.coverURL : nil,
+            coverData: coverData
+        )
+    }
+
+    /// 读取某个 NAS 文件当前的标题/演出者（归档标签修复用，够判断标签是否缺失）。
+    func archivedTagState(path: String) async throws -> (title: String, artist: String) {
+        let snapshot = try await loadTagEditorSnapshot(path: path)
+        return (Self.stringValue(snapshot.file["title"]) ?? "", Self.stringValue(snapshot.file["artist"]) ?? "")
+    }
+
     private struct TagEditorSnapshot {
         let file: [String: Any]
         let lyrics: String?
@@ -1849,6 +1882,8 @@ final class SynologyAPI: ObservableObject {
         if let value = patch.genre { result["genre"] = value }
         if let value = patch.year { result["year"] = value }
         if let value = patch.comment { result["comment"] = value }
+        if let value = patch.track { result["track"] = value }
+        if let value = patch.disc { result["disc"] = value }
         return result
     }
 
@@ -1891,7 +1926,9 @@ final class SynologyAPI: ObservableObject {
             ("专辑演出者", "album_artist", patch.albumArtist),
             ("流派", "genre", patch.genre),
             ("专辑年份", "year", patch.year),
-            ("备注", "comment", patch.comment)
+            ("备注", "comment", patch.comment),
+            ("曲目号", "track", patch.track),
+            ("碟号", "disc", patch.disc)
         ]
         let checks = expected.compactMap { item -> (String, String, String)? in
             guard let value = item.2 else { return nil }
