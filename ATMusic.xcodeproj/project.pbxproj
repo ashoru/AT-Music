@@ -7,10 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		4F005288DB28C674F12815DF /* SynologyCoverWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */; };
-		ADB02EF03D95B0888ECAF089 /* SynologyPlaylistWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */; };
-		7E4308373F9A96E0E61260B2 /* SynologyIndexControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */; };
-		176FB821C3295A40E49921FF /* NASPlaylistEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */; };
 		005705ADB7D3A24FB5E8A6C6 /* ATMusicApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8279AB8CFD592AD86A5FC3 /* ATMusicApp.swift */; };
 		0336F62C5837CF851D235D29 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1754D4A96A6C0292E55E1EC /* Language.swift */; };
 		03DC9AD785F3D1D089D102D1 /* LyricBackgroundStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */; };
@@ -38,6 +34,7 @@
 		34BD71C5486E4514862594D7 /* LocalMusicSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD81682400062D3794713DC5 /* LocalMusicSection.swift */; };
 		37F25FADA59B53530C14647C /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7541CEA87C88CF6F70EA6623 /* DownloadManager.swift */; };
 		3982D30F2F74623D7080F63C /* KugouMusicAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E17CDC9DE544C01A2316BC3 /* KugouMusicAPI.swift */; };
+		443A7F591CBF7E16359CEF85 /* SynologyPlaylistWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB442A8498D2C468321FE6DC /* SynologyPlaylistWriter.swift */; };
 		486B7644AA0E163D7906899C /* UnifiedSongModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0308426454F86BC0196485A /* UnifiedSongModel.swift */; };
 		48E3699B012FD3A163ECCB9D /* DJVisualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BD7AAAA5F5713CAF045448 /* DJVisualView.swift */; };
 		4B22002D68D71C51190C17FE /* LXScriptSourceRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513F4C38F0BD75C2DAC2AB0C /* LXScriptSourceRunner.swift */; };
@@ -51,6 +48,7 @@
 		5CA547B9C632527EFE2A0D45 /* SongSubtitleMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBCD7EF98220783A8C8B6B7 /* SongSubtitleMenu.swift */; };
 		5D980508F199CCA0D71C82F5 /* ScrollDockState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658EBD6ACB880AF9374960F8 /* ScrollDockState.swift */; };
 		5DA20D3D1AE3DF62903192AA /* CacheManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0520E5E45E68654484B56FB3 /* CacheManagementView.swift */; };
+		5DC36848309D46C2D80DD1CB /* NASPlaylistEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F0C84B455983B188531ABFC /* NASPlaylistEditorSheet.swift */; };
 		5DF7697A46A6B7E9EB254964 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E940F6CB6485D67911BAE /* AddToPlaylistSheet.swift */; };
 		603A3C26A4DB5A786E5CB125 /* LocalTagWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11123CA57275FA31A3BBD95F /* LocalTagWriteback.swift */; };
 		61CCF0C0736F3BB44D111864 /* NASUserSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9FF8193A26BA3E54980FAA /* NASUserSyncManager.swift */; };
@@ -62,6 +60,7 @@
 		754C4555D4FDC37E415724D8 /* WatchSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F2E731040063614BB6A267 /* WatchSyncService.swift */; };
 		75D91E2FB7AE9A4E969ABECB /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1721CFEECF4A7DC127E28B /* CrashReporter.swift */; };
 		76547F07FB1898F1EF52754C /* LocalLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB34D56EF6CB027C4038CE1 /* LocalLibraryStore.swift */; };
+		7E4CE2DCC2CAE4489B7E7E2C /* SynologyIndexControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E40BA41F7B81513EE6AD158 /* SynologyIndexControl.swift */; };
 		8008D35367183B7BF9EE6A6E /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D8F9882B899BB6F9A68343D /* MiniPlayerView.swift */; };
 		8056859434F32FC523BD9903 /* FeaturedAggregateCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */; };
 		817F2B75418BA9519791FEA4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9B6B38928CB266BEBA49D0E /* RootView.swift */; };
@@ -92,6 +91,7 @@
 		AB445338871CDABF82FDA5D7 /* NASLyricsBatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9930A9C932D59333BADF1CE3 /* NASLyricsBatchView.swift */; };
 		AC8DA148E0489F49344514F7 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F35518EE32FB54B3B0F559F /* LibraryView.swift */; };
 		B07C346BD289EFB4BB9E0E6C /* TransferCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BF2B3DAC5541C1F08A91E4 /* TransferCenterView.swift */; };
+		B45C834B1F86627BBA280196 /* SynologyCoverWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF255B7987D2F0B33D60D09 /* SynologyCoverWriteback.swift */; };
 		B4DA0D6855EB6D43FEEAF50A /* IPadRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7389B9BF599F1D5C66EB18 /* IPadRootView.swift */; };
 		B8DF4DD5929F026B3B7C5281 /* ATMusicLogSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8FA993E8E37413E52E53C18 /* ATMusicLogSanitizer.swift */; };
 		B9B1CAB25CDEAD7CF5F9E95C /* NetEaseCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86C94266C456F24E23AB1D0 /* NetEaseCrypto.swift */; };
@@ -129,10 +129,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyCoverWriteback.swift; sourceTree = "<group>"; };
-		345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyPlaylistWriter.swift; sourceTree = "<group>"; };
-		352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyIndexControl.swift; sourceTree = "<group>"; };
-		AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASPlaylistEditorSheet.swift; sourceTree = "<group>"; };
 		00A05ADFA71A97C2375F6C12 /* WebLoginDataCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginDataCleaner.swift; sourceTree = "<group>"; };
 		0520E5E45E68654484B56FB3 /* CacheManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManagementView.swift; sourceTree = "<group>"; };
 		0C0605B67F998083A79DF15D /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -145,6 +141,8 @@
 		1BE517BFC0BE337D3EA60C66 /* SearchHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchHistoryStore.swift; sourceTree = "<group>"; };
 		1C46C18D14DB38C08EDD9822 /* SleepTimerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheet.swift; sourceTree = "<group>"; };
 		1E17CDC9DE544C01A2316BC3 /* KugouMusicAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KugouMusicAPI.swift; sourceTree = "<group>"; };
+		1E40BA41F7B81513EE6AD158 /* SynologyIndexControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyIndexControl.swift; sourceTree = "<group>"; };
+		1F0C84B455983B188531ABFC /* NASPlaylistEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASPlaylistEditorSheet.swift; sourceTree = "<group>"; };
 		205F4C030174BB8FA1591BA8 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		21449B176C644E04BED0058F /* QQMusicAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQMusicAPI.swift; sourceTree = "<group>"; };
 		23BF3895B7BDFF151A72A4C0 /* ArtistHomeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistHomeSheet.swift; sourceTree = "<group>"; };
@@ -191,6 +189,7 @@
 		765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricBackgroundStore.swift; sourceTree = "<group>"; };
 		7AEB3C7462435ADDB41D2C14 /* QQMusicAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQMusicAuth.swift; sourceTree = "<group>"; };
 		7D5E5968F75AB736812E6B78 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		7FF255B7987D2F0B33D60D09 /* SynologyCoverWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyCoverWriteback.swift; sourceTree = "<group>"; };
 		810044AD24E71FD337BC8D03 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		82AA3624A107A89B2153DACB /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		8791EED254F153C868E24F20 /* SecureStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStorage.swift; sourceTree = "<group>"; };
@@ -241,6 +240,7 @@
 		E70D37FF8E088C4DEBED0FC3 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		EA4861CDFA0BDA2706539CA9 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		EAADC99C1DA9B7E43E702BDB /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		EB442A8498D2C468321FE6DC /* SynologyPlaylistWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyPlaylistWriter.swift; sourceTree = "<group>"; };
 		EBCCF63778BCE2868BEEB0B5 /* VinylPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerView.swift; sourceTree = "<group>"; };
 		EE7136E334BE1CFD4515E767 /* CommentsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommentsSheet.swift; sourceTree = "<group>"; };
 		EEA977158D1E946F902AB6DE /* SongLyricsLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongLyricsLoader.swift; sourceTree = "<group>"; };
@@ -272,10 +272,6 @@
 				947204114621CA3CFF059014 /* AudioSignalPathSheet.swift */,
 				D66871387ED41A21DEB53C7B /* AudioTagContainerWriters.swift */,
 				5DA40DD4DA641681B68C81E9 /* AudioTagEmbedder.swift */,
-				76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */,
-				345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */,
-				352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */,
-				AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */,
 				C281DE6BBA57ECFB8BF4B2FF /* AudioURLCache.swift */,
 				EAADC99C1DA9B7E43E702BDB /* AuthStore.swift */,
 				0520E5E45E68654484B56FB3 /* CacheManagementView.swift */,
@@ -325,6 +321,7 @@
 				FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */,
 				94BD64932678E5E3B8593D9F /* NASArchiveStore.swift */,
 				9930A9C932D59333BADF1CE3 /* NASLyricsBatchView.swift */,
+				1F0C84B455983B188531ABFC /* NASPlaylistEditorSheet.swift */,
 				4D9FF8193A26BA3E54980FAA /* NASUserSyncManager.swift */,
 				680C93617FE59252523B3567 /* NetEaseAPI.swift */,
 				B86C94266C456F24E23AB1D0 /* NetEaseCrypto.swift */,
@@ -363,8 +360,11 @@
 				F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */,
 				4956E792EF3A809043C61E6C /* SyncedPlaylistOrderStore.swift */,
 				E198ADA5415D097FE18853D2 /* SynologyAPI.swift */,
+				7FF255B7987D2F0B33D60D09 /* SynologyCoverWriteback.swift */,
+				1E40BA41F7B81513EE6AD158 /* SynologyIndexControl.swift */,
 				88F511212A06A697177B6B75 /* SynologyLoginSheet.swift */,
 				37E1482D17E6CAA32D05DB6E /* SynologyMusicView.swift */,
+				EB442A8498D2C468321FE6DC /* SynologyPlaylistWriter.swift */,
 				810044AD24E71FD337BC8D03 /* Theme.swift */,
 				25CB9FFA68C6AF785E088BEF /* ThirdPartySourceImportParser.swift */,
 				DE690F3FC1681BF4460BEA64 /* ThirdPartySourceManagerSheet.swift */,
@@ -480,10 +480,6 @@
 				1A7BC656A4CE5D6A664FEFA9 /* AudioSignalPathSheet.swift in Sources */,
 				28B7BD3D79C35C9FFB5C4A94 /* AudioTagContainerWriters.swift in Sources */,
 				C7D905969BE3A10D78993CCD /* AudioTagEmbedder.swift in Sources */,
-				4F005288DB28C674F12815DF /* SynologyCoverWriteback.swift in Sources */,
-				ADB02EF03D95B0888ECAF089 /* SynologyPlaylistWriter.swift in Sources */,
-				7E4308373F9A96E0E61260B2 /* SynologyIndexControl.swift in Sources */,
-				176FB821C3295A40E49921FF /* NASPlaylistEditorSheet.swift in Sources */,
 				BDBBF045B1D5344A33C8780C /* AudioURLCache.swift in Sources */,
 				5A8ACFC640C376E03890A14C /* AuthStore.swift in Sources */,
 				5DA20D3D1AE3DF62903192AA /* CacheManagementView.swift in Sources */,
@@ -532,6 +528,7 @@
 				A505A1378362ABA49061D083 /* MusicLibraryView.swift in Sources */,
 				502EB7F3E808F8BCD9544555 /* NASArchiveStore.swift in Sources */,
 				AB445338871CDABF82FDA5D7 /* NASLyricsBatchView.swift in Sources */,
+				5DC36848309D46C2D80DD1CB /* NASPlaylistEditorSheet.swift in Sources */,
 				61CCF0C0736F3BB44D111864 /* NASUserSyncManager.swift in Sources */,
 				6FDFD4350EF3F768762D5227 /* NetEaseAPI.swift in Sources */,
 				B9B1CAB25CDEAD7CF5F9E95C /* NetEaseCrypto.swift in Sources */,
@@ -570,8 +567,11 @@
 				E78A098C754B34B2787E911A /* SyncedPlaylistOrderSheet.swift in Sources */,
 				0AD1FD948506F5BE93047F95 /* SyncedPlaylistOrderStore.swift in Sources */,
 				E563BE1979261C80F8BEBD9D /* SynologyAPI.swift in Sources */,
+				B45C834B1F86627BBA280196 /* SynologyCoverWriteback.swift in Sources */,
+				7E4CE2DCC2CAE4489B7E7E2C /* SynologyIndexControl.swift in Sources */,
 				6312C2AF6A4DDC524EA3C9D3 /* SynologyLoginSheet.swift in Sources */,
 				9BBEB9E6959E9D2EE16EDF5A /* SynologyMusicView.swift in Sources */,
+				443A7F591CBF7E16359CEF85 /* SynologyPlaylistWriter.swift in Sources */,
 				A3964AEE73B96E53FB822A51 /* Theme.swift in Sources */,
 				F8AB3EF15A4DB16522705E6A /* ThirdPartySourceImportParser.swift in Sources */,
 				2802CAD851751AE7D612E336 /* ThirdPartySourceManagerSheet.swift in Sources */,
