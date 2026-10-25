@@ -144,7 +144,7 @@ final class SynologyAPI: ObservableObject {
     private let uploadedCoverLock = NSLock()
     private var uploadedCoverFolders: [String: String] = [:]
 
-    private func clearLibraryCache() {
+    func clearLibraryCache() {
         librarySongsCache.removeAll()
         librarySongsCacheUpdatedAt = .distantPast
         indexLock.lock()
@@ -2388,7 +2388,7 @@ final class SynologyAPI: ObservableObject {
 
     // MARK: - 网络底层
 
-    private func get(_ path: String, query: [URLQueryItem], authenticated: Bool = true) async throws -> [String: Any] {
+    func get(_ path: String, query: [URLQueryItem], authenticated: Bool = true) async throws -> [String: Any] {
         let generation = configurationGeneration
         guard let urlBase = URL(string: baseURL + path) else {
             throw SynologyError.invalidURL("无效的请求地址: \(baseURL + path)")
@@ -2443,7 +2443,7 @@ final class SynologyAPI: ObservableObject {
         return json
     }
 
-    private func postForm(_ path: String, form: [String: String], authenticated: Bool, acceptsMissingSuccess: Bool = false) async throws -> [String: Any] {
+    func postForm(_ path: String, form: [String: String], authenticated: Bool, acceptsMissingSuccess: Bool = false) async throws -> [String: Any] {
         let generation = configurationGeneration
         guard let url = URL(string: baseURL + path) else { throw SynologyError.invalidURL("无效的请求地址") }
         var values = form

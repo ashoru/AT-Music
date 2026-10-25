@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SynologyLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var indexController = NASIndexController.shared
+    @AppStorage("atmusic.nas.index.autoAfterWrite") private var autoReindexAfterWrite = true
     @EnvironmentObject private var theme: ThemeStore
     @ObservedObject private var synology = SynologyAPI.shared
     @ObservedObject private var syncManager = NASUserSyncManager.shared
@@ -431,6 +433,10 @@ struct SynologyLoginSheet: View {
             .buttonStyle(GlassPressButtonStyle())
 
             if synology.isLoggedIn {
+                indexMaintenanceCard
+            }
+
+            if synology.isLoggedIn {
                 Button(role: .destructive) {
                     Task {
                         await synology.logout()
@@ -447,6 +453,101 @@ struct SynologyLoginSheet: View {
                 .buttonStyle(GlassPressButtonStyle())
             }
         }
+    }
+
+    /// NAS 音乐库索引维护：上传音频/封面后不必再去 DSM 网页端点「重新索引」。
+    private var indexMaintenanceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath.circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                Text("音乐库索引")
+                    .font(ATMusicFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.atmusicLabel)
+                Spacer()
+                Text(indexController.snapshot.title)
+                    .font(ATMusicFont.appFont(11, .medium))
+                    .foregroundStyle(indexController.snapshot.isScanning ? Color.atmusicAmber : Color.atmusicComment)
+            }
+
+            if indexController.snapshot.isScanning {
+                ProgressView(
+                    value: Double(indexController.snapshot.percent ?? 0),
+                    total: 100
+                )
+                .tint(Color.atmusicAmber)
+            }
+
+            if !indexController.snapshot.detail.isEmpty {
+                Text(indexController.snapshot.detail)
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    ATMusicHaptics.tap()
+                    Task { await indexController.start() }
+                } label: {
+                    Label(indexController.snapshot.isScanning ? "扫描中…" : "立即重新扫描",
+                          systemImage: "magnifyingglass.circle")
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(indexController.isBusy || indexController.snapshot.isScanning || indexController.snapshot.phase == .unsupported)
+
+                Button {
+                    ATMusicHaptics.select()
+                    indexController.refreshLocalLibraryCache()
+                    ToastCenter.shared.show("已刷新曲库缓存")
+                } label: {
+                    Text("刷新曲库缓存")
+                        .font(ATMusicFont.appFont(12, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(Color.atmusicAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if indexController.snapshot.isScanning {
+                Button {
+                    ATMusicHaptics.tap()
+                    Task { await indexController.stop() }
+                } label: {
+                    Text("停止扫描")
+                        .font(ATMusicFont.appFont(12))
+                        .foregroundStyle(Color.atmusicComment)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Toggle(isOn: $autoReindexAfterWrite) {
+                Text("写入文件后自动触发扫描")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicLabel)
+            }
+            .tint(Color.atmusicAmber)
+
+            if let last = indexController.lastFinishedText {
+                Text("上次完成：\(last)")
+                    .font(ATMusicFont.appFont(10))
+                    .foregroundStyle(Color.atmusicComment.opacity(0.85))
+            }
+        }
+        .padding(14)
+        .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+        .task { await indexController.probeIfNeeded() }
     }
 
     private var instructionsCard: some View {

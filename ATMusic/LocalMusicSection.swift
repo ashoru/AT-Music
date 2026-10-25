@@ -1775,6 +1775,7 @@ struct LocalBatchMetadataEditorSheet: View {
     @State private var discOverride = ""
     @State private var sequentialEnabled = false
     @State private var numberingOverrides: [String: TrackNumberingOverride] = [:]
+    @State private var numberingOrder: [String] = []
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
     @State private var selectedCoverThumbnail: UIImage?
@@ -1790,6 +1791,7 @@ struct LocalBatchMetadataEditorSheet: View {
     private var numberingPlan: TrackSequencing.Plan {
         TrackSequencing.plan(
             songs: songs,
+            order: numberingOrder,
             discOverride: discOverrideNumber,
             startTrack: TrackSequencing.parseNumber(trackStart, range: 1...999) ?? 1
         )
@@ -1926,6 +1928,7 @@ struct LocalBatchMetadataEditorSheet: View {
                         // 3.5 曲目编号（盘号 / 音轨号）
                         TrackNumberingCard(
                             songs: songs,
+                            order: $numberingOrder,
                             startTrack: $trackStart,
                             discOverride: $discOverride,
                             sequentialEnabled: $sequentialEnabled,

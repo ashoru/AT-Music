@@ -1443,6 +1443,12 @@ struct SynologyPlaylistCollectionView: View {
     @State private var playlists: [Playlist]
     @State private var previewSongs: [String: Song] = [:]
     @State private var query = ""
+    @State private var showCreate = false
+    @State private var createName = ""
+    @State private var editingPlaylist: Playlist?
+    @State private var pendingDelete: Playlist?
+    @State private var isMutating = false
+    @State private var message = ""
 
     init(playlists: [Playlist]) {
         _playlists = State(initialValue: playlists)
@@ -1454,21 +1460,135 @@ struct SynologyPlaylistCollectionView: View {
         return playlists.filter { $0.name.localizedCaseInsensitiveContains(keyword) }
     }
 
+    private var deleteDialogTitle: String {
+        if let pendingDelete { return "删除「\(pendingDelete.name)」？" }
+        return "删除歌单？"
+    }
+
+    private var createRow: some View {
+        Button {
+            ATMusicHaptics.tap()
+            createName = ""
+            showCreate = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(width: 44, height: 44)
+                    .background(Color.atmusicAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("新建 NAS 歌单")
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("在 Audio Station 里创建，可在 App 内增删曲目与排序")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                Spacer()
+            }
+            .padding(10)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    private var messageRow: some View {
+        Text(message)
+            .font(ATMusicFont.appFont(11))
+            .foregroundStyle(Color.atmusicComment)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+
+    private func playlistRow(_ playlist: Playlist) -> some View {
+        let playlistID = playlist.synologyPlaylistId ?? "\(playlist.id)"
+        return NavigationLink { PlaylistView(playlist: playlist) } label: {
+            SynologyLibraryRow(
+                coverURL: previewSongs[playlistID]?.coverURL ?? playlist.coverURL,
+                title: playlist.name,
+                subtitle: "\(playlist.trackCount) 首",
+                systemImage: "music.note.list"
+            )
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDelete = playlist
+            } label: {
+                Label("删除", systemImage: "trash")
+            }
+            Button {
+                editingPlaylist = playlist
+            } label: {
+                Label("管理", systemImage: "slider.horizontal.3")
+            }
+            .tint(Color.atmusicAmber)
+        }
+        .contextMenu {
+            Button {
+                editingPlaylist = playlist
+            } label: {
+                Label("管理曲目与名称", systemImage: "slider.horizontal.3")
+            }
+            Button(role: .destructive) {
+                pendingDelete = playlist
+            } label: {
+                Label("删除歌单", systemImage: "trash")
+            }
+        }
+    }
+
+    private func applyEditorResult(_ updated: Playlist?, for original: Playlist) {
+        guard let updated else {
+            playlists.removeAll { $0.id == original.id }
+            return
+        }
+        if let index = playlists.firstIndex(where: { $0.id == original.id }) {
+            playlists[index] = updated
+        }
+    }
+
     var body: some View {
         List {
-            ForEach(filteredPlaylists) { playlist in
-                NavigationLink { PlaylistView(playlist: playlist) } label: {
-                    let playlistID = playlist.synologyPlaylistId ?? "\(playlist.id)"
-                    SynologyLibraryRow(
-                        coverURL: previewSongs[playlistID]?.coverURL ?? playlist.coverURL,
-                        title: playlist.name,
-                        subtitle: "\(playlist.trackCount) 首",
-                        systemImage: "music.note.list"
-                    )
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+            Section {
+                createRow
             }
+            if !message.isEmpty {
+                messageRow
+            }
+            ForEach(filteredPlaylists) { playlist in
+                playlistRow(playlist)
+            }
+        }
+        .sheet(isPresented: $showCreate) {
+            NASSingleFieldSheet(
+                title: "新建 NAS 歌单",
+                placeholder: "歌单名称",
+                confirmTitle: "创建",
+                initialText: ""
+            ) { name in
+                await createPlaylist(named: name)
+            }
+        }
+        .sheet(item: $editingPlaylist) { playlist in
+            NASPlaylistEditorSheet(playlist: playlist) { updated in
+                applyEditorResult(updated, for: playlist)
+            }
+        }
+        .confirmationDialog(
+            deleteDialogTitle,
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                if let target = pendingDelete { Task { await deletePlaylist(target) } }
+            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("歌单会从 Audio Station 移除，歌曲文件本身不受影响。")
         }
         .overlay {
             if playlists.isEmpty {
@@ -1488,6 +1608,40 @@ struct SynologyPlaylistCollectionView: View {
         .navigationTitle("歌单")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadPreviews() }
+    }
+
+    private func createPlaylist(named name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isMutating = true
+        do {
+            let created = try await synology.createNASPlaylist(name: trimmed)
+            if let created {
+                playlists.append(created)
+                message = "已创建「\(trimmed)」，点进去即可添加曲目"
+            }
+            ToastCenter.shared.show("NAS 歌单已创建")
+            synology.invalidateAllFolderCaches()
+        } catch {
+            message = "创建失败：\(error.localizedDescription)"
+        }
+        isMutating = false
+    }
+
+    private func deletePlaylist(_ playlist: Playlist) async {
+        isMutating = true
+        let id = playlist.synologyPlaylistId ?? "\(playlist.id)"
+        do {
+            try await synology.deleteNASPlaylist(id: id)
+            playlists.removeAll { $0.id == playlist.id }
+            previewSongs.removeValue(forKey: id)
+            message = "已删除「\(playlist.name)」"
+            ToastCenter.shared.show("歌单已删除")
+            synology.invalidateAllFolderCaches()
+        } catch {
+            message = "删除失败：\(error.localizedDescription)"
+        }
+        isMutating = false
     }
 
     private func loadPreviews() async {
@@ -2243,6 +2397,7 @@ struct SynologyBatchMetadataEditorSheet: View {
     @State private var discOverride = ""
     @State private var sequentialEnabled = false
     @State private var numberingOverrides: [String: TrackNumberingOverride] = [:]
+    @State private var numberingOrder: [String] = []
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
     @State private var selectedCoverThumbnail: UIImage?
@@ -2258,6 +2413,7 @@ struct SynologyBatchMetadataEditorSheet: View {
     private var numberingPlan: TrackSequencing.Plan {
         TrackSequencing.plan(
             songs: songs,
+            order: numberingOrder,
             discOverride: discOverrideNumber,
             startTrack: TrackSequencing.parseNumber(trackStart, range: 1...999) ?? 1
         )
@@ -2394,6 +2550,7 @@ struct SynologyBatchMetadataEditorSheet: View {
                         // 3.5 曲目编号（盘号 / 音轨号）
                         TrackNumberingCard(
                             songs: songs,
+                            order: $numberingOrder,
                             startTrack: $trackStart,
                             discOverride: $discOverride,
                             sequentialEnabled: $sequentialEnabled,

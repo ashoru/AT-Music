@@ -1240,6 +1240,11 @@ final class DownloadManager: ObservableObject {
                 ToastCenter.shared.show("已成功归档到群晖 NAS：\(song.name)")
                 ATMusicLogger.shared.log("✅ 成功归档到 NAS：\(song.name) -> \(nasPath)", level: .info)
                 SynologyAPI.shared.invalidateFolderCache()
+                // 文件是经 File Station 直传的，Audio Station 不会立刻知道有新媒体：
+                // 开启「写入后自动扫描」时顺手触发一次索引，用户在 App 里刷新就能看到新歌。
+                if UserDefaults.standard.object(forKey: "atmusic.nas.index.autoAfterWrite") as? Bool ?? true {
+                    await NASIndexController.shared.start()
+                }
             } catch {
                 task.status = .failed(error.localizedDescription)
                 ATMusicLogger.shared.log("❌ 上传到 NAS 失败：\(song.name) - \(error.localizedDescription)", level: .error)

@@ -9,6 +9,7 @@ enum PlaylistSortMode: String, CaseIterable, Identifiable {
 }
 
 struct PlaylistView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
@@ -29,6 +30,8 @@ struct PlaylistView: View {
     @State private var showInfo = false
     @State private var isBatchDownloading = false
     @State private var isBatchUploading = false
+    @State private var showNASPlaylistEditor = false
+    @State private var showNASPlaylistDelete = false
 
     @MainActor
     private func batchDownloadPlaylist() {
@@ -178,6 +181,19 @@ struct PlaylistView: View {
                         }
                         .disabled(displayedTracks.isEmpty || isBatchDownloading)
 
+                        if playlist.source == .synology {
+                            Button {
+                                showNASPlaylistEditor = true
+                            } label: {
+                                Label("管理 NAS 歌单曲目", systemImage: "slider.horizontal.3")
+                            }
+                            Button(role: .destructive) {
+                                showNASPlaylistDelete = true
+                            } label: {
+                                Label("删除 NAS 歌单", systemImage: "trash")
+                            }
+                        }
+
                         if SynologyAPI.shared.isLoggedIn && playlist.source != .synology {
                             Button {
                                 batchUploadPlaylistToNAS()
@@ -200,6 +216,29 @@ struct PlaylistView: View {
                     }
                     .accessibilityLabel("更多")
                 }
+            }
+            .sheet(isPresented: $showNASPlaylistEditor) {
+                NASPlaylistEditorSheet(playlist: playlist) { updated in
+                    Task { await load(force: true) }
+                    if updated == nil {
+                        Task { await MainActor.run { dismissAfterDelete() } }
+                    }
+                }
+            }
+            .confirmationDialog("删除这个 NAS 歌单？", isPresented: $showNASPlaylistDelete, titleVisibility: .visible) {
+                Button("删除「\(playlist.name)」", role: .destructive) {
+                    Task {
+                        try? await SynologyAPI.shared.deleteNASPlaylist(id: playlist.synologyPlaylistId ?? "\(playlist.id)")
+                        SynologyAPI.shared.invalidateAllFolderCaches()
+                        await MainActor.run {
+                            ToastCenter.shared.show("歌单已删除")
+                            dismissAfterDelete()
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("歌单会从 Audio Station 移除，歌曲文件本身不受影响。")
             }
             .sheet(isPresented: $showInfo) {
                 PlaylistInfoSheet(
@@ -489,6 +528,10 @@ struct PlaylistView: View {
             list.sort { $0.duration < $1.duration }
         }
         return list
+    }
+
+    private func dismissAfterDelete() {
+        dismiss()
     }
 
     private func load(force: Bool = false) async {

@@ -121,7 +121,7 @@ struct TransferCenterView: View {
                 .environmentObject(theme)
         }
         .sheet(isPresented: $showLyricsBatch) {
-            NASLyricsBatchSheet()
+            NASBatchMaintenanceSheet()
                 .environmentObject(player)
                 .environmentObject(theme)
         }
@@ -944,7 +944,7 @@ struct TransferCenterView: View {
 
     // MARK: - 3. 群晖 NAS 上传归档视图
 
-    /// 歌词批量写回流水线入口：与「上传归档」「修复标签」同一处，符合用户对传输中心的心智模型。
+    /// NAS 批量维护入口（歌词写回 / 专辑封面补全）：与「上传归档」「修复标签」同一处。
     private var lyricsBatchCard: some View {
         Button {
             ATMusicHaptics.tap()
@@ -957,11 +957,11 @@ struct TransferCenterView: View {
                     .frame(width: 38, height: 38)
                     .background(Color.atmusicAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("歌词批量写回 NAS")
+                    Text("NAS 批量维护")
                         .font(ATMusicFont.appFont(14, .semibold))
                         .foregroundStyle(Color.atmusicLabel)
                     Text(synology.isLoggedIn
-                         ? "跨源匹配并写入 NAS 原文件，只补缺失、可随时中止"
+                         ? "歌词写回 · 专辑封面补全，可选文件夹与歌曲"
                          : "需先登录群晖 NAS")
                         .font(ATMusicFont.appFont(11))
                         .foregroundStyle(Color.atmusicComment)

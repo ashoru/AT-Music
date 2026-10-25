@@ -156,6 +156,29 @@ enum SongLyricsLoader {
         return nil
     }
 
+    /// 列出多个候选歌词（供批量写回里手动挑选），按置信度从高到低。
+    /// 与 `matchOnlineLyrics` 的区别：这里不只看第一条，而是把可用候选都带回来。
+    static func onlineLyricCandidates(for song: Song, minimumScore: Int = 90, limit: Int = 4) async -> [OnlineMatch] {
+        let candidates = await lyricCandidates(for: song)
+        let ranked = candidates
+            .map { (song: $0, score: lyricMatchScore($0, to: song)) }
+            .filter { $0.score >= minimumScore }
+            .sorted { $0.score > $1.score }
+
+        var matches: [OnlineMatch] = []
+        var seenTexts = Set<String>()
+        for entry in ranked.prefix(8) {
+            if matches.count >= limit { break }
+            guard let pair = await fetchLyrics(for: entry.song),
+                  let lrc = pair.lrc,
+                  lrc.contains("[") else { continue }
+            let fingerprint = lrc.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)
+            guard seenTexts.insert(String(fingerprint)).inserted else { continue }
+            matches.append(OnlineMatch(lrc: lrc, provider: providerName(for: entry.song.source), score: entry.score))
+        }
+        return matches
+    }
+
     static func providerName(for source: SongSource) -> String {
         switch source {
         case .netease: return "网易云音乐"
