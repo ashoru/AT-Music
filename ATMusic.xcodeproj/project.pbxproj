@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4F005288DB28C674F12815DF /* SynologyCoverWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */; };
+		ADB02EF03D95B0888ECAF089 /* SynologyPlaylistWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */; };
+		7E4308373F9A96E0E61260B2 /* SynologyIndexControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */; };
+		176FB821C3295A40E49921FF /* NASPlaylistEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */; };
 		005705ADB7D3A24FB5E8A6C6 /* ATMusicApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8279AB8CFD592AD86A5FC3 /* ATMusicApp.swift */; };
 		0336F62C5837CF851D235D29 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1754D4A96A6C0292E55E1EC /* Language.swift */; };
 		03DC9AD785F3D1D089D102D1 /* LyricBackgroundStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 765B37801C0CBD252110BA1F /* LyricBackgroundStore.swift */; };
@@ -125,6 +129,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyCoverWriteback.swift; sourceTree = "<group>"; };
+		345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyPlaylistWriter.swift; sourceTree = "<group>"; };
+		352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyIndexControl.swift; sourceTree = "<group>"; };
+		AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASPlaylistEditorSheet.swift; sourceTree = "<group>"; };
 		00A05ADFA71A97C2375F6C12 /* WebLoginDataCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginDataCleaner.swift; sourceTree = "<group>"; };
 		0520E5E45E68654484B56FB3 /* CacheManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManagementView.swift; sourceTree = "<group>"; };
 		0C0605B67F998083A79DF15D /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
@@ -264,6 +272,10 @@
 				947204114621CA3CFF059014 /* AudioSignalPathSheet.swift */,
 				D66871387ED41A21DEB53C7B /* AudioTagContainerWriters.swift */,
 				5DA40DD4DA641681B68C81E9 /* AudioTagEmbedder.swift */,
+				76848CED874BC8AD6CF9B857 /* SynologyCoverWriteback.swift */,
+				345EAB09F1E610B75C4F7236 /* SynologyPlaylistWriter.swift */,
+				352174FBA8D8B898EE17DAAC /* SynologyIndexControl.swift */,
+				AAC784566AE123F95AE60E36 /* NASPlaylistEditorSheet.swift */,
 				C281DE6BBA57ECFB8BF4B2FF /* AudioURLCache.swift */,
 				EAADC99C1DA9B7E43E702BDB /* AuthStore.swift */,
 				0520E5E45E68654484B56FB3 /* CacheManagementView.swift */,
@@ -468,6 +480,10 @@
 				1A7BC656A4CE5D6A664FEFA9 /* AudioSignalPathSheet.swift in Sources */,
 				28B7BD3D79C35C9FFB5C4A94 /* AudioTagContainerWriters.swift in Sources */,
 				C7D905969BE3A10D78993CCD /* AudioTagEmbedder.swift in Sources */,
+				4F005288DB28C674F12815DF /* SynologyCoverWriteback.swift in Sources */,
+				ADB02EF03D95B0888ECAF089 /* SynologyPlaylistWriter.swift in Sources */,
+				7E4308373F9A96E0E61260B2 /* SynologyIndexControl.swift in Sources */,
+				176FB821C3295A40E49921FF /* NASPlaylistEditorSheet.swift in Sources */,
 				BDBBF045B1D5344A33C8780C /* AudioURLCache.swift in Sources */,
 				5A8ACFC640C376E03890A14C /* AuthStore.swift in Sources */,
 				5DA20D3D1AE3DF62903192AA /* CacheManagementView.swift in Sources */,
@@ -592,7 +608,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 132;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -667,7 +683,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 128;
+				CURRENT_PROJECT_VERSION = 132;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
