@@ -49,7 +49,9 @@ echo "远端：$(git remote get-url origin)"
 # 仓库，因此这里不再允许无差别暂存。
 # ---------------------------------------------------------------------------
 SAFE_PATHS=(
+  .gitignore
   ATMusic
+  ATMusic.xcodeproj
   ATMusicWatch
   docs
   tests
@@ -69,6 +71,7 @@ SAFE_PATHS=(
   install_at_music_ipad.sh
   make_at_music_ipa.py
   publish_to_github.sh
+  release_and_push.sh
   一键安装AT Music.command
 )
 
@@ -129,7 +132,40 @@ else
   git commit -m "release: AT Music $VERSION build $BUILD"
 fi
 
-git push -u origin main
+# ---------------------------------------------------------------------------
+# 凭据：优先用环境变量/本地 token 文件（无交互环境也能推），
+# 都没有时退回系统 git 凭据（你自己终端里 keychain 已登录就够）。
+# 注意：token 文件放在仓库之外（~/.atmusic_github_token，chmod 600），绝不入库。
+# ---------------------------------------------------------------------------
+resolve_token() {
+  if [ -n "${AT_MUSIC_GITHUB_TOKEN:-}" ]; then
+    printf '%s' "$AT_MUSIC_GITHUB_TOKEN"
+    return 0
+  fi
+  if [ -f "$HOME/.atmusic_github_token" ]; then
+    tr -d '\r\n' < "$HOME/.atmusic_github_token"
+    return 0
+  fi
+  if command -v security >/dev/null 2>&1; then
+    security find-internet-password -s github.com -w 2>/dev/null || true
+  fi
+}
+
+TOKEN="$(resolve_token || true)"
+if [ -n "$TOKEN" ]; then
+  ASKPASS_SCRIPT="$(mktemp -t atmusic-askpass)"
+  TOKEN_FILE="$(mktemp -t atmusic-token)"
+  printf '%s' "$TOKEN" > "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+  printf '#!/bin/sh\ncat "%s"\n' "$TOKEN_FILE" > "$ASKPASS_SCRIPT"
+  chmod 700 "$ASKPASS_SCRIPT"
+  trap 'rm -f "$ASKPASS_SCRIPT" "$TOKEN_FILE"' EXIT
+  GIT_ASKPASS="$ASKPASS_SCRIPT" GIT_TERMINAL_PROMPT=0 git push -u origin main
+  rm -f "$ASKPASS_SCRIPT" "$TOKEN_FILE"
+  trap - EXIT
+else
+  git push -u origin main
+fi
 
 echo
 echo "已推送。GitHub Actions 会自动构建："

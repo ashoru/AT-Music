@@ -120,6 +120,18 @@ final class ATMusicCacheCoordinator: ObservableObject {
         refreshLyrics()
     }
 
+    /// 删除单曲歌词缓存（重搜/清空歌词后必须调用，否则下次播放仍命中旧缓存）。
+    func removeCachedLyric(for song: Song) {
+        let filename = "\(song.identityKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? song.identityKey).lrc"
+        let fileURL = lyricsDirectory.appendingPathComponent(filename)
+        try? fm.removeItem(at: fileURL)
+        let transURL = lyricsDirectory.appendingPathComponent(
+            "\(song.identityKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? song.identityKey).tlrc"
+        )
+        try? fm.removeItem(at: transURL)
+        refreshLyrics()
+    }
+
     func cachedLyric(for song: Song) -> String? {
         let filename = "\(song.identityKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? song.identityKey).lrc"
         let fileURL = lyricsDirectory.appendingPathComponent(filename)

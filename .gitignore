@@ -52,3 +52,8 @@ docs/HANDOVER_*
 # Local CI / generated tool archives
 xcodebuild.log
 release_body.md
+
+# 本地发布凭据（绝不入库）
+.atmusic_github_token
+.secrets/
+*.token

@@ -135,14 +135,12 @@ enum LyricWriteback {
         let offsetText = LyricOffsetStore.text(for: offset)
 
         if song.source == .synology {
-            do {
-                try await SynologyAPI.shared.applyMetadata(song: song, patch: emptyPatch(), lyrics: baked)
-                await ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: baked)
-                return Outcome(message: "已按「\(offsetText)」校准并写回 NAS 文件", bakedLyrics: baked, wroteToFile: true)
-            } catch {
-                ATMusicLogger.shared.log("⚠️ 歌词烘焙写回 NAS 失败：\(song.name) - \(error.localizedDescription)", level: .error)
-                return Outcome(message: "写回 NAS 失败：\(error.localizedDescription)", bakedLyrics: baked, wroteToFile: false)
-            }
+            // 走统一写回：内嵌标签 + 同目录同名 .lrc + 歌词库 + 本机缓存，四层一起更新
+            let report = await LyricsPersistence.save(song: song, raw: baked)
+            let message = report.isSuccess
+                ? "已按「\(offsetText)」校准并写回 NAS（\(report.message)）"
+                : "写回 NAS 失败：\(report.message)"
+            return Outcome(message: message, bakedLyrics: baked, wroteToFile: report.isSuccess)
         }
 
         // 在线流媒体歌曲还没离线：没有本地音频可写，就把烘焙结果落进歌词缓存，

@@ -1,5 +1,30 @@
 # AT Music 更新日志
 
+## 1.9.37 build 133
+
+### NAS 歌词「改了又变回去」根因修复 + 一条命令自动发版
+
+#### 1. 歌词写回补齐全链路（这才是上次真凶）
+排查结论：之前给 NAS 歌曲换歌词 / 校准时间轴时，**只写了音频文件内嵌标签**，没有同步两处同样会被读取的地方——
+- 同目录同名 `.lrc`（归档上传时生成的那一份，Audio Station 与多数播放器优先读它）；
+- 本机歌词缓存（`ATMusicCacheCoordinator`，而 App 取歌词是**缓存优先**）。
+于是出现「写成功了、切回来还是旧歌词」。清除歌词同理：只清了标签，`.lrc` 与缓存还在，歌词"清了又回来"。
+
+修复：新增 `LyricsPersistence` 统一入口，一处调用四层落地：
+1. 音频文件内嵌歌词（Audio Station tag_editor，保留其它标签）；
+2. 同目录同名 `.lrc` 覆盖写（经 File Station 上传，`overwrite=true`）；
+3. Audio Station 歌词库（`setlyrics`，不同 DSM 读取优先级不同，两手都写）；
+4. 本机歌词缓存覆盖写（并新增按曲删除缓存的接口）。
+写完后回读校验并记录日志；不一致会明确提示「可能被服务端缓存」。
+
+接入点：播放页选歌词、清除歌词、歌词同步校准烘焙写回、信号通路页「写回 NAS」、批量维护歌词写回——全部改走同一入口，**改完立即生效，切歌再切回来也是最新的**。
+在线未离线歌曲：仅更新本机缓存并如实说明。
+
+#### 2. 一条命令发版（升 build + 打包 + 提交 + 推送）
+- 新增 `release_and_push.sh`：`./release_and_push.sh` 一步完成「升 build 号 → 打包无签名 IPA → 按白名单提交 → 推送 GitHub」，CI 随即产出 Release 产物。
+- `publish_to_github.sh` 支持非交互凭据：`AT_MUSIC_GITHUB_TOKEN` 环境变量、`~/.atmusic_github_token`（chmod 600，仓库外）、或用 keychain 里的 github.com 密码；都没有时退回系统 git 凭据。token 只经临时 askpass 注入，退出即删。
+- 白名单补上 `ATMusic.xcodeproj`（新增源文件必须登记进工程）与 `.gitignore`；`.atmusic_github_token`、`.secrets/`、`*.token` 已加入 `.gitignore`。
+
 ## 1.9.37 build 132
 
 ### 群晖 NAS 深度管理：远程歌单双向闭环 · 音乐库重扫开关 · 封面真内嵌 + 候选手选

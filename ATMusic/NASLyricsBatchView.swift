@@ -853,15 +853,15 @@ final class NASLyricsBatchRunner: ObservableObject {
             guard let candidate = item.selectedCandidate else { continue }
             update(item.id, state: .writing)
             do {
-                try await SynologyAPI.shared.applyMetadata(
-                    song: item.song,
-                    patch: LyricWriteback.emptyPatch(),
-                    lyrics: candidate.lrc
-                )
-                ATMusicCacheCoordinator.shared.cacheLyric(for: item.song, content: candidate.lrc)
+                let report = await LyricsPersistence.save(song: item.song, raw: candidate.lrc)
+                guard report.isSuccess else {
+                    throw SynologyError.networkError(report.message)
+                }
                 written += 1
                 let lineCount = candidate.lrc.components(separatedBy: "\n").count
-                update(item.id, state: .written, detail: "\(candidate.provider) · \(lineCount) 行")
+                let layers = [report.wroteFileTag ? "内嵌" : nil, report.wroteSidecar ? ".lrc" : nil]
+                    .compactMap { $0 }.joined(separator: "+")
+                update(item.id, state: .written, detail: "\(candidate.provider) · \(lineCount) 行 · \(layers)")
             } catch {
                 failed += 1
                 update(item.id, state: .failed, detail: error.localizedDescription)

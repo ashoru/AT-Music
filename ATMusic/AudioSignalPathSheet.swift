@@ -228,17 +228,11 @@ struct AudioSignalPathSheet: View {
         }.joined(separator: "\n")
 
         Task {
-            do {
-                try await SynologyAPI.shared.saveLyrics(song: targetSong, lyrics: lrcText)
-                await MainActor.run {
-                    isSavingLyrics = false
-                    ToastCenter.shared.show("歌词已成功写回群晖 NAS")
-                }
-            } catch {
-                await MainActor.run {
-                    isSavingLyrics = false
-                    ToastCenter.shared.show("写回失败: \(error.localizedDescription)")
-                }
+            // 内嵌标签 + 同名 .lrc + 歌词库 + 本机缓存一起写，避免只更新其中一层导致下次播放还是旧歌词
+            let report = await LyricsPersistence.save(song: targetSong, raw: lrcText)
+            await MainActor.run {
+                isSavingLyrics = false
+                ToastCenter.shared.show(report.isSuccess ? report.message : "写回失败：\(report.message)")
             }
         }
     }

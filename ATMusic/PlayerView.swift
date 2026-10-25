@@ -728,22 +728,13 @@ struct PlayerView: View {
                 }) { rawLyrics in
                     lyrics = LyricParser.parse(rawLyrics)
                     player.updateCurrentLyrics(lyrics, for: song.identityKey)
-                    if song.source == .synology {
-                        Task {
-                            do {
-                                // 通过同一套 tag_editor.cgi 写入协议保存歌词，避免只更新播放器内存。
-                                try await SynologyAPI.shared.applyMetadata(
-                                    song: song,
-                                    patch: SynologyTagPatch(title: nil, artist: nil, album: nil, albumArtist: nil, genre: nil, year: nil, comment: nil),
-                                    lyrics: rawLyrics
-                                )
-                                ToastCenter.shared.show("歌词已保存到 NAS")
-                            } catch {
-                                ToastCenter.shared.show("歌词保存失败：\(error.localizedDescription)")
-                            }
+                    Task {
+                        // 统一写回：NAS（内嵌标签 + 同名 .lrc + 歌词库）、本地（.lrc + 内嵌）、在线（本机缓存）；
+                        // 同时覆盖本机歌词缓存，避免切歌再切回来又读到旧歌词。
+                        let report = await LyricsPersistence.save(song: song, raw: rawLyrics)
+                        await MainActor.run {
+                            ToastCenter.shared.show(report.message)
                         }
-                    } else {
-                        ToastCenter.shared.show("歌词已载入当前播放页")
                     }
                 }
             }
@@ -2867,23 +2858,9 @@ struct PlayerView: View {
     }
 
     private func clearLyrics(for song: Song) async {
-        do {
-            if song.source == .synology {
-                try await SynologyAPI.shared.applyMetadata(
-                    song: song,
-                    patch: SynologyTagPatch(title: nil, artist: nil, album: nil, albumArtist: nil, genre: nil, year: nil, comment: nil),
-                    lyrics: ""
-                )
-            } else if song.source == .local, let relativePath = song.localRelativePath {
-                let lrcPath = (relativePath as NSString).deletingPathExtension + ".lrc"
-                if let lrcURL = try? ManagedAudioPath.resolve(lrcPath) {
-                    try? FileManager.default.removeItem(at: lrcURL)
-                }
-            }
-            ToastCenter.shared.show("已清除歌词匹配")
-        } catch {
-            ToastCenter.shared.show("清除歌词失败：\(error.localizedDescription)")
-        }
+        // 内嵌标签、同名 .lrc、歌词库与本机缓存一起清，才不会"清了又回来"
+        let message = await LyricsPersistence.clear(song: song)
+        ToastCenter.shared.show(message)
     }
 
     /// 一次性提取当前封面主色，带动整个播放器配色动态变化（失败时保持主题回退色，不影响任何功能）
