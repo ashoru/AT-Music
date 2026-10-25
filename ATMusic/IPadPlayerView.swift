@@ -26,7 +26,16 @@ struct IPadPlayerView: View {
     let onDownload: () -> Void
     let onPlayerSettings: () -> Void
     let onSearchLyrics: () -> Void
+    let onLyricsSync: () -> Void
     let onDismiss: () -> Void
+
+    @ObservedObject private var lyricOffsets = LyricOffsetStore.shared
+
+    /// 逐曲歌词偏移优先，未校准则回落到布局编辑器里的全局默认值。
+    private var activeLyricOffset: Double {
+        _ = lyricOffsets.revision
+        return lyricOffsets.offset(for: song?.identityKey)
+    }
 
     @State private var rightPaneMode: RightPaneMode = .lyrics
     @State private var narrowSegment: Int = 0 // 0: 封面控制, 1: 歌词, 2: 待播清单
@@ -69,6 +78,7 @@ struct IPadPlayerView: View {
         onDownload: @escaping () -> Void,
         onPlayerSettings: @escaping () -> Void,
         onSearchLyrics: @escaping () -> Void,
+        onLyricsSync: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.song = song
@@ -81,6 +91,7 @@ struct IPadPlayerView: View {
         self.onDownload = onDownload
         self.onPlayerSettings = onPlayerSettings
         self.onSearchLyrics = onSearchLyrics
+        self.onLyricsSync = onLyricsSync
         self.onDismiss = onDismiss
     }
 
@@ -220,6 +231,9 @@ struct IPadPlayerView: View {
                 }
                 Button(action: onSearchLyrics) {
                     Label("手动检索歌词", systemImage: "text.magnifyingglass")
+                }
+                Button(action: onLyricsSync) {
+                    Label("歌词同步校准", systemImage: "metronome")
                 }
                 Button(action: onComments) {
                     Label("查看歌曲评论", systemImage: "text.bubble")
@@ -634,7 +648,7 @@ struct IPadPlayerView: View {
             }
             .onChange(of: clock.currentTime) { currentTime in
                 guard autoScrollEnabled, !lyrics.isEmpty else { return }
-                if let currentLineID = findCurrentLineID(at: currentTime) {
+                if let currentLineID = findCurrentLineID(at: max(0, currentTime + activeLyricOffset)) {
                     withAnimation(.easeInOut(duration: 0.35)) {
                         scrollProxy.scrollTo(currentLineID, anchor: .center)
                     }
@@ -645,7 +659,7 @@ struct IPadPlayerView: View {
 
     private func isCurrentLine(at index: Int) -> Bool {
         guard index < lyrics.count else { return false }
-        let current = clock.currentTime
+        let current = max(0, clock.currentTime + activeLyricOffset)
         let lineTime = lyrics[index].time
         let nextTime = index + 1 < lyrics.count ? lyrics[index + 1].time : Double.infinity
         return current >= lineTime && current < nextTime

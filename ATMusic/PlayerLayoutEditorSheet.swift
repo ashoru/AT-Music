@@ -637,7 +637,8 @@ struct PlayerLayoutEditorSheet: View {
                         onDownload: {},
                         onPlayerSettings: {},
                         onSearchLyrics: {},
-                        onSongInfo: {}
+                        onSongInfo: {},
+                        onLyricsSync: {}
                     )
                 } else if activeStyle == .immersive {
                     ImmersivePlayerView(
@@ -1001,7 +1002,7 @@ struct PlayerLayoutEditorSheet: View {
                 // 歌词同步时间偏移校准
                 VStack(spacing: 4) {
                     HStack {
-                        Text("歌词同步偏移校准")
+                        Text("歌词默认偏移（全局）")
                             .font(ATMusicFont.appFont(13, .medium))
                             .foregroundStyle(Color.atmusicLabel)
                         Spacer()
@@ -1017,6 +1018,10 @@ struct PlayerLayoutEditorSheet: View {
                     }
                     Slider(value: $lyricOffset, in: -3.0...3.0, step: 0.1)
                         .tint(Color.atmusicAmber)
+                    Text("逐曲校准请在播放页「更多 → 歌词同步校准」里做：单曲偏移优先于这里的默认值，并可一键烘焙写回文件。")
+                        .font(ATMusicFont.appFont(10))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)

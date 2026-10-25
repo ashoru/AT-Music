@@ -32,6 +32,7 @@ struct PlayerView: View {
     @State private var showSynologyMetadataEditor = false
     @State private var showLocalMetadataEditor = false
     @State private var showLyricSearch = false
+    @State private var showLyricsSync = false
     @State private var selectedAlbum: Album?
     @State private var showSignalPath = false
     @State private var showNativeMoreActions = false
@@ -121,7 +122,15 @@ struct PlayerView: View {
     /// 歌词左右倾斜角度（0 = 关闭；负值向左、正值向右，立体透视感）
     @AppStorage("atmusic.lyricTiltY") private var lyricTiltY = 0
     /// 歌词进度偏移（秒）：歌词与音频不同步时手动校正，正数提前、负数延后
+    /// - 这里是「全局默认值」，逐曲校准值记在 LyricOffsetStore 里，优先于它生效。
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @ObservedObject private var lyricOffsets = LyricOffsetStore.shared
+
+    /// 当前歌曲实际生效的歌词偏移（逐曲校准 > 全局默认）。
+    private var activeLyricOffset: Double {
+        _ = lyricOffsets.revision
+        return lyricOffsets.offset(for: song?.identityKey)
+    }
     /// 歌词界面自定义背景
     @AppStorage("atmusic.lyricBackground.image") private var lyricBackgroundImagePath = ""
     @AppStorage("atmusic.lyricBackground.blur") private var lyricBackgroundBlur = 12.0
@@ -428,6 +437,9 @@ struct PlayerView: View {
                     onSearchLyrics: {
                         showLyricSearch = true
                     },
+                    onLyricsSync: {
+                        showLyricsSync = true
+                    },
                     onDismiss: {
                         isPresented = false
                     }
@@ -457,6 +469,9 @@ struct PlayerView: View {
                     },
                     onDownload: {
                         handlePlayerDownloadTap()
+                    },
+                    onLyricsSync: {
+                        showLyricsSync = true
                     }
                 )
             } else if coverPlayerStyle == .appleMusic {
@@ -492,6 +507,9 @@ struct PlayerView: View {
                         },
                         onSongInfo: {
                             openSongInfo()
+                        },
+                        onLyricsSync: {
+                            showLyricsSync = true
                         }
                     )
 
@@ -728,6 +746,18 @@ struct PlayerView: View {
                         ToastCenter.shared.show("歌词已载入当前播放页")
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showLyricsSync) {
+            if let song {
+                LyricsSyncSheet(song: song) { baked in
+                    // 烘焙成功后播放页立即用新的时间轴，避免「文件已对齐、屏幕还没对齐」。
+                    lyrics = LyricParser.parse(baked)
+                    player.updateCurrentLyrics(lyrics, for: song.identityKey)
+                }
+                .environmentObject(player)
+                .environmentObject(theme)
+                .environmentObject(clock)
             }
         }
         .sheet(item: $selectedAlbum) { album in
@@ -1288,6 +1318,7 @@ struct PlayerView: View {
                 Button("音频信号通路") { showSignalPath = true }
                 Button("定时关闭") { showSleepTimer = true }
                 Button("搜索歌词") { showLyricSearch = true }
+                Button("歌词同步校准") { showLyricsSync = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
                 if downloadFeatureUnlocked {
                     Button("下载歌曲") { showDownloadPicker = true }
@@ -1370,7 +1401,7 @@ struct PlayerView: View {
     private func vinylLyricLine(_ line: LyricLine, isFocused: Bool) -> some View {
         Button {
             ATMusicHaptics.tap()
-            player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
+            player.seek(to: LyricTiming.seekTime(for: line, userOffset: activeLyricOffset))
         } label: {
             // 黑胶样式：双语翻译受开关控制，无译文高度为 0；行高跟随内容自然撑开
             let translation = (lyricTranslation && line.translation?.isEmpty == false) ? line.translation : nil
@@ -1427,7 +1458,7 @@ struct PlayerView: View {
 
     private var vinylCurrentLyricIndex: Int? {
         guard !lyrics.isEmpty else { return nil }
-        let progress = LyricTiming.effectiveProgress(clock.progress, userOffset: lyricOffset)
+        let progress = LyricTiming.effectiveProgress(clock.progress, userOffset: activeLyricOffset)
         var low = 0
         var high = lyrics.count - 1
         var answer: Int?
@@ -1673,7 +1704,7 @@ struct PlayerView: View {
         var answer: Int?
         while low <= high {
             let mid = (low + high) / 2
-            if lyrics[mid].time <= LyricTiming.effectiveProgress(clock.progress, userOffset: lyricOffset) {
+            if lyrics[mid].time <= LyricTiming.effectiveProgress(clock.progress, userOffset: activeLyricOffset) {
                 answer = mid
                 low = mid + 1
             } else {
@@ -1777,6 +1808,7 @@ struct PlayerView: View {
                     Button("音频信号通路") { showSignalPath = true }
                     Button("定时关闭") { showSleepTimer = true }
                     Button("搜索歌词") { showLyricSearch = true }
+                    Button("歌词同步校准") { showLyricsSync = true }
                     Button("歌曲信息") { openSongInfo() }
                     Button("添加到歌单") { showAddToLocalPlaylist = true }
                     if downloadFeatureUnlocked {
@@ -1826,10 +1858,10 @@ struct PlayerView: View {
                         blurAmount: CGFloat(lyricBlurAmount),
                         tilt: CGFloat(lyricTilt),
                         tiltY: CGFloat(lyricTiltY),
-                        lyricOffset: CGFloat(lyricOffset)
+                        lyricOffset: CGFloat(activeLyricOffset)
                     ) { line in
                         ATMusicHaptics.tap()
-                        player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
+                        player.seek(to: LyricTiming.seekTime(for: line, userOffset: activeLyricOffset))
                     }
                     .offset(y: CGFloat(lyricAnchorY))
                 }

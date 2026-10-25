@@ -130,6 +130,42 @@ enum SongLyricsLoader {
         return nil
     }
 
+    // MARK: - 仅在线匹配（批量写回流水线复用）
+
+    struct OnlineMatch {
+        let lrc: String
+        let provider: String
+        let score: Int
+    }
+
+    /// 只从在线平台匹配带时间轴的歌词，**不读本地缓存**——
+    /// 批量写回要的是「这首歌能拿到的最好歌词」，而不是「本机已有的那份」。
+    /// 打分阈值默认 110：歌名必须基本对齐，避免把同名不同曲的歌词写到别人歌上。
+    static func matchOnlineLyrics(for song: Song, minimumScore: Int = 110) async -> OnlineMatch? {
+        let candidates = await lyricCandidates(for: song)
+        let ranked = candidates
+            .map { (song: $0, score: lyricMatchScore($0, to: song)) }
+            .filter { $0.score >= minimumScore }
+            .sorted { $0.score > $1.score }
+        for entry in ranked.prefix(6) {
+            guard let pair = await fetchLyrics(for: entry.song),
+                  let lrc = pair.lrc,
+                  lrc.contains("[") else { continue }  // 必须有时间轴，纯文本歌词没法滚
+            return OnlineMatch(lrc: lrc, provider: providerName(for: entry.song.source), score: entry.score)
+        }
+        return nil
+    }
+
+    static func providerName(for source: SongSource) -> String {
+        switch source {
+        case .netease: return "网易云音乐"
+        case .qq: return "QQ音乐"
+        case .kugou: return "酷狗音乐"
+        case .synology: return "群晖 NAS"
+        case .local: return "本地"
+        }
+    }
+
     private static func lyricCandidates(for song: Song) async -> [Song] {
         let candidates: [Song]
         if song.source == .synology {

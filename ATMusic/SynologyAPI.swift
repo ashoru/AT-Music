@@ -37,6 +37,9 @@ struct SynologyTagMetadata: Equatable {
     var albumArtist: String = ""
     var genre: String = ""
     var year: String = ""
+    /// 盘号 / 音轨号用字符串承载：空串表示「本文件没有该标签」，与数字 0 区分开。
+    var track: String = ""
+    var disc: String = ""
     var comment: String = ""
 
     func patch(comparedTo original: SynologyTagMetadata) -> SynologyTagPatch {
@@ -47,7 +50,9 @@ struct SynologyTagMetadata: Equatable {
             albumArtist: albumArtist == original.albumArtist ? nil : albumArtist,
             genre: genre == original.genre ? nil : genre,
             year: year == original.year ? nil : year,
-            comment: comment == original.comment ? nil : comment
+            comment: comment == original.comment ? nil : comment,
+            track: track == original.track ? nil : track,
+            disc: disc == original.disc ? nil : disc
         )
     }
 }

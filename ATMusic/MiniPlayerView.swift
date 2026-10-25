@@ -17,7 +17,14 @@ struct MiniPlayerView: View {
     /// 底部导航联动时使用的紧凑模式：隐藏上一首/下一首，让播放器气泡和分页栏保持一行。
     var compact = false
     @State private var miniLyrics: [LyricLine] = []
+    /// 全局默认偏移；逐曲校准值优先（见 activeLyricOffset）
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @ObservedObject private var lyricOffsets = LyricOffsetStore.shared
+
+    private var activeLyricOffset: Double {
+        _ = lyricOffsets.revision
+        return lyricOffsets.offset(for: player.currentSong?.identityKey)
+    }
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
     @AppStorage("atmusic.showSongVIPBadge") private var showSongVIPBadge = true
 
@@ -34,7 +41,7 @@ struct MiniPlayerView: View {
         var answer: LyricLine?
         while low <= high {
             let mid = (low + high) / 2
-            if miniLyrics[mid].time <= LyricTiming.effectiveProgress(clock.progress, userOffset: lyricOffset) {
+            if miniLyrics[mid].time <= LyricTiming.effectiveProgress(clock.progress, userOffset: activeLyricOffset) {
                 answer = miniLyrics[mid]
                 low = mid + 1
             } else {

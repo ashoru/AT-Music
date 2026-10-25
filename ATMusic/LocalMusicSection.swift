@@ -1465,6 +1465,8 @@ struct LocalSongMetadataEditorSheet: View {
     @State private var albumArtist: String
     @State private var genre: String
     @State private var year: String
+    @State private var trackNumber: String
+    @State private var discNumber: String
     @State private var comment: String
     @State private var coverURL: URL?
     @State private var coverData: Data?
@@ -1482,6 +1484,8 @@ struct LocalSongMetadataEditorSheet: View {
         _albumArtist = State(initialValue: song.albumArtist ?? "")
         _genre = State(initialValue: song.genre ?? "")
         _year = State(initialValue: song.year ?? "")
+        _trackNumber = State(initialValue: song.trackNumber > 0 ? String(song.trackNumber) : "")
+        _discNumber = State(initialValue: song.discNumber > 0 ? String(song.discNumber) : "")
         _comment = State(initialValue: song.comment ?? "")
         _coverURL = State(initialValue: song.coverURL)
     }
@@ -1600,6 +1604,8 @@ struct LocalSongMetadataEditorSheet: View {
         case .albumArtist: return albumArtist
         case .genre: return genre
         case .year: return year
+        case .trackNumber: return trackNumber
+        case .discNumber: return discNumber
         case .comment: return comment
         }
     }
@@ -1612,6 +1618,8 @@ struct LocalSongMetadataEditorSheet: View {
         case .albumArtist: albumArtist = value
         case .genre: genre = value
         case .year: year = value
+        case .trackNumber: trackNumber = value
+        case .discNumber: discNumber = value
         case .comment: comment = value
         }
     }
@@ -1702,8 +1710,8 @@ struct LocalSongMetadataEditorSheet: View {
                 genre: genre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : genre.trimmingCharacters(in: .whitespacesAndNewlines),
                 year: year.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : year.trimmingCharacters(in: .whitespacesAndNewlines),
                 comment: comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : comment.trimmingCharacters(in: .whitespacesAndNewlines),
-                discNumber: song.discNumber,
-                trackNumber: song.trackNumber,
+                discNumber: max(1, TrackSequencing.parseNumber(discNumber, range: 1...999) ?? song.discNumber),
+                trackNumber: TrackSequencing.parseNumber(trackNumber, range: 0...999) ?? 0,
                 fee: song.fee
             )
             guard onSave(updated) else {
@@ -1727,8 +1735,21 @@ struct LocalSongMetadataEditorSheet: View {
                 NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: oldCover)
             }
             NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: updated)
+
+            // 资料库已存好；接着把同一份信息物理写进音频文件本体（失败只记录，不推翻保存结果）。
+            message = "正在把标签与封面写入音频文件…"
+            let embedResult = await LocalTagWriteback.writeAsync(
+                song: updated,
+                coverData: LocalTagWriteback.coverData(for: updated, newImage: newCoverImage, explicitData: coverData)
+            )
             ATMusicHaptics.success()
-            ToastCenter.shared.show("本地歌曲信息已更新")
+            switch embedResult {
+            case .success(let report):
+                ToastCenter.shared.show("已更新并写回文件（\(report.summary)）")
+            case .failure(let error):
+                ATMusicLogger.shared.log("⚠️ 本地歌曲标签内嵌失败：\(updated.name) - \(error.localizedDescription)", level: .warn)
+                ToastCenter.shared.show("信息已更新，但写回文件失败：\(error.localizedDescription)")
+            }
             dismiss()
         } catch {
             saving = false
@@ -1750,6 +1771,10 @@ struct LocalBatchMetadataEditorSheet: View {
     @State private var genre = ""
     @State private var year = ""
     @State private var comment = ""
+    @State private var trackStart = "1"
+    @State private var discOverride = ""
+    @State private var sequentialEnabled = false
+    @State private var numberingOverrides: [String: TrackNumberingOverride] = [:]
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
     @State private var selectedCoverThumbnail: UIImage?
@@ -1757,6 +1782,18 @@ struct LocalBatchMetadataEditorSheet: View {
     @State private var isSaving = false
     @State private var message = ""
     @State private var savedCount: Int?
+
+    private var discOverrideNumber: Int? {
+        TrackSequencing.parseNumber(discOverride, range: 1...999)
+    }
+
+    private var numberingPlan: TrackSequencing.Plan {
+        TrackSequencing.plan(
+            songs: songs,
+            discOverride: discOverrideNumber,
+            startTrack: TrackSequencing.parseNumber(trackStart, range: 1...999) ?? 1
+        )
+    }
 
     var body: some View {
         NavigationView {
@@ -1886,6 +1923,15 @@ struct LocalBatchMetadataEditorSheet: View {
                             .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
 
+                        // 3.5 曲目编号（盘号 / 音轨号）
+                        TrackNumberingCard(
+                            songs: songs,
+                            startTrack: $trackStart,
+                            discOverride: $discOverride,
+                            sequentialEnabled: $sequentialEnabled,
+                            overrides: $numberingOverrides
+                        )
+
                         if !message.isEmpty {
                             Text(message)
                                 .font(ATMusicFont.appFont(12))
@@ -1973,9 +2019,10 @@ struct LocalBatchMetadataEditorSheet: View {
 
         let hasFieldChanges = !trimmedArtist.isEmpty || !trimmedAlbum.isEmpty || !trimmedAlbumArtist.isEmpty || !trimmedGenre.isEmpty || !trimmedYear.isEmpty || !trimmedComment.isEmpty
         let hasCoverChanges = selectedCoverURL != nil || selectedCoverData != nil
+        let hasNumberingChanges = sequentialEnabled || discOverrideNumber != nil || !numberingOverrides.isEmpty
 
-        guard hasFieldChanges || hasCoverChanges else {
-            message = "请至少输入一项需要修改的字段或选择专辑封面"
+        guard hasFieldChanges || hasCoverChanges || hasNumberingChanges else {
+            message = "请至少输入一项需要修改的字段、曲目编号或选择专辑封面"
             return
         }
 
@@ -2029,7 +2076,16 @@ struct LocalBatchMetadataEditorSheet: View {
 
         var saved = 0
         var allUpdated: [Song] = []
+        let plan = sequentialEnabled ? numberingPlan : nil
         for song in songs {
+            let numbers = plan?.assignment(for: song.identityKey)
+            let manual = numberingOverrides[song.identityKey]
+            let discForSong = manual.flatMap { TrackSequencing.parseNumber($0.disc, range: 1...999) }
+                ?? numbers?.disc
+                ?? discOverrideNumber
+                ?? song.discNumber
+            // 手改优先：清空格子即「该曲不写曲目号」，不再回落到自动编号
+            let trackForSong: Int? = manual.map { TrackSequencing.parseNumber($0.track, range: 0...999) ?? 0 } ?? numbers?.track
             let newArtist = trimmedArtist.isEmpty ? song.artists : trimmedArtist
             let newAlbum = trimmedAlbum.isEmpty ? song.album : trimmedAlbum
             let newAlbumArtist = trimmedAlbumArtist.isEmpty ? song.albumArtist : trimmedAlbumArtist
@@ -2051,8 +2107,8 @@ struct LocalBatchMetadataEditorSheet: View {
                 genre: newGenre,
                 year: newYear,
                 comment: newComment,
-                discNumber: song.discNumber,
-                trackNumber: song.trackNumber,
+                discNumber: discForSong,
+                trackNumber: trackForSong ?? song.trackNumber,
                 fee: song.fee
             )
             allUpdated.append(updated)
@@ -2082,6 +2138,35 @@ struct LocalBatchMetadataEditorSheet: View {
             NotificationCenter.default.post(name: .atmusicCoverDidUpdate, object: sharedCoverURL)
         }
         NotificationCenter.default.post(name: .atmusicSongMetadataDidUpdate, object: nil)
+
+        // 索引落盘之后再逐首把标签写进音频文件本体（逐个顺序执行，避免同时重写多个大文件）。
+        if !allUpdated.isEmpty {
+            message = "正在把标签写回音频文件…（0/\(allUpdated.count)）"
+            var written = 0
+            var failed = 0
+            let coverPayload = sharedCoverImage.flatMap { LocalTagWriteback.optimizedCover($0) }
+            for updated in allUpdated {
+                switch await LocalTagWriteback.writeAsync(song: updated, coverData: coverPayload) {
+                case .success:
+                    written += 1
+                case .failure(let error):
+                    failed += 1
+                    if failed <= 3 {
+                        ATMusicLogger.shared.log("⚠️ 批量内嵌标签失败：\(updated.name) - \(error.localizedDescription)", level: .warn)
+                    }
+                }
+                message = "正在把标签写回音频文件…（\(written + failed)/\(allUpdated.count)）"
+            }
+            isSaving = false
+            ATMusicHaptics.success()
+            if failed == 0 {
+                ToastCenter.shared.show("批量修改完成：\(saved) 首已更新并写回文件")
+            } else {
+                ToastCenter.shared.show("批量修改完成：\(saved) 首已更新，\(written) 首写回文件，\(failed) 首仅存资料库")
+            }
+            dismiss()
+            return
+        }
 
         isSaving = false
         ATMusicHaptics.success()

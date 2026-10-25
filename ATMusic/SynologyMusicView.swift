@@ -286,6 +286,8 @@ struct SynologyMetadataEditorSheet: View {
             albumArtist: song.albumArtist ?? "",
             genre: song.genre ?? "",
             year: song.year ?? "",
+            track: song.trackNumber > 0 ? String(song.trackNumber) : "",
+            disc: song.discNumber > 0 ? String(song.discNumber) : "",
             comment: song.comment ?? ""
         )
         _metadata = State(initialValue: snapshot)
@@ -295,7 +297,8 @@ struct SynologyMetadataEditorSheet: View {
     private var displayedCoverURL: URL? { selectedCoverURL ?? song.coverURL }
     private var changedTagCount: Int {
         let patch = metadata.patch(comparedTo: originalMetadata)
-        return [patch.title, patch.artist, patch.album, patch.albumArtist, patch.genre, patch.year, patch.comment].compactMap { $0 }.count
+        return [patch.title, patch.artist, patch.album, patch.albumArtist, patch.genre,
+                patch.year, patch.comment, patch.track, patch.disc].compactMap { $0 }.count
     }
 
     var body: some View {
@@ -441,6 +444,8 @@ struct SynologyMetadataEditorSheet: View {
         case .albumArtist: return metadata.albumArtist
         case .genre: return metadata.genre
         case .year: return metadata.year
+        case .trackNumber: return metadata.track
+        case .discNumber: return metadata.disc
         case .comment: return metadata.comment
         }
     }
@@ -453,6 +458,8 @@ struct SynologyMetadataEditorSheet: View {
         case .albumArtist: metadata.albumArtist = value
         case .genre: metadata.genre = value
         case .year: metadata.year = value
+        case .trackNumber: metadata.track = value
+        case .discNumber: metadata.disc = value
         case .comment: metadata.comment = value
         }
     }
@@ -510,8 +517,8 @@ struct SynologyMetadataEditorSheet: View {
                 genre: metadata.genre.isEmpty ? nil : metadata.genre,
                 year: metadata.year.isEmpty ? nil : metadata.year,
                 comment: metadata.comment.isEmpty ? nil : metadata.comment,
-                discNumber: song.discNumber,
-                trackNumber: song.trackNumber,
+                discNumber: max(1, TrackSequencing.parseNumber(metadata.disc, range: 1...999) ?? 1),
+                trackNumber: TrackSequencing.parseNumber(metadata.track, range: 0...999) ?? 0,
                 fee: song.fee
             )
 
@@ -563,7 +570,7 @@ struct SynologyMetadataEditorSheet: View {
 }
 
 enum SongMetadataField: String, CaseIterable, Identifiable {
-    case title, artist, album, albumArtist, genre, year, comment
+    case title, artist, album, albumArtist, genre, year, trackNumber, discNumber, comment
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -573,11 +580,34 @@ enum SongMetadataField: String, CaseIterable, Identifiable {
         case .albumArtist: return "专辑演出者"
         case .genre: return "流派"
         case .year: return "专辑年份"
+        case .trackNumber: return "音轨号"
+        case .discNumber: return "盘号"
         case .comment: return "备注"
         }
     }
-    var keyboard: UIKeyboardType { self == .year ? .numberPad : .default }
+    var keyboard: UIKeyboardType {
+        switch self {
+        case .year, .trackNumber, .discNumber: return .numberPad
+        default: return .default
+        }
+    }
     var multiline: Bool { self == .comment }
+
+    /// 数字型标签的占位提示：避免用户把「音轨号」当成歌名之类的自由文本改。
+    var placeholder: String {
+        switch self {
+        case .trackNumber: return "专辑内第几首，例如 3"
+        case .discNumber: return "第几张 CD，单碟填 1"
+        default: return "未填写"
+        }
+    }
+
+    var isNumeric: Bool {
+        switch self {
+        case .trackNumber, .discNumber, .year: return true
+        default: return false
+        }
+    }
 }
 
 struct MetadataStaticRow: View {
@@ -606,6 +636,16 @@ struct SongMetadataFieldEditor: View {
         self.onSave = onSave
     }
 
+    /// 数字型标签只收数字：粘贴进来带空格/字母的内容也会被就地清洗，免得上游再兜底。
+    private var numericBinding: Binding<String> {
+        Binding(
+            get: { value },
+            set: { newValue in
+                value = String(newValue.filter { $0.isNumber }.prefix(4))
+            }
+        )
+    }
+
     var body: some View {
         NavigationView {
             VStack(alignment: .leading, spacing: 18) {
@@ -619,7 +659,7 @@ struct SongMetadataFieldEditor: View {
                         .background(Color.atmusicCard)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 } else {
-                    TextField(field.title, text: $value)
+                    TextField(field.placeholder, text: field.isNumeric ? numericBinding : $value)
                         .textFieldStyle(.roundedBorder)
                         .keyboardType(field.keyboard)
                 }
@@ -2199,6 +2239,10 @@ struct SynologyBatchMetadataEditorSheet: View {
     @State private var genre = ""
     @State private var year = ""
     @State private var comment = ""
+    @State private var trackStart = "1"
+    @State private var discOverride = ""
+    @State private var sequentialEnabled = false
+    @State private var numberingOverrides: [String: TrackNumberingOverride] = [:]
     @State private var selectedCoverURL: URL?
     @State private var selectedCoverData: Data?
     @State private var selectedCoverThumbnail: UIImage?
@@ -2206,6 +2250,18 @@ struct SynologyBatchMetadataEditorSheet: View {
     @State private var message = ""
     @State private var showCoverPicker = false
     @State private var savedCount: Int?
+
+    private var discOverrideNumber: Int? {
+        TrackSequencing.parseNumber(discOverride, range: 1...999)
+    }
+
+    private var numberingPlan: TrackSequencing.Plan {
+        TrackSequencing.plan(
+            songs: songs,
+            discOverride: discOverrideNumber,
+            startTrack: TrackSequencing.parseNumber(trackStart, range: 1...999) ?? 1
+        )
+    }
 
     var body: some View {
         NavigationView {
@@ -2335,6 +2391,15 @@ struct SynologyBatchMetadataEditorSheet: View {
                             .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
 
+                        // 3.5 曲目编号（盘号 / 音轨号）
+                        TrackNumberingCard(
+                            songs: songs,
+                            startTrack: $trackStart,
+                            discOverride: $discOverride,
+                            sequentialEnabled: $sequentialEnabled,
+                            overrides: $numberingOverrides
+                        )
+
                         if !message.isEmpty {
                             Text(message)
                                 .font(ATMusicFont.appFont(12))
@@ -2419,7 +2484,7 @@ struct SynologyBatchMetadataEditorSheet: View {
         let trimmedYear = year.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let patch = SynologyTagPatch(
+        let basePatch = SynologyTagPatch(
             title: nil,
             artist: trimmedArtist.isEmpty ? nil : trimmedArtist,
             album: trimmedAlbum.isEmpty ? nil : trimmedAlbum,
@@ -2428,10 +2493,12 @@ struct SynologyBatchMetadataEditorSheet: View {
             year: trimmedYear.isEmpty ? nil : trimmedYear,
             comment: trimmedComment.isEmpty ? nil : trimmedComment
         )
-        if patch.isEmpty && selectedCoverURL == nil && selectedCoverData == nil {
+        let numberingActive = sequentialEnabled || discOverrideNumber != nil || !numberingOverrides.isEmpty
+        if basePatch.isEmpty && !numberingActive && selectedCoverURL == nil && selectedCoverData == nil {
             await MainActor.run { message = "没有可写入的内容（字段均留空且未选择封面）" }
             return
         }
+        let plan = sequentialEnabled ? numberingPlan : nil
         await MainActor.run { isSaving = true; message = "正在准备封面与元数据…" }
 
         var preparedCoverData = selectedCoverData
@@ -2471,6 +2538,29 @@ struct SynologyBatchMetadataEditorSheet: View {
         var saved = 0
         var allUpdatedSongs: [Song] = []
         for song in songs {
+            // 曲目编号逐首不同：按预排的结果生成本首专属 patch，其余字段沿用统一输入。
+            let numbers = plan?.assignment(for: song.identityKey)
+            let manual = numberingOverrides[song.identityKey]
+            let discForSong = manual.flatMap { TrackSequencing.parseNumber($0.disc, range: 1...999) }
+                ?? numbers?.disc
+                ?? discOverrideNumber
+            // 手改优先：清空格子即「该曲不写曲目号」，不再回落到自动编号
+            let trackForSong: Int? = manual.map { TrackSequencing.parseNumber($0.track, range: 0...999) ?? 0 } ?? numbers?.track
+            let patch = SynologyTagPatch(
+                title: basePatch.title,
+                artist: basePatch.artist,
+                album: basePatch.album,
+                albumArtist: basePatch.albumArtist,
+                genre: basePatch.genre,
+                year: basePatch.year,
+                comment: basePatch.comment,
+                track: trackForSong.flatMap { $0 > 0 ? String($0) : nil },
+                disc: discForSong.map { String($0) }
+            )
+            if patch.isEmpty && preparedCoverData == nil {
+                saved += 1
+                continue
+            }
             do {
                 try await SynologyAPI.shared.applyMetadata(
                     song: song,
@@ -2499,8 +2589,8 @@ struct SynologyBatchMetadataEditorSheet: View {
                     genre: trimmedGenre.isEmpty ? song.genre : trimmedGenre,
                     year: trimmedYear.isEmpty ? song.year : trimmedYear,
                     comment: trimmedComment.isEmpty ? song.comment : trimmedComment,
-                    discNumber: song.discNumber,
-                    trackNumber: song.trackNumber,
+                    discNumber: discForSong ?? song.discNumber,
+                    trackNumber: trackForSong ?? song.trackNumber,
                     fee: song.fee
                 )
                 allUpdatedSongs.append(updated)

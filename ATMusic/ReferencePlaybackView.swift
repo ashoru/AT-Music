@@ -34,8 +34,16 @@ struct ReferencePlaybackView: View {
     let onPlayerSettings: () -> Void
     let onSearchLyrics: () -> Void
     let onSongInfo: () -> Void
+    let onLyricsSync: () -> Void
 
+    /// 全局默认偏移（布局编辑器里的那根滑杆）；逐曲校准值优先，见 activeLyricOffset。
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @ObservedObject private var lyricOffsets = LyricOffsetStore.shared
+
+    private var activeLyricOffset: Double {
+        _ = lyricOffsets.revision
+        return lyricOffsets.offset(for: song?.identityKey)
+    }
     @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
     @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
     @AppStorage("atmusic.appleMusic.showVolume") private var showVolumeControl = false
@@ -635,6 +643,7 @@ struct ReferencePlaybackView: View {
             Button("定时关闭", action: onSleepTimer)
             Button("歌曲信息", action: onSongInfo)
             Button("搜索歌词", action: onSearchLyrics)
+            Button("歌词同步校准") { onLyricsSync() }
             Button("添加到歌单", action: onAddToLocalPlaylist)
             if downloadFeatureUnlocked {
                 if let song, DownloadManager.shared.isDownloaded(song: song) {
@@ -708,7 +717,7 @@ struct ReferencePlaybackView: View {
 
     private var currentPlaybackLyricIndex: Int? {
         guard !lyrics.isEmpty else { return nil }
-        let progress = LyricTiming.effectiveProgress(clock.progress, userOffset: lyricOffset)
+        let progress = LyricTiming.effectiveProgress(clock.progress, userOffset: activeLyricOffset)
         var low = 0
         var high = lyrics.count - 1
         var answer: Int?
@@ -771,7 +780,7 @@ struct ReferencePlaybackView: View {
 
         return Button {
             ATMusicHaptics.tap()
-            player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
+            player.seek(to: LyricTiming.seekTime(for: line, userOffset: activeLyricOffset))
         } label: {
             VStack(alignment: textAlignment, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {

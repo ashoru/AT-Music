@@ -22,6 +22,7 @@ struct TransferCenterView: View {
     @State private var showBatchAddToPlaylist: Bool = false
     @State private var showBatchEdit: Bool = false
     @State private var showBatchDeleteAlert: Bool = false
+    @State private var showLyricsBatch: Bool = false
     @State private var showCancelAllDownloadsAlert: Bool = false
     @State private var showCancelAllUploadsAlert: Bool = false
 
@@ -116,6 +117,11 @@ struct TransferCenterView: View {
         }
         .sheet(isPresented: $showBatchEdit) {
             LocalBatchMetadataEditorSheet(songs: selectedOfflineSongs)
+                .environmentObject(player)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showLyricsBatch) {
+            NASLyricsBatchSheet()
                 .environmentObject(player)
                 .environmentObject(theme)
         }
@@ -938,10 +944,48 @@ struct TransferCenterView: View {
 
     // MARK: - 3. 群晖 NAS 上传归档视图
 
+    /// 歌词批量写回流水线入口：与「上传归档」「修复标签」同一处，符合用户对传输中心的心智模型。
+    private var lyricsBatchCard: some View {
+        Button {
+            ATMusicHaptics.tap()
+            showLyricsBatch = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "quote.bubble")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .frame(width: 38, height: 38)
+                    .background(Color.atmusicAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("歌词批量写回 NAS")
+                        .font(ATMusicFont.appFont(14, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text(synology.isLoggedIn
+                         ? "跨源匹配并写入 NAS 原文件，只补缺失、可随时中止"
+                         : "需先登录群晖 NAS")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.atmusicComment.opacity(0.5))
+            }
+            .padding(12)
+            .background { ATMusicSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .opacity(synology.isLoggedIn ? 1 : 0.55)
+        .disabled(!synology.isLoggedIn)
+    }
+
     private var nasUploadSection: some View {
         ScrollView {
             VStack(spacing: 12) {
                 nasStatusCard
+                lyricsBatchCard
 
                 if !downloadManager.activeUploads.isEmpty {
                     uploadGlobalControlBanner

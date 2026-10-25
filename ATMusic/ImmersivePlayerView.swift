@@ -115,6 +115,7 @@ struct ImmersivePlayerView: View {
     var onSearchLyrics: () -> Void = {}
     var onAddToLocalPlaylist: () -> Void = {}
     var onDownload: () -> Void = {}
+    var onLyricsSync: () -> Void = {}
 
     init(
         song: Song?,
@@ -126,7 +127,8 @@ struct ImmersivePlayerView: View {
         onSongInfo: @escaping () -> Void = {},
         onSearchLyrics: @escaping () -> Void = {},
         onAddToLocalPlaylist: @escaping () -> Void = {},
-        onDownload: @escaping () -> Void = {}
+        onDownload: @escaping () -> Void = {},
+        onLyricsSync: @escaping () -> Void = {}
     ) {
         self.song = song
         self.lyrics = lyrics
@@ -138,6 +140,7 @@ struct ImmersivePlayerView: View {
         self.onSearchLyrics = onSearchLyrics
         self.onAddToLocalPlaylist = onAddToLocalPlaylist
         self.onDownload = onDownload
+        self.onLyricsSync = onLyricsSync
         self._showLyrics = State(initialValue: previewShowLyrics ?? false)
     }
 
@@ -160,7 +163,14 @@ struct ImmersivePlayerView: View {
     @AppStorage("atmusic.lyricFontSize") private var lyricFontSize = 17
     @AppStorage("atmusic.lyricSpacing") private var lyricLineSpacing = 24
     @AppStorage("atmusic.lyricTranslation") private var lyricTranslation = true
+    /// 全局默认偏移；逐曲校准值优先（见 activeLyricOffset）
     @AppStorage("atmusic.lyricOffset") private var lyricOffset = 0.0
+    @ObservedObject private var lyricOffsets = LyricOffsetStore.shared
+
+    private var activeLyricOffset: Double {
+        _ = lyricOffsets.revision
+        return lyricOffsets.offset(for: song?.identityKey)
+    }
     @AppStorage("atmusic.lyricGradMode") private var lyricGradMode = 0
     @AppStorage("atmusic.lyricColor") private var lyricColorRaw = "accent"
     @AppStorage("atmusic.lyricDimColor") private var lyricDimColorRaw = "dim"
@@ -555,6 +565,7 @@ struct ImmersivePlayerView: View {
             Button("定时关闭", action: onSleepTimer)
             Button("歌曲信息", action: onSongInfo)
             Button("搜索歌词", action: onSearchLyrics)
+            Button("歌词同步校准", action: onLyricsSync)
             Button("添加到歌单", action: onAddToLocalPlaylist)
             Button("下载歌曲", action: onDownload)
             Button("播放器设置", action: onOpenSettings)
@@ -632,7 +643,7 @@ struct ImmersivePlayerView: View {
             glowColorOverride: Color(hex: lyricGlowColorRaw) ?? lyricCurrentColor,
             blurAmount: CGFloat(lyricBlurAmount),
             tilt: CGFloat(lyricTilt),
-            lyricOffset: CGFloat(lyricOffset),
+            lyricOffset: CGFloat(activeLyricOffset),
             onTapLine: { line in
                 ATMusicHaptics.tap()
                 player.seek(to: line.time)

@@ -1,3 +1,25 @@
+
+# Audio tag writer regression (1.9.37 build 128)
+
+```sh
+swiftc -O ATMusic/AudioTagEmbedder.swift ATMusic/AudioTagContainerWriters.swift \
+  tests/AudioTagWriterTests.swift -o /tmp/atmusic-tag-writer-tests
+/tmp/atmusic-tag-writer-tests
+```
+
+Exercises the production writers against real audio: MP3 (ID3v2.3 + ID3v1), FLAC (Vorbis Comment + PICTURE), M4A (moov/udta/meta/ilst), WAV/AIFF (embedded ID3 chunk). Every case asserts the file still parses (`afinfo`), the fully decoded PCM is identical to the pre-write decode, the tag bytes are present, and a second consecutive write is idempotent. MP4 additionally asserts the `mdat` bitstream is byte-identical, that all `stco` chunk offsets shifted by exactly the moov growth, and that the first offset lands on the `mdat` payload start. Unsupported containers (APE/OGG) must be rejected without touching the file.
+
+Requires macOS `afconvert` / `afinfo` and a system sample MP3; without a source it degrades to structural assertions.
+
+# Lyric timeline baking regression (1.9.37 build 128)
+
+```sh
+swiftc -O ATMusic/LyricTimingBaker.swift tests/LyricTimingBakerTests.swift -o /tmp/atmusic-lyric-baker-tests
+/tmp/atmusic-lyric-baker-tests
+```
+
+Covers the production `LyricTimingBaker`: advance/delay direction, multi-timestamp lines, `[offset:±ms]` folding and removal (no double offset after baking), sub-second digit preservation, clamping at 00:00.00, and pass-through when the offset is zero or the lyrics have no timeline.
+
 # Scroll dock regression checks
 
 Run from the source project directory (no signing, device or account needed):
