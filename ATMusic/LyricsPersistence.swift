@@ -33,7 +33,10 @@ enum LyricsPersistence {
             return Report(message: "歌词内容为空，未写入", wroteFileTag: false, wroteSidecar: false, wroteLyricsAPI: false)
         }
 
-        // 无论写 NAS 是否成功，本机缓存都先跟上，保证当场与切歌回来都看到新歌词
+        // 无论写 NAS 是否成功，本机缓存都先跟上，保证当场与切歌回来都看到新歌词。
+        // 先删再写：旧歌词缓存里的翻译（.tlrc）是按时间戳挂的，换歌词后必须一起作废，
+        // 否则会出现「新歌词 + 旧翻译」错配。
+        await ATMusicCacheCoordinator.shared.removeCachedLyric(for: song)
         await ATMusicCacheCoordinator.shared.cacheLyric(for: song, content: raw)
 
         if song.source == .synology {
