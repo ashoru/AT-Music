@@ -78,6 +78,24 @@ final class SyncedPlaylistCache {
         now.timeIntervalSince(entry.savedAt) < songTTL
     }
 
+    /// 单个歌单的歌曲缓存失效（删歌/加歌/改名/重排后调用，避免旧缓存盖住新结果）。
+    func invalidateSongs(playlist: Playlist, accountID: String) {
+        lock.lock()
+        songEntries.removeValue(forKey: cacheKey(source: playlist.source, accountID: "\(accountID)|\(playlist.id)"))
+        let snapshot = songEntries
+        lock.unlock()
+        persistAsync(snapshot, key: songsKey)
+    }
+
+    /// 单个来源的歌单列表缓存失效（新建/删单后调用）。
+    func invalidateList(source: SongSource, accountID: String) {
+        lock.lock()
+        playlistEntries.removeValue(forKey: cacheKey(source: source, accountID: accountID))
+        let snapshot = playlistEntries
+        lock.unlock()
+        persistAsync(snapshot, key: playlistsKey)
+    }
+
     func clear(source: SongSource, accountID: String) {
         lock.lock()
         let playlistKey = cacheKey(source: source, accountID: accountID)

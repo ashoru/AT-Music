@@ -201,7 +201,7 @@ struct SongCell: View {
             }
         }
         .sheet(isPresented: $showAddToPlaylist) {
-            AddToLocalPlaylistSheet(song: displayedSong)
+            AddToPlaylistSheet(song: displayedSong)
                 .environmentObject(theme)
         }
         .sheet(item: $shareFile) { item in

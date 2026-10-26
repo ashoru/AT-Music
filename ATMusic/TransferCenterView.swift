@@ -112,7 +112,7 @@ struct TransferCenterView: View {
             ShareSheet(items: [item.url])
         }
         .sheet(isPresented: $showBatchAddToPlaylist) {
-            AddToLocalPlaylistSheet(songs: selectedOfflineSongs)
+            AddToPlaylistSheet(songs: selectedOfflineSongs)
                 .environmentObject(theme)
         }
         .sheet(isPresented: $showBatchEdit) {

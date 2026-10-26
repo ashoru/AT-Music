@@ -38,15 +38,21 @@ struct LocalPlaylist: Identifiable, Codable, Hashable {
     var songs: [Song] = []
     var createdAt = Date()
     var sourceStrategy: PlaylistSourceStrategy = .automatic
+    /// 用户自选封面；为空时界面取首歌封面。
+    var coverURL: URL? = nil
+    /// 用户自填简介；为空时不展示。
+    var descriptionText: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, name, songs, createdAt, sourceStrategy }
+    enum CodingKeys: String, CodingKey { case id, name, songs, createdAt, sourceStrategy, coverURL, descriptionText }
 
-    init(id: UUID = UUID(), name: String, songs: [Song] = [], createdAt: Date = Date(), sourceStrategy: PlaylistSourceStrategy = .automatic) {
+    init(id: UUID = UUID(), name: String, songs: [Song] = [], createdAt: Date = Date(), sourceStrategy: PlaylistSourceStrategy = .automatic, coverURL: URL? = nil, descriptionText: String? = nil) {
         self.id = id
         self.name = name
         self.songs = songs
         self.createdAt = createdAt
         self.sourceStrategy = sourceStrategy
+        self.coverURL = coverURL
+        self.descriptionText = descriptionText
     }
 
     init(from decoder: Decoder) throws {
@@ -56,6 +62,8 @@ struct LocalPlaylist: Identifiable, Codable, Hashable {
         songs = try c.decodeIfPresent([Song].self, forKey: .songs) ?? []
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         sourceStrategy = try c.decodeIfPresent(PlaylistSourceStrategy.self, forKey: .sourceStrategy) ?? .automatic
+        coverURL = try c.decodeIfPresent(URL.self, forKey: .coverURL)
+        descriptionText = try c.decodeIfPresent(String.self, forKey: .descriptionText)
     }
 }
 
@@ -83,13 +91,20 @@ final class LocalLibraryStore: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let key = "atmusic.localLibrary.playlists"
+    /// 阶段 5：本地歌单的独立文件存储（原子写 + 上一份备份），不再全量塞 UserDefaults。
+    private let playlistFile = AtomicLibraryFile<[LocalPlaylist]>(url: AtomicLibraryFile<[LocalPlaylist]>.defaultDirectory.appendingPathComponent("local-playlists.json"))
     private let importedSongsKey = "atmusic.localLibrary.importedSongs.v1"
 
     private init() {
-        if let data = defaults.data(forKey: key),
+        // 优先读文件；文件损坏或不存在时回退旧键并顺手迁回文件，绝不丢歌单。
+        if let list = try? playlistFile.read() {
+            playlists = list
+            UnifiedSongStore.synchronizeLegacy(list)
+        } else if let data = defaults.data(forKey: key),
            let list = try? JSONDecoder().decode([LocalPlaylist].self, from: data) {
             playlists = list
             UnifiedSongStore.synchronizeLegacy(list)
+            try? playlistFile.write(list)
         } else {
             playlists = []
         }
@@ -298,6 +313,60 @@ final class LocalLibraryStore: ObservableObject {
             playlists = updated
             save()
         }
+        return removed
+    }
+
+    /// 编辑态拖动重排（仅搜索为空时调用，见详情页）。
+    func reorderSongs(playlistID: UUID, from offsets: IndexSet, to destination: Int) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        playlists[idx].songs.move(fromOffsets: offsets, toOffset: destination)
+    }
+
+    /// 批量删歌（跨平台匹配，见 isMatchingSong）。
+    func removeSongs(playlistID: UUID, songs: [Song]) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let before = playlists[idx].songs.count
+        playlists[idx].songs.removeAll { song in songs.contains { Self.isMatchingSong($0, song) } }
+        if playlists[idx].songs.count != before { save() }
+    }
+
+    func setCoverURL(_ url: URL?, for playlistID: UUID) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        playlists[idx].coverURL = url
+    }
+
+    func setDescription(_ text: String?, for playlistID: UUID) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        playlists[idx].descriptionText = (trimmed?.isEmpty == true) ? nil : trimmed
+    }
+
+    /// 一键去重：按 identityKey 保留首次出现，返回删掉的条数。
+    @discardableResult
+    func deduplicatePlaylist(id: UUID) -> Int {
+        guard let idx = playlists.firstIndex(where: { $0.id == id }) else { return 0 }
+        var seen = Set<String>()
+        let unique = playlists[idx].songs.filter { seen.insert($0.identityKey).inserted }
+        let removed = playlists[idx].songs.count - unique.count
+        if removed > 0 {
+            playlists[idx].songs = unique
+            save()
+        }
+        return removed
+    }
+
+    /// 清理本地失效条目：本地文件已不存在的歌曲（平台歌曲不受影响）。
+    @discardableResult
+    func removeDeadLocalSongs(id: UUID) -> Int {
+        guard let idx = playlists.firstIndex(where: { $0.id == id }) else { return 0 }
+        let before = playlists[idx].songs.count
+        playlists[idx].songs.removeAll { song in
+            guard let rel = song.localRelativePath else { return false }
+            guard let url = try? ManagedAudioPath.resolve(rel) else { return true }
+            return !FileManager.default.fileExists(atPath: url.path)
+        }
+        let removed = before - playlists[idx].songs.count
+        if removed > 0 { save() }
         return removed
     }
 
@@ -624,10 +693,16 @@ final class LocalLibraryStore: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(playlists) {
-            defaults.set(data, forKey: key)
-            UnifiedSongStore.synchronizeLegacy(playlists)
+        do {
+            try playlistFile.write(playlists)
+        } catch {
+            // 文件写坏也不丢数据：回退旧键，下次启动仍能读回。
+            if let data = try? JSONEncoder().encode(playlists) {
+                defaults.set(data, forKey: key)
+            }
+            ATMusicLogger.shared.log("本地歌单文件写入失败，已回退到旧存储：\(error.localizedDescription)", level: .error)
         }
+        UnifiedSongStore.synchronizeLegacy(playlists)
     }
 
     private func saveImportedSongs() {

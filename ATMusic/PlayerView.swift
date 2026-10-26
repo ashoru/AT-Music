@@ -25,7 +25,6 @@ struct PlayerView: View {
     @AppStorage("atmusic.player.lastLyricsPage") private var lastLyricsPage = false
     @State private var showQueue = false
     @State private var showSleepTimer = false
-    @State private var showAddToPlaylist = false
     @State private var showComments = false
     @State private var showDownloadPicker = false
     @State private var showDownloadedActionDialog = false
@@ -668,13 +667,6 @@ struct PlayerView: View {
                 .environmentObject(theme)
         }
         .sheet(isPresented: $showSleepTimer) { SleepTimerSheet().environmentObject(player) }
-        .sheet(isPresented: $showAddToPlaylist) {
-            if let song {
-                AddToPlaylistSheet(song: song)
-                    .modifier(SettingsLiquidSheetPresentation())
-                    .environmentObject(auth)
-            }
-        }
         .sheet(isPresented: $showComments) {
             if let song {
                 CommentsSheet(song: song)
@@ -695,7 +687,7 @@ struct PlayerView: View {
         }
         .sheet(isPresented: $showAddToLocalPlaylist) {
             if let song {
-                AddToLocalPlaylistSheet(song: song)
+                AddToPlaylistSheet(song: song)
                     .modifier(SettingsLiquidSheetPresentation())
             }
         }

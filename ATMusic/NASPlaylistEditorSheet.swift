@@ -80,6 +80,16 @@ struct NASPlaylistEditorSheet: View {
                         } label: {
                             Label("重命名歌单", systemImage: "character.cursor.ibeam")
                         }
+                        Button {
+                            deduplicateRows()
+                        } label: {
+                            Label("去除重复歌曲", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        Button {
+                            Task { await exportRowsToLocal() }
+                        } label: {
+                            Label("导出为本地歌单", systemImage: "square.and.arrow.down")
+                        }
                         Button(role: .destructive) {
                             showDeleteConfirm = true
                         } label: {
@@ -261,6 +271,30 @@ struct NASPlaylistEditorSheet: View {
             return Row(id: id, song: row.song)
         })
         message = "已加入 \(songs.count) 首，记得保存"
+    }
+
+    /// 去重只动本地 rows（isDirty 会自动变脏），点保存才提交到 NAS，
+    /// 不破坏编辑器“本地编辑、一次性提交”的规矩。
+    private func deduplicateRows() {
+        var seen = Set<String>()
+        let unique = rows.filter { seen.insert(Self.key($0.song)).inserted }
+        let removed = rows.count - unique.count
+        if removed == 0 {
+            message = "没有发现重复歌曲"
+        } else {
+            rows = unique
+            message = "已去除 \(removed) 首重复，点保存提交到 NAS"
+        }
+    }
+
+    private func exportRowsToLocal() async {
+        let songs = rows.map(\.song)
+        guard !songs.isEmpty else {
+            message = "歌单是空的"
+            return
+        }
+        let created = await PlaylistManagementService.shared.copyToLocal(songs: songs, named: "\(name)（本地）")
+        message = "已导出为本地歌单「\(created.name)」"
     }
 
     private func load() async {

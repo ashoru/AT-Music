@@ -116,6 +116,8 @@
 		D8460694A47B57831936394B /* UnblockSourceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9676442732A09AD59868CC4F /* UnblockSourceStore.swift */; };
 		D921B34152F241B71F9C6BFE /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C46C18D14DB38C08EDD9822 /* SleepTimerSheet.swift */; };
 		DA46EA0E74EB527CF0E9DCE2 /* PlaylistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C7BDFB126FAF8F565D1A97 /* PlaylistView.swift */; };
+		8D4E5F60718293A4B5C8E9F /* PlaylistMoveTargetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C3D4E5F60718293A4B5C8E /* PlaylistMoveTargetSheet.swift */; };
+		6B2C3D4E5F60718293A4B5C7D /* PlaylistManagement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1B2C3D4E5F60718293A4B5C /* PlaylistManagement.swift */; };
 		DA96C8CE17B70D474A9156CC /* LyricOffsetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366B426B12468ABCB575F4DC /* LyricOffsetStore.swift */; };
 		DB1271E2E0A78C585981050F /* IPADownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F0B9AB6EB336FB974DB0825 /* IPADownloader.swift */; };
 		DD274D698FC202DC1B1D8C66 /* CoverPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE5A1866E8F01E1DCFB50529 /* CoverPalette.swift */; };
@@ -136,6 +138,8 @@
 		0C0605B67F998083A79DF15D /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		11123CA57275FA31A3BBD95F /* LocalTagWriteback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTagWriteback.swift; sourceTree = "<group>"; };
 		13C7BDFB126FAF8F565D1A97 /* PlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistView.swift; sourceTree = "<group>"; };
+		7C3D4E5F60718293A4B5C8E /* PlaylistMoveTargetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistMoveTargetSheet.swift; sourceTree = "<group>"; };
+		5A1B2C3D4E5F60718293A4B5C /* PlaylistManagement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistManagement.swift; sourceTree = "<group>"; };
 		1459FCC51AA2F14DD5D12CCB /* QQWebLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QQWebLoginSheet.swift; sourceTree = "<group>"; };
 		147F7858574B4E3FA9C52715 /* ATMusic.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ATMusic.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B0780C89BEAE14B099771BC /* FeaturedAggregateCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturedAggregateCache.swift; sourceTree = "<group>"; };
@@ -339,6 +343,8 @@
 				D680CC248A855457AE97AF53 /* PlayerManager.swift */,
 				2634BD6CE38C5E9B12783D55 /* PlayerView.swift */,
 				13C7BDFB126FAF8F565D1A97 /* PlaylistView.swift */,
+				7C3D4E5F60718293A4B5C8E /* PlaylistMoveTargetSheet.swift */,
+				5A1B2C3D4E5F60718293A4B5C /* PlaylistManagement.swift */,
 				E70D37FF8E088C4DEBED0FC3 /* ProfileView.swift */,
 				6FCBDE17B8061DB6C1A7C796 /* QQLoginSheet.swift */,
 				21449B176C644E04BED0058F /* QQMusicAPI.swift */,
@@ -547,6 +553,8 @@
 				C3042256C079CBC926A74020 /* PlayerManager.swift in Sources */,
 				A84A3E92DCE58A652BBD1246 /* PlayerView.swift in Sources */,
 				DA46EA0E74EB527CF0E9DCE2 /* PlaylistView.swift in Sources */,
+				8D4E5F60718293A4B5C8E9F /* PlaylistMoveTargetSheet.swift in Sources */,
+				6B2C3D4E5F60718293A4B5C7D /* PlaylistManagement.swift in Sources */,
 				CA583E602921D5AEADB9C059 /* ProfileView.swift in Sources */,
 				32E692D30D1BB14B62B25FC0 /* QQLoginSheet.swift in Sources */,
 				98EF0EA0ED5A25507214146A /* QQMusicAPI.swift in Sources */,
@@ -612,7 +620,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -687,7 +695,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

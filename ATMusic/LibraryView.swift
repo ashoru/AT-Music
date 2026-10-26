@@ -63,6 +63,7 @@ struct LibraryView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var favorites: FavoritesStore
+    @ObservedObject private var localStore = LocalLibraryStore.shared
     @ObservedObject private var qqAuth = QQMusicAuth.shared
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var synology = SynologyAPI.shared
@@ -77,6 +78,16 @@ struct LibraryView: View {
     @State private var legacyRoute: LibraryRoute?
     @State private var showCreatePlaylist = false
     @State private var newPlaylistName = ""
+    @State private var showRenameAlert = false
+    @State private var renameTarget: Playlist?
+    @State private var renameText = ""
+    @State private var showCreateLocalAlert = false
+    @State private var newLocalName = ""
+    @State private var showLocalRenameAlert = false
+    @State private var localRenameID: UUID?
+    @State private var localRenameText = ""
+    @State private var showLocalDeleteConfirm = false
+    @State private var pendingLocalDeleteID: UUID?
     @State private var pendingDelete: Playlist?
     @State private var showDeleteConfirm = false
     @State private var source: LibraryProvider = .netease
@@ -250,6 +261,42 @@ struct LibraryView: View {
             )
             .environmentObject(theme)
         }
+        .alert("重命名歌单", isPresented: $showRenameAlert) {
+            TextField("歌单名称", text: $renameText)
+            Button("取消", role: .cancel) {}
+            Button("保存") { Task { await renameRemotePlaylist() } }
+        }
+        .alert("新建本地歌单", isPresented: $showCreateLocalAlert) {
+            TextField("歌单名称", text: $newLocalName)
+            Button("取消", role: .cancel) {}
+            Button("创建") {
+                let name = newLocalName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                _ = localStore.createPlaylist(name: name)
+                ToastCenter.shared.show("已创建歌单「\(name)」")
+            }
+        }
+        .alert("重命名本地歌单", isPresented: $showLocalRenameAlert) {
+            TextField("歌单名称", text: $localRenameText)
+            Button("取消", role: .cancel) {}
+            Button("保存") {
+                let name = localRenameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, let id = localRenameID else { return }
+                localStore.renamePlaylist(id: id, name: name)
+                ToastCenter.shared.show("已重命名为「\(name)」")
+            }
+        }
+        .confirmationDialog("确定删除本地歌单吗？", isPresented: $showLocalDeleteConfirm, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                if let id = pendingLocalDeleteID {
+                    localStore.deletePlaylist(id: id)
+                    ToastCenter.shared.show("歌单已删除")
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只删除歌单记录，歌曲文件本身不受影响。")
+        }
         .alert("新建歌单", isPresented: $showCreatePlaylist) {
             TextField("歌单名称", text: $newPlaylistName)
             Button("创建") { createPlaylist() }
@@ -355,8 +402,100 @@ struct LibraryView: View {
                 ForEach(libraryProviders) { provider in
                     compactProviderBlock(provider)
                 }
+                localPlaylistsBlock
             }
         }
+    }
+
+    /// 阶段 1：管理中心收进本地歌单——以前本地歌单进不了这一页，
+    /// 只能去音乐库预览里新建、去详情页里看，改名删单都没有入口。
+    private var localPlaylistsBlock: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(LinearGradient(colors: [Color.atmusicAmber.opacity(0.75), Color.atmusicAmber.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("本地歌单")
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text("本机自建 · \(localStore.playlists.count) 个")
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                Spacer(minLength: 8)
+                Button {
+                    newLocalName = ""
+                    showCreateLocalAlert = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.atmusicAmber)
+                        .frame(width: 32, height: 32)
+                        .background { ATMusicGlass(shape: Circle()) }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+
+            Divider().overlay(Color.atmusicComment.opacity(0.12))
+
+            if localStore.playlists.isEmpty {
+                compactProviderEmpty("点右上角 + 新建第一个本地歌单", icon: "music.note.list")
+            } else {
+                ForEach(localStore.playlists) { playlist in
+                    NavigationLink {
+                        LocalPlaylistBrowserView(playlistID: playlist.id)
+                    } label: {
+                        HStack(spacing: 11) {
+                            CoverImage(url: playlist.coverURL ?? playlist.songs.first?.coverURL, size: 46, cornerRadius: 10)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(playlist.name)
+                                    .font(ATMusicFont.appFont(14, .medium))
+                                    .foregroundStyle(Color.atmusicLabel)
+                                    .lineLimit(1)
+                                Text(atmusicLocalSongCountText(playlist.songs.count))
+                                    .font(ATMusicFont.appFont(11))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
+                            Spacer(minLength: 6)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.55))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            localRenameID = playlist.id
+                            localRenameText = playlist.name
+                            showLocalRenameAlert = true
+                        } label: {
+                            Label("重命名", systemImage: "character.cursor.ibeam")
+                        }
+                        Button(role: .destructive) {
+                            pendingLocalDeleteID = playlist.id
+                            showLocalDeleteConfirm = true
+                        } label: {
+                            Label("删除歌单", systemImage: "trash")
+                        }
+                    }
+                    if playlist.id != localStore.playlists.last?.id {
+                        Divider().overlay(Color.atmusicComment.opacity(0.10)).padding(.leading, 70)
+                    }
+                }
+            }
+        }
+        .background { ATMusicGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     @ViewBuilder
@@ -430,14 +569,7 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        if provider == .netease || provider == .qq {
-                            Button(role: .destructive) {
-                                source = provider
-                                requestDelete(playlist)
-                            } label: {
-                                Label("删除歌单", systemImage: "trash")
-                            }
-                        }
+                        playlistRowMenu(playlist, provider: provider)
                     }
                     if playlist.id != visible.last?.id {
                         Divider().overlay(Color.atmusicComment.opacity(0.10)).padding(.leading, 70)
@@ -917,6 +1049,71 @@ struct LibraryView: View {
         case .synology:
             ToastCenter.shared.show("群晖歌单请在 Audio Station 中管理")
         }
+    }
+
+    /// 阶段 1：行级菜单按能力矩阵生成——不支持的操作直接不出现，
+    /// 不再放一个点了会失败的按钮；删除前一定先定好 source，
+    /// 避免旧 QQ 行没定 source、确认框走到网易分支的隐患。
+    @ViewBuilder
+    private func playlistRowMenu(_ playlist: Playlist, provider: LibraryProvider) -> some View {
+        if provider == .netease {
+            Button {
+                renameTarget = playlist
+                renameText = playlist.name
+                showRenameAlert = true
+            } label: {
+                Label("重命名歌单", systemImage: "character.cursor.ibeam")
+            }
+        }
+        if provider == .netease || provider == .qq {
+            Button(role: .destructive) {
+                source = provider
+                requestDelete(playlist)
+            } label: {
+                Label("删除歌单", systemImage: "trash")
+            }
+        }
+        Button {
+            Task { await exportPlaylistToLocal(playlist) }
+        } label: {
+            Label("转存为本地歌单", systemImage: "square.and.arrow.down")
+        }
+        Button {
+            FavoritePlaylistStore.shared.toggle(playlist)
+        } label: {
+            Label(
+                FavoritePlaylistStore.shared.isFavorite(playlist) ? "取消收藏" : "收藏歌单",
+                systemImage: FavoritePlaylistStore.shared.isFavorite(playlist) ? "heart.slash" : "heart"
+            )
+        }
+    }
+
+    private func renameRemotePlaylist() async {
+        guard let target = renameTarget else { return }
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        do {
+            let ok = try await NetEaseAPI.shared.renamePlaylist(id: target.id, name: name)
+            if ok {
+                await PlaylistManagementService.invalidateListCache(for: .netease)
+                await auth.loadLibrary()
+                ToastCenter.shared.show("已重命名为「\(name)」")
+            } else {
+                ToastCenter.shared.show("重命名失败，请重试")
+            }
+        } catch {
+            ToastCenter.shared.show("重命名失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func exportPlaylistToLocal(_ playlist: Playlist) async {
+        let songs = await PlaylistManagementService.shared.loadSongs(for: playlist)
+        guard !songs.isEmpty else {
+            ToastCenter.shared.show("歌单是空的或加载失败")
+            return
+        }
+        let created = await PlaylistManagementService.shared.copyToLocal(songs: songs, named: "\(playlist.name)（本地）")
+        ToastCenter.shared.show("已转存为本地歌单「\(created.name)」")
     }
 
     private func requestDelete(_ playlist: Playlist) {

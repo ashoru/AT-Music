@@ -240,7 +240,7 @@ struct LocalMusicSection: View {
                 .environmentObject(theme)
         }
         .sheet(item: $selectedImportedSong) { song in
-            AddToLocalPlaylistSheet(song: song)
+            AddToPlaylistSheet(song: song)
                 .environmentObject(theme)
         }
     }
@@ -967,141 +967,6 @@ struct LocalSearchAddSheet: View {
 }
 
 
-// MARK: - 加入本地歌单（播放页入口：选择已创建的本地歌单，或新建并加入）
-
-struct AddToLocalPlaylistSheet: View {
-    @ObservedObject private var store = LocalLibraryStore.shared
-    @EnvironmentObject private var theme: ThemeStore
-    @Environment(\.dismiss) private var dismiss
-
-    let songs: [Song]
-    @State private var showCreateField = false
-    @State private var newName = ""
-    @State private var message: String?
-
-    init(song: Song) {
-        self.songs = [song]
-    }
-
-    init(songs: [Song]) {
-        self.songs = songs
-    }
-
-    var body: some View {
-        let _ = theme.accent
-        ATMusicNavigationStack {
-            List {
-                if store.playlists.isEmpty {
-                    Text("还没有本地歌单，先创建一个吧")
-                        .foregroundStyle(Color.atmusicComment)
-                } else {
-                    Section(songs.count > 1 ? "选择本地歌单（批量加入 \(songs.count) 首）" : "选择本地歌单") {
-                        ForEach(store.playlists) { playlist in
-                            Button {
-                                for s in songs {
-                                    store.addSong(s, to: playlist.id)
-                                }
-                                ATMusicHaptics.success()
-                                if songs.count == 1 {
-                                    ToastCenter.shared.show("已加入「\(playlist.name)」")
-                                } else {
-                                    ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入「\(playlist.name)」")
-                                }
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(LinearGradient(colors: [Color.atmusicAmber.opacity(0.75), Color.atmusicAmber.opacity(0.35)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                            .frame(width: 40, height: 40)
-                                        Image(systemName: "music.note.list")
-                                            .font(.system(size: 15, weight: .semibold))
-                                            .foregroundStyle(.white)
-                                    }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(playlist.name)
-                                            .font(ATMusicFont.appFont(15, .medium))
-                                            .foregroundStyle(Color.atmusicLabel)
-                                            .lineLimit(1)
-                                        Text(atmusicLocalSongCountText(playlist.songs.count))
-                                            .font(ATMusicFont.appFont(11))
-                                            .foregroundStyle(Color.atmusicComment)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.system(size: 15))
-                                        .foregroundStyle(Color.atmusicAmber)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if showCreateField {
-                    Section("新建本地歌单") {
-                        TextField("歌单名称", text: $newName)
-                            .submitLabel(.done)
-                        Button {
-                            createAndAdd()
-                        } label: {
-                            Text("创建并加入")
-                                .font(ATMusicFont.appFont(15, .semibold))
-                                .foregroundStyle(Color.atmusicAmber)
-                        }
-                    }
-                } else {
-                    Section {
-                        Button {
-                            showCreateField = true
-                        } label: {
-                            Label("新建歌单并加入", systemImage: "plus.circle")
-                        }
-                    }
-                }
-
-                if let message {
-                    Section {
-                        Text(message)
-                            .font(ATMusicFont.appFont(13))
-                            .foregroundStyle(Color.atmusicSage)
-                    }
-                }
-            }
-            .navigationTitle(songs.count > 1 ? "批量加入歌单" : "加入本地歌单")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
-        .modifier(ATMusicSheetModifier(detents: [.medium, .large], dragIndicator: true))
-        .onAppear {
-            if store.playlists.isEmpty, let first = songs.first, songs.count == 1 {
-                ToastCenter.shared.show(store.addToDefaultFavorites(first))
-                ATMusicHaptics.success()
-                dismiss()
-            }
-        }
-    }
-
-    private func createAndAdd() {
-        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let playlist = store.createPlaylist(name: name)
-        for s in songs {
-            store.addSong(s, to: playlist.id)
-        }
-        ATMusicHaptics.success()
-        if songs.count == 1 {
-            ToastCenter.shared.show("已创建「\(name)」并加入")
-        } else {
-            ToastCenter.shared.show("已创建「\(name)」并加入 \(songs.count) 首歌曲")
-        }
-        dismiss()
-    }
-}
-
 // MARK: - 本地音乐管理
 
 struct LocalMusicManagementSheet: View {
@@ -1301,7 +1166,7 @@ struct LocalMusicManagementSheet: View {
                 }
             }
             .sheet(isPresented: $showBatchAddToPlaylist) {
-                AddToLocalPlaylistSheet(songs: selectedSongs)
+                AddToPlaylistSheet(songs: selectedSongs)
                     .environmentObject(theme)
             }
             .sheet(isPresented: $showBatchEdit) {

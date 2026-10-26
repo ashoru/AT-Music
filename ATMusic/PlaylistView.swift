@@ -18,6 +18,28 @@ struct PlaylistView: View {
     @ObservedObject private var favoritePlaylists = FavoritePlaylistStore.shared
 
     let playlist: Playlist
+    @State private var displayName: String
+    @State private var isEditing = false
+    @State private var selectedKeys: Set<String> = []
+    @State private var orderVersion = 0
+    @State private var showMoveSheet = false
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
+    @State private var showDescriptionAlert = false
+    @State private var descriptionText = ""
+    @State private var showDeletePlaylistConfirm = false
+
+    init(playlist: Playlist) {
+        self.playlist = playlist
+        _displayName = State(initialValue: playlist.name)
+    }
+
+    private var capabilities: PlaylistCapabilities { PlaylistCapabilities.forSource(playlist.source) }
+    private var playlistKey: String { playlist.identityKey }
+    private var selectedSongs: [Song] {
+        let selected = Set(selectedKeys)
+        return displayedTracks.filter { selected.contains($0.identityKey) }
+    }
     @State private var tracks: [Song] = []
     @State private var loading = true
     @State private var errorMessage: String?
@@ -35,7 +57,17 @@ struct PlaylistView: View {
 
     @MainActor
     private func batchDownloadPlaylist() {
-        guard !displayedTracks.isEmpty else { return }
+        batchDownload(songs: displayedTracks)
+    }
+
+    @MainActor
+    private func batchDownloadSelected() {
+        batchDownload(songs: selectedSongs)
+    }
+
+    @MainActor
+    private func batchDownload(songs: [Song]) {
+        guard !songs.isEmpty else { return }
         isBatchDownloading = true
         ATMusicHaptics.medium()
         let quality: DownloadQuality
@@ -45,7 +77,7 @@ struct PlaylistView: View {
         } else {
             quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
-        DownloadManager.shared.startBatchDownload(songs: displayedTracks, quality: quality)
+        DownloadManager.shared.startBatchDownload(songs: songs, quality: quality)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             isBatchDownloading = false
         }
@@ -53,10 +85,20 @@ struct PlaylistView: View {
 
     @MainActor
     private func batchUploadPlaylistToNAS() {
-        guard !displayedTracks.isEmpty, !isBatchUploading else { return }
+        batchUploadToNAS(songs: displayedTracks)
+    }
+
+    @MainActor
+    private func batchUploadSelectedToNAS() {
+        batchUploadToNAS(songs: selectedSongs)
+    }
+
+    @MainActor
+    private func batchUploadToNAS(songs: [Song]) {
+        guard !songs.isEmpty, !isBatchUploading else { return }
         isBatchUploading = true
         ATMusicHaptics.medium()
-        DownloadManager.shared.startBatchUploadToNAS(songs: displayedTracks)
+        DownloadManager.shared.startBatchUploadToNAS(songs: songs)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             isBatchUploading = false
         }
@@ -116,6 +158,8 @@ struct PlaylistView: View {
                     ErrorStateView(message: errorMessage) {
                         Task { await load(force: true) }
                     }
+                } else if isEditing {
+                    editList
                 } else if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                     iPadPlaylistLayout
                 } else {
@@ -152,10 +196,34 @@ struct PlaylistView: View {
                     }
             }
             }
-            .navigationTitle(playlist.name)
+            .overlay(alignment: .bottom) {
+                if isEditing {
+                    editBottomBar
+                }
+            }
+            .navigationTitle(displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if isEditing {
+                        Button("完成") {
+                            isEditing = false
+                            selectedKeys.removeAll()
+                            ATMusicHaptics.tap()
+                        }
+                    } else {
+                        Button {
+                            if playlist.source == .synology {
+                                showNASPlaylistEditor = true
+                            } else {
+                                isEditing = true
+                            }
+                            ATMusicHaptics.tap()
+                        } label: {
+                            Label("编辑", systemImage: "pencil")
+                        }
+                        .accessibilityLabel("编辑歌单")
+                    }
                     Button {
                         favoritePlaylists.toggle(playlist)
                     } label: {
@@ -171,6 +239,42 @@ struct PlaylistView: View {
                                 ForEach(PlaylistSortMode.allCases) { mode in
                                     Text(LocalizedStringKey(mode.rawValue)).tag(mode)
                                 }
+                            }
+                        }
+
+                        if playlist.source == .netease {
+                            Button {
+                                renameText = displayName
+                                showRenameAlert = true
+                            } label: {
+                                Label("重命名歌单", systemImage: "character.cursor.ibeam")
+                            }
+                            Button {
+                                descriptionText = displayDescription ?? ""
+                                showDescriptionAlert = true
+                            } label: {
+                                Label("编辑简介", systemImage: "text.quote")
+                            }
+                            Button {
+                                Task { await deduplicate() }
+                            } label: {
+                                Label("去除重复歌曲", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
+
+                        if playlist.source != .synology {
+                            Button {
+                                Task { await exportToLocal() }
+                            } label: {
+                                Label("转存为本地歌单", systemImage: "square.and.arrow.down")
+                            }
+                        }
+
+                        if playlist.source == .netease || playlist.source == .qq {
+                            Button(role: .destructive) {
+                                showDeletePlaylistConfirm = true
+                            } label: {
+                                Label("删除歌单", systemImage: "trash")
                             }
                         }
 
@@ -240,9 +344,36 @@ struct PlaylistView: View {
             } message: {
                 Text("歌单会从 Audio Station 移除，歌曲文件本身不受影响。")
             }
+            .sheet(isPresented: $showMoveSheet) {
+                PlaylistMoveTargetSheet(
+                    songs: selectedSongs,
+                    title: capabilities.canRemoveSongs ? "移到歌单" : "复制到歌单",
+                    actionLabel: capabilities.canRemoveSongs ? "移入" : "复制"
+                ) { target in
+                    await moveSelectedSongs(to: target)
+                } onCreateLocalCopy: {
+                    await copySelectedToLocal()
+                }
+            }
+            .alert("重命名歌单", isPresented: $showRenameAlert) {
+                TextField("歌单名称", text: $renameText)
+                Button("取消", role: .cancel) {}
+                Button("保存") { Task { await renamePlaylist() } }
+            }
+            .alert("编辑简介", isPresented: $showDescriptionAlert) {
+                TextField("歌单简介", text: $descriptionText, axis: .vertical)
+                Button("取消", role: .cancel) {}
+                Button("保存") { Task { await saveDescription() } }
+            }
+            .confirmationDialog("确定删除歌单「\(displayName)」吗？", isPresented: $showDeletePlaylistConfirm, titleVisibility: .visible) {
+                Button("删除", role: .destructive) { Task { await deletePlaylist() } }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("云端歌单删除后不可恢复，本地收藏记录不受影响。")
+            }
             .sheet(isPresented: $showInfo) {
                 PlaylistInfoSheet(
-                    name: playlist.name,
+                    name: displayName,
                     source: playlist.source,
                     creator: displayCreatorName,
                     songCount: tracks.isEmpty ? playlist.trackCount : tracks.count,
@@ -250,7 +381,16 @@ struct PlaylistView: View {
                     description: displayDescription
                 )
             }
-        .task { await load() }
+        .task {
+            if let raw = PlaylistSortPreferenceStore.shared.sortModeRaw(for: playlistKey),
+               let mode = PlaylistSortMode(rawValue: raw) {
+                sortMode = mode
+            }
+            await load()
+        }
+        .onChange(of: sortMode) { newValue in
+            PlaylistSortPreferenceStore.shared.save(sortModeRaw: newValue.rawValue, for: playlistKey)
+        }
     }
 
     private var iPadPlaylistLayout: some View {
@@ -274,7 +414,7 @@ struct PlaylistView: View {
                     .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 8)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(playlist.name)
+                    Text(displayName)
                         .font(ATMusicFont.appFont(22, .bold))
                         .foregroundStyle(Color.atmusicLabel)
                         .lineLimit(2)
@@ -369,7 +509,7 @@ struct PlaylistView: View {
                         .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 5)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(playlist.name)
+                        Text(displayName)
                             .font(ATMusicFont.appFont(18, .bold))
                             .foregroundStyle(Color.atmusicLabel)
                             .lineLimit(2)
@@ -468,7 +608,7 @@ struct PlaylistView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
-                        Text(playlist.name)
+                        Text(displayName)
                             .font(ATMusicFont.appFont(17, .bold))
                             .foregroundStyle(Color.atmusicLabel)
                             .lineLimit(2)
@@ -509,9 +649,15 @@ struct PlaylistView: View {
         .padding(.vertical, 4)
     }
 
-    /// 歌单内搜索 + 排序后的列表
+    /// 歌单内搜索 + 排序后的列表。
+    /// 默认排序时先套用用户在编辑态里拖出的本地顺序偏好（网易/QQ/酷狗无服务端重排接口，
+    /// 只影响本机播放与展示顺序）；歌名/时长排序会覆盖它。
     private var displayedTracks: [Song] {
+        let _ = orderVersion
         var list = tracks
+        if sortMode == .original {
+            list = PlaylistSongOrderStore.shared.apply(to: list, playlistKey: playlistKey)
+        }
         let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !kw.isEmpty {
             list = list.filter { song in
@@ -528,6 +674,301 @@ struct PlaylistView: View {
             list.sort { $0.duration < $1.duration }
         }
         return list
+    }
+
+    // MARK: - 编辑态（阶段 2）
+
+    private var editHintText: String {
+        var parts: [String] = []
+        if capabilities.canRemoveSongs {
+            parts.append("点行可勾选，底部栏批量删除、移歌、下载、归档")
+        } else {
+            parts.append("QQ/酷狗歌单不支持直接删歌，可复制到其它歌单")
+        }
+        if sortMode == .original && searchText.isEmpty {
+            parts.append("拖动右侧把手重排（仅影响本机顺序）")
+        } else {
+            parts.append("请先切回默认排序并清空搜索，再拖动重排")
+        }
+        return parts.joined(separator: "；") + "。"
+    }
+
+    private var editList: some View {
+        List {
+            Section {
+                ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                    HStack(spacing: 12) {
+                        Button {
+                            toggleSelection(song)
+                            ATMusicHaptics.tap()
+                        } label: {
+                            Image(systemName: selectedKeys.contains(song.identityKey) ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20))
+                                .foregroundStyle(selectedKeys.contains(song.identityKey) ? Color.atmusicAmber : Color.atmusicComment)
+                        }
+                        .buttonStyle(.plain)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(song.name)
+                                .font(ATMusicFont.appFont(14, .medium))
+                                .foregroundStyle(Color.atmusicLabel)
+                                .lineLimit(1)
+                            Text(song.artists)
+                                .font(ATMusicFont.appFont(11))
+                                .foregroundStyle(Color.atmusicComment)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        if sortMode == .original && searchText.isEmpty {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.55))
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleSelection(song) }
+                }
+                .onMove { offsets, destination in
+                    reorderDisplayedTracks(from: offsets, to: destination)
+                }
+                .onDelete(perform: capabilities.canRemoveSongs ? { offsets in
+                    Task { await removeDisplayedTracks(at: offsets) }
+                } : nil)
+            } header: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("编辑「\(displayName)」")
+                        .font(ATMusicFont.appFont(14, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Text(editHintText)
+                        .font(ATMusicFont.appFont(11))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                .textCase(nil)
+                .padding(.vertical, 4)
+            }
+
+            Section {
+                Button(selectedKeys.count == displayedTracks.count && !displayedTracks.isEmpty ? "取消全选" : "全选") {
+                    if selectedKeys.count == displayedTracks.count {
+                        selectedKeys.removeAll()
+                    } else {
+                        selectedKeys = Set(displayedTracks.map(\.identityKey))
+                    }
+                    ATMusicHaptics.tap()
+                }
+            }
+        }
+        .atmusicScrollContentBackgroundHidden()
+        .listStyle(.plain)
+        .environment(\.editMode, .constant(.active))
+    }
+
+    private var editBottomBar: some View {
+        HStack(spacing: 14) {
+            Text(selectedKeys.isEmpty ? "未选择歌曲" : "已选 \(selectedKeys.count) 首")
+                .font(ATMusicFont.appFont(12, .medium))
+                .foregroundStyle(Color.atmusicComment)
+            Spacer()
+            if capabilities.canRemoveSongs {
+                Button("删除") { Task { await removeSelected() } }
+                    .disabled(selectedKeys.isEmpty)
+            }
+            Button(capabilities.canRemoveSongs ? "移到歌单" : "复制到歌单") {
+                showMoveSheet = true
+            }
+            .disabled(selectedKeys.isEmpty)
+            Button("下载") { batchDownloadSelected() }
+                .disabled(selectedKeys.isEmpty || isBatchDownloading)
+            if SynologyAPI.shared.isLoggedIn {
+                Button("归档 NAS") { batchUploadSelectedToNAS() }
+                    .disabled(selectedKeys.isEmpty || isBatchUploading)
+            }
+        }
+        .font(ATMusicFont.appFont(13, .semibold))
+        .foregroundStyle(Color.atmusicAmber)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial)
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedKeys.contains(song.identityKey) {
+            selectedKeys.remove(song.identityKey)
+        } else {
+            selectedKeys.insert(song.identityKey)
+        }
+    }
+
+    private func reorderDisplayedTracks(from offsets: IndexSet, to destination: Int) {
+        guard sortMode == .original, searchText.isEmpty else {
+            ToastCenter.shared.show("请先切回默认排序并清空搜索，再拖动重排")
+            return
+        }
+        var reordered = displayedTracks
+        reordered.move(fromOffsets: offsets, toOffset: destination)
+        PlaylistSongOrderStore.shared.saveOrder(reordered, for: playlistKey)
+        orderVersion += 1
+        ATMusicHaptics.select()
+    }
+
+    private func removeDisplayedTracks(at offsets: IndexSet) async {
+        guard capabilities.canRemoveSongs else { return }
+        await removeSongs(offsets.map { displayedTracks[$0] })
+    }
+
+    private func removeSelected() async {
+        await removeSongs(selectedSongs)
+    }
+
+    private func removeSongs(_ removing: [Song]) async {
+        guard !removing.isEmpty, playlist.source == .netease else { return }
+        let ids = removing.map(\.id).filter { $0 != 0 }
+        guard !ids.isEmpty else {
+            ToastCenter.shared.show("所选歌曲没有网易云曲目，无法移除")
+            return
+        }
+        do {
+            let ok = try await NetEaseAPI.shared.removeFromPlaylist(playlistID: playlist.id, songIDs: ids)
+            if ok {
+                let keys = Set(removing.map(\.identityKey))
+                tracks.removeAll { keys.contains($0.identityKey) }
+                selectedKeys.subtract(keys)
+                await PlaylistManagementService.invalidateSongsCache(for: playlist)
+                ToastCenter.shared.show("已移除 \(removing.count) 首")
+                ATMusicHaptics.success()
+            } else {
+                ToastCenter.shared.show("移除失败，请重试")
+            }
+        } catch {
+            ToastCenter.shared.show("移除失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func moveSelectedSongs(to target: PlaylistEditTarget) async {
+        let moving = selectedSongs
+        guard !moving.isEmpty else { return }
+        do {
+            if capabilities.canRemoveSongs, playlist.source == .netease {
+                _ = try await PlaylistManagementService.shared.moveSongs(moving, from: .netease(playlist), to: target)
+                let keys = Set(moving.map(\.identityKey))
+                tracks.removeAll { keys.contains($0.identityKey) }
+                selectedKeys.removeAll()
+                await PlaylistManagementService.invalidateSongsCache(for: playlist)
+                ToastCenter.shared.show("已移到「\(target.title)」")
+            } else {
+                _ = try await PlaylistManagementService.shared.addSongs(moving, to: target)
+                selectedKeys.removeAll()
+                ToastCenter.shared.show("已复制到「\(target.title)」")
+            }
+            ATMusicHaptics.success()
+        } catch {
+            ToastCenter.shared.show("操作失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func copySelectedToLocal() async {
+        let moving = selectedSongs
+        guard !moving.isEmpty else { return }
+        let created = await PlaylistManagementService.shared.copyToLocal(songs: moving, named: "\(displayName)（本地）")
+        selectedKeys.removeAll()
+        ToastCenter.shared.show("已转存为本地歌单「\(created.name)」")
+        ATMusicHaptics.success()
+    }
+
+    private func renamePlaylist() async {
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, playlist.source == .netease else { return }
+        do {
+            let ok = try await NetEaseAPI.shared.renamePlaylist(id: playlist.id, name: name)
+            if ok {
+                displayName = name
+                await PlaylistManagementService.invalidateListCache(for: .netease)
+                await auth.loadLibrary()
+                ToastCenter.shared.show("已重命名为「\(name)」")
+                ATMusicHaptics.success()
+            } else {
+                ToastCenter.shared.show("重命名失败，请重试")
+            }
+        } catch {
+            ToastCenter.shared.show("重命名失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func saveDescription() async {
+        guard playlist.source == .netease else { return }
+        do {
+            let ok = try await NetEaseAPI.shared.updatePlaylistDescription(id: playlist.id, description: descriptionText)
+            if ok {
+                resolvedDescriptionText = descriptionText
+                ToastCenter.shared.show("简介已更新")
+                ATMusicHaptics.success()
+            } else {
+                ToastCenter.shared.show("更新失败，请重试")
+            }
+        } catch {
+            ToastCenter.shared.show("更新失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func deletePlaylist() async {
+        switch playlist.source {
+        case .netease:
+            do {
+                let ok = try await NetEaseAPI.shared.deletePlaylist(id: playlist.id)
+                if ok {
+                    await PlaylistManagementService.invalidateListCache(for: .netease)
+                    await auth.loadLibrary()
+                    ToastCenter.shared.show("歌单已删除")
+                    dismissAfterDelete()
+                } else {
+                    ToastCenter.shared.show("删除失败，请重试")
+                }
+            } catch {
+                ToastCenter.shared.show("删除失败：\(error.localizedDescription)")
+            }
+        case .qq:
+            do {
+                let ok = try await QQMusicAPI.shared.deletePlaylist(dirid: playlist.id)
+                if ok {
+                    await PlaylistManagementService.invalidateListCache(for: .qq)
+                    ToastCenter.shared.show("歌单已删除")
+                    dismissAfterDelete()
+                } else {
+                    ToastCenter.shared.show("删除失败，请确认已登录 QQ 音乐")
+                }
+            } catch {
+                ToastCenter.shared.show("删除失败：\(error.localizedDescription)")
+            }
+        default:
+            break
+        }
+    }
+
+    private func deduplicate() async {
+        guard playlist.source == .netease else { return }
+        do {
+            let removed = try await PlaylistManagementService.shared.deduplicateNetEasePlaylist(playlist)
+            if removed == 0 {
+                ToastCenter.shared.show("没有发现重复歌曲")
+            } else {
+                await load(force: true)
+                ToastCenter.shared.show("已去除 \(removed) 首重复歌曲")
+                ATMusicHaptics.success()
+            }
+        } catch {
+            ToastCenter.shared.show("去重失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func exportToLocal() async {
+        guard !tracks.isEmpty else {
+            ToastCenter.shared.show("歌单是空的")
+            return
+        }
+        let created = await PlaylistManagementService.shared.copyToLocal(songs: tracks, named: "\(displayName)（本地）")
+        ToastCenter.shared.show("已转存为本地歌单「\(created.name)」")
+        ATMusicHaptics.success()
     }
 
     private func dismissAfterDelete() {

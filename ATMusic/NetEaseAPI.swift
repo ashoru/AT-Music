@@ -777,6 +777,18 @@ final class NetEaseAPI {
         let json = try await request("/api/playlist/remove", payload: ["ids": "[" + String(id) + "]"], crypto: "weapi")
         return (json["code"] as? Int) == 200
     }
+
+    /// 网易云歌单改名（weapi /playlist/name/update）。
+    func renamePlaylist(id: Int, name: String) async throws -> Bool {
+        let json = try await request("/api/playlist/name/update", payload: ["id": id, "name": name], crypto: "weapi")
+        return (json["code"] as? Int) == 200
+    }
+
+    /// 网易云歌单简介修改（weapi /playlist/desc/update）。
+    func updatePlaylistDescription(id: Int, description: String) async throws -> Bool {
+        let json = try await request("/api/playlist/desc/update", payload: ["id": id, "desc": description], crypto: "weapi")
+        return (json["code"] as? Int) == 200
+    }
 }
 
 enum NetEaseError: LocalizedError {
