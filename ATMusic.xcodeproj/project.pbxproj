@@ -90,7 +90,6 @@
 		A84A3E92DCE58A652BBD1246 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2634BD6CE38C5E9B12783D55 /* PlayerView.swift */; };
 		AB0AA2261461BFBC9D570825 /* VinylPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCCF63778BCE2868BEEB0B5 /* VinylPlayerView.swift */; };
 		AB445338871CDABF82FDA5D7 /* NASLyricsBatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9930A9C932D59333BADF1CE3 /* NASLyricsBatchView.swift */; };
-		AC8DA148E0489F49344514F7 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F35518EE32FB54B3B0F559F /* LibraryView.swift */; };
 		B07C346BD289EFB4BB9E0E6C /* TransferCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BF2B3DAC5541C1F08A91E4 /* TransferCenterView.swift */; };
 		B45C834B1F86627BBA280196 /* SynologyCoverWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF255B7987D2F0B33D60D09 /* SynologyCoverWriteback.swift */; };
 		B4DA0D6855EB6D43FEEAF50A /* IPadRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7389B9BF599F1D5C66EB18 /* IPadRootView.swift */; };
@@ -123,7 +122,6 @@
 		DD274D698FC202DC1B1D8C66 /* CoverPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE5A1866E8F01E1DCFB50529 /* CoverPalette.swift */; };
 		E563BE1979261C80F8BEBD9D /* SynologyAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E198ADA5415D097FE18853D2 /* SynologyAPI.swift */; };
 		E67286851BAD3BD891AEDAFC /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85AF1A1169E446F5B96FC2B /* DiscoverView.swift */; };
-		E78A098C754B34B2787E911A /* SyncedPlaylistOrderSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */; };
 		F068B12D0238F7B8381A1B24 /* UnifiedSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8798336209FB3B7B9C9943EC /* UnifiedSongStore.swift */; };
 		F4D49739EE2239C16068B246 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0605B67F998083A79DF15D /* OnboardingView.swift */; };
 		F789E3195DD6EBE82089DE14 /* AggregatedSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA674B1A39F53C94C6ED023 /* AggregatedSearchService.swift */; };
@@ -170,7 +168,6 @@
 		46F5262D10001EC6AE2FC7B1 /* IPadPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPadPlayerView.swift; sourceTree = "<group>"; };
 		4956E792EF3A809043C61E6C /* SyncedPlaylistOrderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedPlaylistOrderStore.swift; sourceTree = "<group>"; };
 		4D9FF8193A26BA3E54980FAA /* NASUserSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASUserSyncManager.swift; sourceTree = "<group>"; };
-		4F35518EE32FB54B3B0F559F /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		513F4C38F0BD75C2DAC2AB0C /* LXScriptSourceRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LXScriptSourceRunner.swift; sourceTree = "<group>"; };
 		52996D46DE53B0BC19024655 /* ATMusic-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ATMusic-Bridging-Header.h"; sourceTree = "<group>"; };
 		5732EF36636984BF688738D7 /* LogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewer.swift; sourceTree = "<group>"; };
@@ -254,7 +251,6 @@
 		F0F2E731040063614BB6A267 /* WatchSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncService.swift; sourceTree = "<group>"; };
 		F1754D4A96A6C0292E55E1EC /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		F39452605945742735AE2DFC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedPlaylistOrderSheet.swift; sourceTree = "<group>"; };
 		F81D6A2B207CB097B16AA10C /* ImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersivePlayerView.swift; sourceTree = "<group>"; };
 		FD81682400062D3794713DC5 /* LocalMusicSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMusicSection.swift; sourceTree = "<group>"; };
 		FE890EBF3EEC96E1E853AA8A /* MusicLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibraryView.swift; sourceTree = "<group>"; };
@@ -310,7 +306,6 @@
 				1E17CDC9DE544C01A2316BC3 /* KugouMusicAPI.swift */,
 				755E5E34911145179BEF534A /* KugouMusicAuth.swift */,
 				F1754D4A96A6C0292E55E1EC /* Language.swift */,
-				4F35518EE32FB54B3B0F559F /* LibraryView.swift */,
 				CEB34D56EF6CB027C4038CE1 /* LocalLibraryStore.swift */,
 				FD81682400062D3794713DC5 /* LocalMusicSection.swift */,
 				11123CA57275FA31A3BBD95F /* LocalTagWriteback.swift */,
@@ -366,7 +361,6 @@
 				EEA977158D1E946F902AB6DE /* SongLyricsLoader.swift */,
 				BBBCD7EF98220783A8C8B6B7 /* SongSubtitleMenu.swift */,
 				E2234221E650B66340CEBFAA /* SyncedPlaylistCache.swift */,
-				F4FA79FF05D11283F3898563 /* SyncedPlaylistOrderSheet.swift */,
 				4956E792EF3A809043C61E6C /* SyncedPlaylistOrderStore.swift */,
 				E198ADA5415D097FE18853D2 /* SynologyAPI.swift */,
 				7FF255B7987D2F0B33D60D09 /* SynologyCoverWriteback.swift */,
@@ -521,7 +515,6 @@
 				8FC8CD992DAC9AEE1DD9C623 /* KugouMusicAuth.swift in Sources */,
 				4B22002D68D71C51190C17FE /* LXScriptSourceRunner.swift in Sources */,
 				0336F62C5837CF851D235D29 /* Language.swift in Sources */,
-				AC8DA148E0489F49344514F7 /* LibraryView.swift in Sources */,
 				76547F07FB1898F1EF52754C /* LocalLibraryStore.swift in Sources */,
 				34BD71C5486E4514862594D7 /* LocalMusicSection.swift in Sources */,
 				603A3C26A4DB5A786E5CB125 /* LocalTagWriteback.swift in Sources */,
@@ -576,7 +569,6 @@
 				07DDA2F6F93CD90E70FBE10F /* SongLyricsLoader.swift in Sources */,
 				5CA547B9C632527EFE2A0D45 /* SongSubtitleMenu.swift in Sources */,
 				965D73540D2D36D96FF62B6C /* SyncedPlaylistCache.swift in Sources */,
-				E78A098C754B34B2787E911A /* SyncedPlaylistOrderSheet.swift in Sources */,
 				0AD1FD948506F5BE93047F95 /* SyncedPlaylistOrderStore.swift in Sources */,
 				E563BE1979261C80F8BEBD9D /* SynologyAPI.swift in Sources */,
 				B45C834B1F86627BBA280196 /* SynologyCoverWriteback.swift in Sources */,
@@ -620,7 +612,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -695,7 +687,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				INFOPLIST_FILE = ATMusic/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

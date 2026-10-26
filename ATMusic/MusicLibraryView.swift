@@ -296,7 +296,6 @@ struct MusicLibraryHomeView: View {
                         header
                         favoriteHeroCard
                         quickAccess
-                        favoritePlaylistsSection
                         playlistsPreview
                     }
                     .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -526,7 +525,7 @@ struct MusicLibraryHomeView: View {
 
     private var favPlaylistsCard: some View {
         NavigationLink {
-            MusicLibraryAllPlaylistsView()
+            MusicLibraryAllPlaylistsView(initialFilter: .favorites)
         } label: {
             MusicLibraryQuickCard(
                 title: "收藏歌单",
@@ -550,77 +549,6 @@ struct MusicLibraryHomeView: View {
         }
     }
 
-
-    private var favoritePlaylistsSection: some View {
-        Group {
-            if !favPlaylistStore.playlists.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("收藏歌单")
-                            .font(ATMusicFont.appFont(18, .bold))
-                            .foregroundStyle(Color.atmusicLabel)
-                        Text("\(favPlaylistStore.playlists.count)")
-                            .font(ATMusicFont.appFont(12, .medium))
-                            .foregroundStyle(Color.atmusicComment)
-                        Spacer()
-                        NavigationLink {
-                            MusicLibraryAllPlaylistsView()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("全部")
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .bold))
-                            }
-                            .font(ATMusicFont.appFont(13, .semibold))
-                            .foregroundStyle(Color.atmusicComment)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
-                        LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16), spacing: 18) {
-                            ForEach(favPlaylistStore.playlists, id: \.identityKey) { playlist in
-                                NavigationLink {
-                                    PlaylistView(playlist: playlist)
-                                } label: {
-                                    MediaSquareCard(playlist: playlist)
-                                }
-                                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        favPlaylistStore.remove(playlist)
-                                    } label: {
-                                        Label("取消收藏", systemImage: "heart.slash")
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 14) {
-                                ForEach(favPlaylistStore.playlists, id: \.identityKey) { playlist in
-                                    NavigationLink {
-                                        PlaylistView(playlist: playlist)
-                                    } label: {
-                                        MediaSquareCard(playlist: playlist, fixedCoverSize: isNativeClean ? 140 : (uiStyleRaw == ATMusicUIStyle.compact.rawValue ? 120 : 136))
-                                    }
-                                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-                                    .contextMenu {
-                                        Button(role: .destructive) {
-                                            favPlaylistStore.remove(playlist)
-                                        } label: {
-                                            Label("取消收藏", systemImage: "heart.slash")
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 2)
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     private var availableFilterTags: [String] {
         var tags = ["全部", "本地"]
@@ -647,7 +575,7 @@ struct MusicLibraryHomeView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "plus")
                                 .font(.system(size: 11, weight: .bold))
-                            Text("新建")
+                            Text("新建本地")
                                 .font(ATMusicFont.appFont(13, .semibold))
                         }
                         .foregroundStyle(Color.atmusicAmber)
@@ -945,14 +873,29 @@ struct MusicLibraryAllPlaylistsView: View {
     @ObservedObject private var activityStore = PlaylistActivityStore.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
 
-    @State private var filter: MusicLibraryPlaylistFilter = .all
+    @State private var filter: MusicLibraryPlaylistFilter
     @State private var searchText = ""
-    @State private var showAdvancedManagement = false
+    @State private var isManaging = false
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
     @State private var showDeleteConfirm = false
     @State private var showMergeSheet = false
     @State private var mergeSongs: [Song] = []
+    @State private var showCreateAlert = false
+    @State private var newCreateName = ""
+    @State private var createSource: SongSource = .local
+    @State private var renameItem: MusicLibraryPlaylistItem?
+    @State private var renameText = ""
+    @State private var showRenameAlert = false
+    @State private var descItem: MusicLibraryPlaylistItem?
+    @State private var descText = ""
+    @State private var showDescAlert = false
+    @State private var coverLocalID: UUID?
+    @State private var showCoverPicker = false
+
+    fileprivate init(initialFilter: MusicLibraryPlaylistFilter = .all) {
+        self._filter = State(initialValue: initialFilter)
+    }
 
     private var selectedItems: [MusicLibraryPlaylistItem] {
         let selected = selectedIDs
@@ -1005,6 +948,18 @@ struct MusicLibraryAllPlaylistsView: View {
 
     @ViewBuilder
     private func playlistItemCore(_ item: MusicLibraryPlaylistItem, isCard: Bool) -> some View {
+        if isManaging {
+            playlistItemContent(item, isCard: isCard)
+                .contextMenu {
+                    manageMenu(for: item)
+                }
+        } else {
+            playlistItemContent(item, isCard: isCard)
+        }
+    }
+
+    @ViewBuilder
+    private func playlistItemContent(_ item: MusicLibraryPlaylistItem, isCard: Bool) -> some View {
         if isSelecting {
             Button {
                 toggleItemSelection(item)
@@ -1023,6 +978,247 @@ struct MusicLibraryAllPlaylistsView: View {
         }
     }
 
+    /// 管理模式长按菜单：只按 135 能力矩阵出项，不支持的操作直接不出现。
+    /// NAS 改名无已验证接口，故只出转存 / 收藏 / 删除，不出改名；换封面、去重只对本地有意义。
+    @ViewBuilder
+    private func manageMenu(for item: MusicLibraryPlaylistItem) -> some View {
+        let caps = PlaylistCapabilities.forSource(item.source)
+        if item.source == .local || item.source == .netease {
+            Button {
+                renameItem = item
+                renameText = item.title
+                showRenameAlert = true
+            } label: {
+                Label("重命名", systemImage: "character.cursor.ibeam")
+            }
+        }
+        if caps.canEditDescription {
+            Button {
+                descItem = item
+                descText = currentDescription(for: item)
+                showDescAlert = true
+            } label: {
+                Label("编辑简介", systemImage: "text.quote")
+            }
+        }
+        if item.source == .local {
+            Button {
+                if case .local(let id) = item.kind {
+                    coverLocalID = id
+                    showCoverPicker = true
+                }
+            } label: {
+                Label("换封面", systemImage: "photo")
+            }
+            Button {
+                dedupeLocal(item)
+            } label: {
+                Label("去重", systemImage: "square.stack.3d.up")
+            }
+        }
+        if item.source != .local {
+            Button {
+                Task {
+                    selectedIDs = [item.id]
+                    await exportSelectedToLocal()
+                }
+            } label: {
+                Label("转存本地", systemImage: "square.and.arrow.down")
+            }
+        }
+        if case .remote(let playlist) = item.kind {
+            Button {
+                FavoritePlaylistStore.shared.toggle(playlist)
+            } label: {
+                Label(
+                    FavoritePlaylistStore.shared.isFavorite(playlist) ? "取消收藏" : "收藏歌单",
+                    systemImage: "heart"
+                )
+            }
+        }
+        if caps.canDelete {
+            Button(role: .destructive) {
+                selectedIDs = [item.id]
+                showDeleteConfirm = true
+            } label: {
+                Label("删除歌单", systemImage: "trash")
+            }
+        }
+    }
+
+    private func enterManageMode() {
+        isManaging = true
+        isSelecting = true
+        selectedIDs.removeAll()
+        ATMusicHaptics.tap()
+    }
+
+    private func exitManageMode() {
+        isManaging = false
+        isSelecting = false
+        selectedIDs.removeAll()
+    }
+
+    private var modeSwitch: some View {
+        HStack(spacing: 8) {
+            modeButton(title: "浏览", active: !isManaging) {
+                exitManageMode()
+            }
+            modeButton(title: "管理", active: isManaging) {
+                enterManageMode()
+            }
+            Spacer()
+            Text(isManaging ? "点按多选，长按单条管理" : "点按进入歌单详情")
+                .font(ATMusicFont.appFont(11))
+                .foregroundStyle(Color.atmusicComment)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    private func modeButton(title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(ATMusicFont.appFont(13, .semibold))
+                .atmusicSelectionForeground(selected: active, accent: .atmusicAmber)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background {
+                    ATMusicSelectableSurface(selected: active, shape: Capsule(), accent: .atmusicAmber)
+                }
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+    }
+
+    private var createSourceName: String {
+        switch createSource {
+        case .local: return "本地"
+        case .netease: return "网易云"
+        case .qq: return "QQ"
+        case .kugou: return "酷狗"
+        case .synology: return "NAS"
+        }
+    }
+
+    private func beginCreate(source: SongSource) {
+        createSource = source
+        newCreateName = ""
+        showCreateAlert = true
+    }
+
+    private func createPlaylistFromManage() {
+        let name = newCreateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        switch createSource {
+        case .local:
+            _ = localStore.createPlaylist(name: name)
+            ToastCenter.shared.show("已创建本地歌单「\(name)」")
+        case .netease:
+            guard auth.isLoggedIn else {
+                ToastCenter.shared.show("请先登录网易云音乐")
+                return
+            }
+            Task {
+                do {
+                    _ = try await NetEaseAPI.shared.createPlaylist(name: name)
+                    ToastCenter.shared.show("歌单「\(name)」已创建")
+                    await playlistStore.load(auth: auth, force: true)
+                } catch {
+                    ToastCenter.shared.show("创建失败：\(error.localizedDescription)")
+                }
+            }
+        case .qq:
+            guard QQMusicAuth.shared.isLoggedIn else {
+                ToastCenter.shared.show("请先登录 QQ 音乐")
+                return
+            }
+            Task {
+                do {
+                    let ok = try await QQMusicAPI.shared.createPlaylist(name: name)
+                    if ok {
+                        ToastCenter.shared.show("歌单「\(name)」已创建")
+                        await playlistStore.load(auth: auth, force: true)
+                    } else {
+                        ToastCenter.shared.show("创建失败，请确认已登录 QQ 音乐")
+                    }
+                } catch {
+                    ToastCenter.shared.show("创建失败：\(error.localizedDescription)")
+                }
+            }
+        default:
+            ToastCenter.shared.show("该来源暂不支持在此新建")
+        }
+    }
+
+    private func currentDescription(for item: MusicLibraryPlaylistItem) -> String {
+        switch item.kind {
+        case .local(let id):
+            return localStore.playlists.first { $0.id == id }?.descriptionText ?? ""
+        case .remote(let playlist):
+            return playlist.descriptionText ?? ""
+        }
+    }
+
+    private func saveRename() {
+        guard let item = renameItem else { return }
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        switch item.kind {
+        case .local(let id):
+            localStore.renamePlaylist(id: id, name: name)
+            ToastCenter.shared.show("已重命名为「\(name)」")
+        case .remote(let playlist) where playlist.source == .netease:
+            Task {
+                do {
+                    let ok = try await NetEaseAPI.shared.renamePlaylist(id: playlist.id, name: name)
+                    if ok {
+                        await PlaylistManagementService.invalidateListCache(for: .netease)
+                        await playlistStore.load(auth: auth, force: true)
+                        ToastCenter.shared.show("已重命名为「\(name)」")
+                    } else {
+                        ToastCenter.shared.show("重命名失败，请重试")
+                    }
+                } catch {
+                    ToastCenter.shared.show("重命名失败：\(error.localizedDescription)")
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    private func saveDescription() {
+        guard let item = descItem else { return }
+        switch item.kind {
+        case .local(let id):
+            localStore.setDescription(descText, for: id)
+            ToastCenter.shared.show("简介已更新")
+        case .remote(let playlist) where playlist.source == .netease:
+            Task {
+                do {
+                    let ok = try await NetEaseAPI.shared.updatePlaylistDescription(id: playlist.id, description: descText)
+                    if ok {
+                        await playlistStore.load(auth: auth, force: true)
+                        ToastCenter.shared.show("简介已更新")
+                    } else {
+                        ToastCenter.shared.show("简介更新失败，请重试")
+                    }
+                } catch {
+                    ToastCenter.shared.show("简介更新失败：\(error.localizedDescription)")
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    private func dedupeLocal(_ item: MusicLibraryPlaylistItem) {
+        guard case .local(let id) = item.kind else { return }
+        let removed = localStore.deduplicatePlaylist(id: id)
+        ToastCenter.shared.show(removed == 0 ? "没有重复歌曲" : "已去掉 \(removed) 首重复歌曲")
+    }
+
     private var batchBar: some View {
         HStack(spacing: 14) {
             Text(selectedIDs.isEmpty ? "未选择歌单" : "已选 \(selectedIDs.count) 个")
@@ -1036,8 +1232,7 @@ struct MusicLibraryAllPlaylistsView: View {
             Button("转存本地") { Task { await exportSelectedToLocal() } }
                 .disabled(selectedIDs.isEmpty)
             Button("完成") {
-                isSelecting = false
-                selectedIDs.removeAll()
+                exitManageMode()
             }
         }
         .font(ATMusicFont.appFont(13, .semibold))
@@ -1102,7 +1297,6 @@ struct MusicLibraryAllPlaylistsView: View {
             }
         }
         selectedIDs.removeAll()
-        isSelecting = false
         await playlistStore.load(auth: auth, force: true)
         ToastCenter.shared.show(skipped == 0 ? "已删除 \(deleted) 个歌单" : "已删除 \(deleted) 个，\(skipped) 个不支持删除已跳过")
     }
@@ -1121,7 +1315,6 @@ struct MusicLibraryAllPlaylistsView: View {
             }
         }
         selectedIDs.removeAll()
-        isSelecting = false
         ToastCenter.shared.show(created == 0 ? "没有可转存的歌单" : "已转存 \(created) 个歌单到本地")
     }
 
@@ -1198,6 +1391,7 @@ struct MusicLibraryAllPlaylistsView: View {
         ZStack {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             VStack(spacing: 0) {
+                modeSwitch
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(MusicLibraryPlaylistFilter.allCases) { option in
@@ -1277,30 +1471,42 @@ struct MusicLibraryAllPlaylistsView: View {
             prompt: "搜索歌单名称"
         )
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        isSelecting = true
-                        selectedIDs.removeAll()
-                        ATMusicHaptics.tap()
-                    } label: {
-                        Label("选择", systemImage: "checkmark.circle")
+            if isManaging {
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 14) {
+                        Menu {
+                            Button("新建本地歌单") { beginCreate(source: .local) }
+                            Button("新建网易云歌单") { beginCreate(source: .netease) }
+                            Button("新建 QQ 歌单") { beginCreate(source: .qq) }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        Button("完成") { exitManageMode() }
                     }
-                    Button {
-                        showAdvancedManagement = true
-                    } label: {
-                        Label("歌单管理", systemImage: "slider.horizontal.3")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
-        .sheet(isPresented: $showAdvancedManagement) {
-            LibraryView(showsCloseButton: true)
-                .environmentObject(player)
-                .environmentObject(auth)
-                .environmentObject(theme)
+        .alert("新建歌单", isPresented: $showCreateAlert) {
+            TextField("歌单名称", text: $newCreateName)
+            Button("取消", role: .cancel) {}
+            Button("创建") { createPlaylistFromManage() }
+        } message: {
+            Text("将创建到\(createSourceName)")
+        }
+        .alert("重命名歌单", isPresented: $showRenameAlert) {
+            TextField("歌单名称", text: $renameText)
+            Button("取消", role: .cancel) {}
+            Button("保存") { saveRename() }
+        }
+        .alert("编辑简介", isPresented: $showDescAlert) {
+            TextField("歌单简介", text: $descText, axis: .vertical)
+            Button("取消", role: .cancel) {}
+            Button("保存") { saveDescription() }
+        }
+        .sheet(isPresented: $showCoverPicker) {
+            if let id = coverLocalID {
+                LocalCoverPickerSheet(playlistID: id)
+            }
         }
         .sheet(isPresented: $showMergeSheet) {
             PlaylistMoveTargetSheet(
@@ -1311,7 +1517,6 @@ struct MusicLibraryAllPlaylistsView: View {
                 do {
                     _ = try await PlaylistManagementService.shared.addSongs(mergeSongs, to: target)
                     selectedIDs.removeAll()
-                    isSelecting = false
                     ToastCenter.shared.show("已合并到「\(target.title)」")
                     ATMusicHaptics.success()
                 } catch {
@@ -1320,7 +1525,6 @@ struct MusicLibraryAllPlaylistsView: View {
             } onCreateLocalCopy: {
                 _ = await PlaylistManagementService.shared.copyToLocal(songs: mergeSongs, named: "合并歌单")
                 selectedIDs.removeAll()
-                isSelecting = false
                 ToastCenter.shared.show("已合并为本地歌单「合并歌单」")
                 ATMusicHaptics.success()
             }

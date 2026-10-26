@@ -3,6 +3,58 @@ import Combine
 import UIKit
 
 /// 用户选择需要显示的平台。只控制入口可见性，不删除平台能力。
+/// 平台歌单来源（原在已删除的 LibraryView.swift，PlatformPreferenceStore 仍在用，移到这里）。
+enum LibraryProvider: String, CaseIterable, Identifiable, Hashable {
+    case netease = "网易云音乐"
+    case qq = "QQ音乐"
+    case kugou = "酷狗音乐"
+    case synology = "群晖 NAS"
+
+    var id: String { rawValue }
+
+    var tint: LinearGradient {
+        switch self {
+        case .netease:
+            return LinearGradient(colors: [Color(red: 0.93, green: 0.22, blue: 0.16), Color(red: 0.80, green: 0.15, blue: 0.12)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .qq:
+            return LinearGradient(colors: [Color(red: 0.15, green: 0.78, blue: 0.55), Color(red: 0.05, green: 0.58, blue: 0.42)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .kugou:
+            return LinearGradient(colors: [Color(red: 0.12, green: 0.58, blue: 0.95), Color(red: 0.02, green: 0.32, blue: 0.72)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .synology:
+            return LinearGradient(colors: [Color(red: 0.08, green: 0.45, blue: 0.85), Color(red: 0.02, green: 0.25, blue: 0.60)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .netease: return "cloud.fill"
+        case .qq: return "play.rectangle.fill"
+        case .kugou: return "music.note"
+        case .synology: return "externaldrive.fill"
+        }
+    }
+
+    var brandImageName: String? {
+        switch self {
+        case .netease: return "BrandNetease"
+        case .qq: return "BrandQQ"
+        case .kugou: return "BrandKugou"
+        case .synology: return nil
+        }
+    }
+}
+
+private extension LibraryProvider {
+    var songSource: SongSource {
+        switch self {
+        case .netease: return .netease
+        case .qq: return .qq
+        case .kugou: return .kugou
+        case .synology: return .synology
+        }
+    }
+}
+
 final class PlatformPreferenceStore: ObservableObject {
     static let shared = PlatformPreferenceStore()
 

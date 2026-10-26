@@ -3,12 +3,9 @@ import SwiftUI
 // MARK: - 板块自定义排序（音乐库 / 主页等页面板块顺序可拖动调整并持久化）
 
 enum SectionOrderStore {
-    static let libraryKey = "atmusic.library.sectionOrder"
     static let homeKey = "atmusic.home.sectionOrder"
     static let profileKey = "atmusic.profile.sectionOrder"
 
-    /// 音乐库板块默认顺序
-    static let libraryDefaults = ["我的歌单", "最近播放", "本地音乐库"]
     /// 主页板块默认顺序
     static let homeDefaults = ["每日推荐", "最近播放", "排行榜"]
     /// 我的界面板块默认顺序
@@ -17,9 +14,6 @@ enum SectionOrderStore {
     /// 读取已保存顺序：自动补全新板块、剔除已废弃板块
     static func load(_ key: String, defaults: [String]) -> [String] {
         var order = UserDefaults.standard.stringArray(forKey: key) ?? defaults
-        if key == libraryKey, order == ["本地音乐库", "我的歌单", "最近播放"] {
-            order = libraryDefaults
-        }
         if key == homeKey, order == ["每日推荐", "排行榜", "歌单广场"] {
             order = homeDefaults
         }
