@@ -48,6 +48,22 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.37-build-137",
+            version: "1.9.37",
+            title: "全部歌单分栏改回原生",
+            notices: [
+                "分类分段只出全部、收藏、本地和已启用平台，当前已选的平台即使刚被停用也先留着"
+            ],
+            features: [
+                "浏览/管理与分类筛选都改成软件已有的原生 Picker 分段写法，四种 UI 下由系统渲染选中态",
+                "分类栏整条固定在顶部，不再是可横向拖动的滚动栏"
+            ],
+            fixes: [
+                "136 自造的胶囊分栏和软件其他地方的写法不一致，看着割裂",
+                "分类栏是横向滚动条，可以随意拖动位置"
+            ],
+        ),
+        VersionLog(
             id: "1.9.37-build-136",
             version: "1.9.37",
             title: "音乐库歌单入口收敛",

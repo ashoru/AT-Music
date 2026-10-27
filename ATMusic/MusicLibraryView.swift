@@ -1046,49 +1046,55 @@ struct MusicLibraryAllPlaylistsView: View {
         }
     }
 
-    private func enterManageMode() {
-        isManaging = true
-        isSelecting = true
-        selectedIDs.removeAll()
-        ATMusicHaptics.tap()
-    }
-
-    private func exitManageMode() {
-        isManaging = false
-        isSelecting = false
-        selectedIDs.removeAll()
-    }
-
-    private var modeSwitch: some View {
-        HStack(spacing: 8) {
-            modeButton(title: "浏览", active: !isManaging) {
-                exitManageMode()
+    /// 浏览/管理分段：用软件里已有的原生 Picker 分段写法（同 SynologyMusicView、LocalMusicSection 的平台切换），
+    /// 不再自造胶囊按钮；四种 UI 下都由系统渲染选中态，液态下走系统 Liquid Glass，简洁下就是 Apple 原生样式。
+    private var modeSegmented: some View {
+        VStack(spacing: 4) {
+            Picker("模式", selection: $isManaging) {
+                Text("浏览").tag(false)
+                Text("管理").tag(true)
             }
-            modeButton(title: "管理", active: isManaging) {
-                enterManageMode()
+            .pickerStyle(.segmented)
+            if isManaging {
+                Text("点按多选，长按单条管理")
+                    .font(ATMusicFont.appFont(11))
+                    .foregroundStyle(Color.atmusicComment)
             }
-            Spacer()
-            Text(isManaging ? "点按多选，长按单条管理" : "点按进入歌单详情")
-                .font(ATMusicFont.appFont(11))
-                .foregroundStyle(Color.atmusicComment)
-                .lineLimit(1)
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
+        .onChange(of: isManaging) { managing in
+            isSelecting = managing
+            selectedIDs.removeAll()
+            if managing { ATMusicHaptics.tap() }
+        }
     }
 
-    private func modeButton(title: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(ATMusicFont.appFont(13, .semibold))
-                .atmusicSelectionForeground(selected: active, accent: .atmusicAmber)
-                .padding(.horizontal, 14)
-                .frame(height: 36)
-                .background {
-                    ATMusicSelectableSurface(selected: active, shape: Capsule(), accent: .atmusicAmber)
-                }
+    /// 分类分段：同上，原生 Picker 分段，整条固定在顶部，不再是可横向拖动的 ScrollView；
+    /// 只出全部、收藏、本地和已启用平台，当前已选的平台即使刚被停用也先留着，避免选中态凭空消失。
+    private var visibleFilters: [MusicLibraryPlaylistFilter] {
+        var result: [MusicLibraryPlaylistFilter] = [.all, .favorites, .local]
+        let platformOptions: [(SearchProvider, MusicLibraryPlaylistFilter)] = [
+            (.netease, .netease), (.qq, .qq), (.kugou, .kugou), (.synology, .synology)
+        ]
+        for (provider, option) in platformOptions {
+            if platformPrefs.isEnabled(provider) || filter == option {
+                result.append(option)
+            }
         }
-        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+        return result
+    }
+
+    private var filterSegmented: some View {
+        Picker("分类", selection: $filter) {
+            ForEach(visibleFilters) { option in
+                Text(option.rawValue).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .onChange(of: filter) { _ in ATMusicHaptics.select() }
     }
 
     private var createSourceName: String {
@@ -1232,7 +1238,7 @@ struct MusicLibraryAllPlaylistsView: View {
             Button("转存本地") { Task { await exportSelectedToLocal() } }
                 .disabled(selectedIDs.isEmpty)
             Button("完成") {
-                exitManageMode()
+                isManaging = false
             }
         }
         .font(ATMusicFont.appFont(13, .semibold))
@@ -1391,30 +1397,8 @@ struct MusicLibraryAllPlaylistsView: View {
         ZStack {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             VStack(spacing: 0) {
-                modeSwitch
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(MusicLibraryPlaylistFilter.allCases) { option in
-                            let selected = filter == option
-                            Button {
-                                ATMusicHaptics.select()
-                                filter = option
-                            } label: {
-                                Text(option.rawValue)
-                                    .font(ATMusicFont.appFont(13, .semibold))
-                                    .atmusicSelectionForeground(selected: selected, accent: .atmusicAmber)
-                                    .padding(.horizontal, 14)
-                                    .frame(height: 36)
-                                    .background {
-                                        ATMusicSelectableSurface(selected: selected, shape: Capsule(), accent: .atmusicAmber)
-                                    }
-                            }
-                            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                }
+                modeSegmented
+                filterSegmented
 
                 if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                     ScrollView {
@@ -1481,7 +1465,7 @@ struct MusicLibraryAllPlaylistsView: View {
                         } label: {
                             Image(systemName: "plus")
                         }
-                        Button("完成") { exitManageMode() }
+                        Button("完成") { isManaging = false }
                     }
                 }
             }
