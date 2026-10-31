@@ -153,9 +153,11 @@ struct IPadPlayerView: View {
                 .environmentObject(player)
                 .environmentObject(theme)
             } else {
-                AlbumDetailView(album: album)
-                    .environmentObject(player)
-                    .environmentObject(theme)
+                ATMusicNavigationStack {
+                    AlbumDetailView(album: album, isModal: true)
+                }
+                .environmentObject(player)
+                .environmentObject(theme)
             }
         }
         .sheet(isPresented: $showSignalPath) {

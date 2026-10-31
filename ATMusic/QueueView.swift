@@ -95,15 +95,24 @@ struct QueueView: View {
                     .font(ATMusicFont.appFont(14, .semibold))
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            ATMusicHaptics.medium()
-                            player.clearQueue()
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button(role: .destructive) {
+                                ATMusicHaptics.medium()
+                                player.clearQueue()
+                            } label: {
+                                Label("清空队列", systemImage: "trash")
+                            }
                         } label: {
-                            Label("清空队列", systemImage: "trash")
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 16))
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+
+                        Button("完成") {
+                            dismiss()
+                        }
+                        .font(ATMusicFont.appFont(14, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
                     }
                 }
             }

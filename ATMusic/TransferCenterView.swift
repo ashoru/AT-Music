@@ -78,7 +78,6 @@ struct TransferCenterView: View {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
 
             VStack(spacing: 0) {
-                navigationHeader
                 tabSelector
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
@@ -107,7 +106,13 @@ struct TransferCenterView: View {
                 }
             }
         }
-        .navigationBarHidden(true)
+        .navigationTitle("传输中心")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                topBarTrailingAction
+            }
+        }
         .sheet(item: $shareFile) { item in
             ShareSheet(items: [item.url])
         }
@@ -150,108 +155,47 @@ struct TransferCenterView: View {
         }
     }
 
-    // MARK: - 导航栏
+    // MARK: - 顶部操作与分段器 (原生对齐)
 
-    private var navigationHeader: some View {
-        HStack(alignment: .center) {
+    @ViewBuilder
+    private var topBarTrailingAction: some View {
+        if selectedTab == 0 && !downloadManager.activeDownloads.isEmpty {
             Button {
-                dismiss()
+                if downloadManager.isPaused {
+                    downloadManager.resumeAllDownloads()
+                } else {
+                    downloadManager.pauseAllDownloads()
+                }
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("音乐库")
-                        .font(ATMusicFont.appFont(16))
-                }
-                .foregroundStyle(Color.atmusicAmber)
+                Image(systemName: downloadManager.isPaused ? "play.circle" : "pause.circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Color.atmusicAmber)
             }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text("传输中心")
-                .font(ATMusicFont.appFont(17, .bold))
-                .foregroundStyle(Color.atmusicLabel)
-
-            Spacer()
-
-            if selectedTab == 0 && !downloadManager.activeDownloads.isEmpty {
-                Button {
-                    if downloadManager.isPaused {
-                        downloadManager.resumeAllDownloads()
-                    } else {
-                        downloadManager.pauseAllDownloads()
+        } else if selectedTab == 1 && !downloadManager.downloadedSongs.isEmpty {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isMultiSelectingOffline.toggle()
+                    if !isMultiSelectingOffline {
+                        selectedOfflineIDs.removeAll()
                     }
-                } label: {
-                    Image(systemName: downloadManager.isPaused ? "play.circle" : "pause.circle")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Color.atmusicAmber)
                 }
-                .buttonStyle(.plain)
-            } else if selectedTab == 1 && !downloadManager.downloadedSongs.isEmpty {
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        isMultiSelectingOffline.toggle()
-                        if !isMultiSelectingOffline {
-                            selectedOfflineIDs.removeAll()
-                        }
-                    }
-                } label: {
-                    Text(isMultiSelectingOffline ? "完成" : "多选")
-                        .font(ATMusicFont.appFont(14, .semibold))
-                        .foregroundStyle(Color.atmusicAmber)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.atmusicAmber.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.plain)
-            } else {
-                Color.clear.frame(width: 44, height: 20)
+            } label: {
+                Text(isMultiSelectingOffline ? "完成" : "多选")
+                    .font(ATMusicFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
     }
 
-    // MARK: - 顶部标签切换器
+    // MARK: - 顶部标签切换器（iOS 原生 Segmented Picker）
 
     private var tabSelector: some View {
-        HStack(spacing: 8) {
-            tabButton(title: "下载中\(activeDownloadsCount > 0 ? " (\(activeDownloadsCount))" : "")", index: 0, icon: "arrow.down.circle")
-            tabButton(title: "已离线 (\(downloadManager.downloadedSongs.count))", index: 1, icon: "internaldrive")
-            tabButton(title: "上传至 NAS\(activeUploadsCount > 0 ? " (\(activeUploadsCount))" : "")", index: 2, icon: "externaldrive")
+        Picker("传输分类", selection: $selectedTab) {
+            Text("下载中\(activeDownloadsCount > 0 ? " (\(activeDownloadsCount))" : "")").tag(0)
+            Text("已离线 (\(downloadManager.downloadedSongs.count))").tag(1)
+            Text("上传 NAS\(activeUploadsCount > 0 ? " (\(activeUploadsCount))" : "")").tag(2)
         }
-    }
-
-    private func tabButton(title: String, index: Int, icon: String) -> some View {
-        let isSelected = selectedTab == index
-        return Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                selectedTab = index
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: isSelected ? "\(icon).fill" : icon)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(title)
-                    .font(ATMusicFont.appFont(13, isSelected ? .bold : .medium))
-            }
-            .foregroundStyle(isSelected ? Color.white : Color.atmusicComment)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
-            .background {
-                if isSelected {
-                    Capsule()
-                        .fill(Color.atmusicAmber)
-                } else {
-                    Capsule()
-                        .fill(Color.primary.opacity(0.06))
-                }
-            }
-        }
-        .buttonStyle(.plain)
+        .pickerStyle(.segmented)
     }
 
     // MARK: - 1. 正在下载视图

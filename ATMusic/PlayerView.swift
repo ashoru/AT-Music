@@ -755,9 +755,11 @@ struct PlayerView: View {
                 .environmentObject(player)
                 .environmentObject(theme)
             } else {
-                AlbumDetailView(album: album)
-                    .environmentObject(player)
-                    .environmentObject(theme)
+                ATMusicNavigationStack {
+                    AlbumDetailView(album: album, isModal: true)
+                }
+                .environmentObject(player)
+                .environmentObject(theme)
             }
         }
         .sheet(isPresented: $showSignalPath) {
@@ -1033,6 +1035,16 @@ struct PlayerView: View {
         .padding(.horizontal, 20)
         .padding(.top, 2)
         .padding(.bottom, 1)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 15)
+                .onEnded { value in
+                    if value.translation.height > 35 && abs(value.translation.width) < value.translation.height {
+                        ATMusicHaptics.tap()
+                        closePlayer()
+                    }
+                }
+        )
     }
 
     // MARK: - 中间内容区（专辑 / 歌词 两模式独立视图，自动布局居中）
@@ -2038,14 +2050,22 @@ struct PlayerView: View {
                             e.y = value.translation.height
                             layoutData[PlayerLayoutPart.grabber.rawValue] = e
                         })
-                    : AnyGesture(DragGesture(minimumDistance: 25)
+                    : AnyGesture(DragGesture(minimumDistance: 20)
                         .onEnded { value in
-                            if value.translation.height < -50, song != nil {
+                            if value.translation.height < -45, song != nil {
                                 ATMusicHaptics.medium()
                                 showComments = true
+                            } else if value.translation.height > 45 {
+                                ATMusicHaptics.tap()
+                                closePlayer()
                             }
                         })
             )
+            .onTapGesture {
+                guard !layoutMode else { return }
+                ATMusicHaptics.tap()
+                closePlayer()
+            }
     }
 
     private var subtitle: String {

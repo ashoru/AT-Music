@@ -226,11 +226,11 @@ struct ArtistHomeSheet: View {
                     ForEach(albums) { album in
                         NavigationLink {
                             if album.source == .synology {
-                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL)
+                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
                                     .environmentObject(player)
                                     .environmentObject(theme)
                             } else {
-                                AlbumDetailView(album: album)
+                                AlbumDetailView(album: album, isModal: false)
                                     .environmentObject(player)
                                     .environmentObject(theme)
                             }
@@ -633,11 +633,11 @@ struct AllSourcesArtistHomeSheet: View {
                     ForEach(visibleAlbums) { album in
                         NavigationLink {
                             if album.source == .synology {
-                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL)
+                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
                                     .environmentObject(player)
                                     .environmentObject(theme)
                             } else {
-                                AlbumDetailView(album: album)
+                                AlbumDetailView(album: album, isModal: false)
                                     .environmentObject(player)
                                     .environmentObject(theme)
                             }

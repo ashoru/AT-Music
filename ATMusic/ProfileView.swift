@@ -2320,12 +2320,13 @@ struct SettingsView: View {
                 }
                 .atmusicScrollIndicatorsHidden()
             }
-            .navigationTitle(isNativeClean ? "" : "设置")
+            .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(isNativeClean)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    if !DeviceLayoutHelper.isIPad && !isNativeClean { Button("完成") { dismiss() } }
+                    Button(atmusicLocalized("完成", "Done")) { dismiss() }
+                        .font(ATMusicFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
                 }
             }
         )

@@ -80,11 +80,17 @@ private struct SynologyArtistSelection: Identifiable {
     let coverURL: URL?
 }
 
-private struct SynologyAlbumSelection: Identifiable {
+private struct SynologyAlbumSelection: Identifiable, Hashable {
     let id: String
     let name: String
     let artistName: String
     let coverURL: URL?
+}
+
+private enum SearchRoute: Hashable {
+    case album(Album)
+    case playlist(Playlist)
+    case synologyAlbum(SynologyAlbumSelection)
 }
 
 /// 聚合“综合”页的完整快照。
@@ -136,11 +142,7 @@ struct SearchView: View {
     @State private var showAddToPlaylist: Song?
     @State private var selectedArtist: Artist?
     @State private var selectedSynologyArtist: SynologyArtistSelection?
-    @State private var selectedSynologyAlbum: SynologyAlbumSelection?
-    /// 搜索结果页没有额外包裹 NavigationStack；歌单统一用详情页弹层打开，
-    /// 这样聚合搜索和单平台搜索的歌单都能稳定进入详情。
-    @State private var selectedPlaylist: Playlist?
-    @State private var selectedAlbum: Album?
+    @State private var navigationPath: [SearchRoute] = []
     @ObservedObject private var historyStore = SearchHistoryStore.shared
     @State private var debounceTask: Task<Void, Never>?
     @State private var searchTask: Task<Void, Never>?
@@ -302,7 +304,8 @@ struct SearchView: View {
 
     var body: some View {
         let _ = theme.accent
-        ZStack(alignment: .top) {
+        ATMusicNavigationStackWithPath(path: $navigationPath) {
+            ZStack(alignment: .top) {
             // 页面背景：同步开启时显示壁纸/背景色，否则默认氛围渐变
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             // 实例级 UITabBar 清透风格（固定全透明，无需调节）
@@ -322,6 +325,12 @@ struct SearchView: View {
             }
             .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .navigationTitle(keyword.isEmpty ? "搜索" : keyword)
+            .navigationBarHidden(true)
+            .atmusicNavigationDestination(for: SearchRoute.self) { route in
+                searchDestination(route)
+            }
         }
         .task {
             await loadAllHotWords()
@@ -445,30 +454,30 @@ struct SearchView: View {
             .environmentObject(player)
             .environmentObject(theme)
         }
-        .sheet(item: $selectedSynologyAlbum) { album in
-            ATMusicNavigationStack {
-                SynologyAlbumView(
-                    albumName: album.name,
-                    artistName: album.artistName,
-                    coverURL: album.coverURL,
-                    initialSongs: synologySearchSongs
-                )
-            }
-            .environmentObject(player)
-            .environmentObject(theme)
-        }
-        .sheet(item: $selectedPlaylist) { playlist in
-            ATMusicNavigationStack {
-                PlaylistView(playlist: playlist)
-            }
-            .environmentObject(player)
-            .environmentObject(auth)
-            .environmentObject(theme)
-        }
-        .sheet(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album)
+    }
+
+    @ViewBuilder
+    private func searchDestination(_ route: SearchRoute) -> some View {
+        switch route {
+        case .album(let album):
+            AlbumDetailView(album: album, isModal: false)
                 .environmentObject(player)
                 .environmentObject(theme)
+        case .playlist(let playlist):
+            PlaylistView(playlist: playlist)
+                .environmentObject(player)
+                .environmentObject(auth)
+                .environmentObject(theme)
+        case .synologyAlbum(let album):
+            SynologyAlbumView(
+                albumName: album.name,
+                artistName: album.artistName,
+                coverURL: album.coverURL,
+                initialSongs: synologySearchSongs,
+                isModal: false
+            )
+            .environmentObject(player)
+            .environmentObject(theme)
         }
     }
 
@@ -1003,7 +1012,7 @@ struct SearchView: View {
                         ForEach(playlistResults, id: \.identityKey) { playlist in
                             Button {
                                 ATMusicHaptics.tap()
-                                selectedPlaylist = playlist
+                                openRoute(.playlist(playlist))
                             } label: {
                                 MediaSquareCard(playlist: playlist)
                             }
@@ -1179,7 +1188,7 @@ struct SearchView: View {
                 ForEach(Array(overviewPlaylists.prefix(playlistCount)), id: \.identityKey) { playlist in
                     Button {
                         ATMusicHaptics.tap()
-                        selectedPlaylist = playlist
+                        openRoute(.playlist(playlist))
                     } label: {
                         MediaSquareCard(playlist: playlist)
                     }
@@ -1347,12 +1356,13 @@ struct SearchView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         synologyEntrySection(title: "专辑", entries: synologyAlbumEntries, icon: "square.stack") { entry in
-                            selectedSynologyAlbum = SynologyAlbumSelection(
+                            let album = SynologyAlbumSelection(
                                 id: entry.id,
                                 name: entry.names.first ?? "未命名专辑",
                                 artistName: entry.subtitle,
                                 coverURL: entry.coverURL
                             )
+                            openRoute(.synologyAlbum(album))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -1621,7 +1631,7 @@ struct SearchView: View {
         searchController.dismissKeyboard()
         if album.source == .synology {
             let searchSongs = songResults.filter { $0.source == .synology }
-            selectedSynologyAlbum = SynologyAlbumSelection(
+            let item = SynologyAlbumSelection(
                 id: album.id,
                 name: album.name,
                 artistName: album.artistName,
@@ -1629,9 +1639,14 @@ struct SearchView: View {
             )
             // NAS 搜索结果先作为详情页首屏候选，完整目录随后由详情页补齐。
             synologySearchSongs = searchSongs
+            openRoute(.synologyAlbum(item))
         } else {
-            selectedAlbum = album
+            openRoute(.album(album))
         }
+    }
+
+    private func openRoute(_ route: SearchRoute) {
+        navigationPath.append(route)
     }
 
     private func openArtist(_ artist: Artist) {
@@ -2061,6 +2076,7 @@ struct SearchView: View {
 /// 专辑详情页：点击搜索结果直接进入专辑内容，不再把专辑名当作歌曲关键词重新搜索。
 struct AlbumDetailView: View {
     let album: Album
+    var isModal: Bool = true
     @EnvironmentObject private var player: PlayerManager
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -2157,8 +2173,7 @@ struct AlbumDetailView: View {
     }
 
     var body: some View {
-        ATMusicNavigationStack {
-            ZStack {
+        ZStack {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
                 if isLoading {
                     LoadingStateView()
@@ -2229,17 +2244,18 @@ struct AlbumDetailView: View {
                     }
                     .accessibilityLabel("更多操作")
 
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                    if isModal {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
-        }
         .task { await load() }
         .sheet(isPresented: $showArtistHome) {
             ArtistHomeSheet(artistName: album.artistName, artistSource: album.source)

@@ -107,13 +107,24 @@ struct SongCell: View {
                         .font(.system(size: 16))
                 }
                 .buttonStyle(.plain)
-                .frame(minWidth: 42, alignment: .trailing)
+                .frame(minWidth: 32, alignment: .trailing)
             } else {
                 Text(displayedSong.formattedDuration)
                     .font(ATMusicFont.appFont(12, .regular, .monospaced))
                     .foregroundStyle(Color.atmusicComment)
-                    .frame(minWidth: 42, alignment: .trailing)
+                    .frame(minWidth: 36, alignment: .trailing)
             }
+
+            Menu {
+                songActionMenuItems
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.atmusicComment.opacity(0.85))
+                    .frame(width: 24, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: rowMinHeight)
@@ -122,83 +133,7 @@ struct SongCell: View {
             onTap?()
         }
         .contextMenu {
-            Button {
-                player.playNext(displayedSong)
-            } label: {
-                Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                Label("添加到歌单", systemImage: "text.badge.plus")
-            }
-            if downloadFeatureUnlocked {
-                if DownloadManager.shared.isDownloaded(song: displayedSong) {
-                    Button {
-                        showDownloadPicker = true
-                    } label: {
-                        Label("重新下载 (更换音质)", systemImage: "arrow.clockwise.circle")
-                    }
-                    if displayedSong.source != .synology {
-                        Button {
-                            DownloadManager.shared.startUploadToNAS(song: displayedSong)
-                        } label: {
-                            Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
-                        }
-                    }
-                    if let url = DownloadManager.shared.localAudioURL(for: displayedSong) {
-                        Button {
-                            shareFile = ShareFileItem(url: url)
-                        } label: {
-                            Label("分享 / 导出音频文件", systemImage: "square.and.arrow.up")
-                        }
-                    }
-                    Button(role: .destructive) {
-                        DownloadManager.shared.removeDownloaded(song: displayedSong)
-                    } label: {
-                        Label("从本地移除下载", systemImage: "trash")
-                    }
-                } else {
-                    Button {
-                        downloadSong()
-                    } label: {
-                        Label(displayedSong.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
-                    }
-                    if displayedSong.source != .synology {
-                        Button {
-                            DownloadManager.shared.startUploadToNAS(song: displayedSong)
-                        } label: {
-                            Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
-                        }
-                    }
-                }
-            }
-            if displayedSong.source == .synology {
-                Button {
-                    showSynologyMetadataEditor = true
-                } label: {
-                    Label("编辑 NAS 标签与封面", systemImage: "pencil")
-                }
-            } else if displayedSong.source == .local || DownloadManager.shared.isDownloaded(song: displayedSong) {
-                Button {
-                    showLocalMetadataEditor = true
-                } label: {
-                    Label("编辑歌曲信息与封面", systemImage: "pencil")
-                }
-            }
-            if !isCurrent {
-                Button {
-                    if let playbackIndex, !playbackContext.isEmpty {
-                        player.play(songs: playbackContext, startAt: playbackIndex)
-                    } else if let index = player.queue.firstIndex(of: displayedSong) {
-                        player.playQueueIndex(index)
-                    } else {
-                        player.play(songs: [displayedSong], startAt: 0)
-                    }
-                } label: {
-                    Label("立即播放", systemImage: "play.fill")
-                }
-            }
+            songActionMenuItems
         }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: displayedSong)
@@ -261,6 +196,87 @@ struct SongCell: View {
                 }
                 .environmentObject(theme)
                 .environmentObject(player)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var songActionMenuItems: some View {
+        Button {
+            player.playNext(displayedSong)
+        } label: {
+            Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        Button {
+            showAddToPlaylist = true
+        } label: {
+            Label("添加到歌单", systemImage: "text.badge.plus")
+        }
+        if downloadFeatureUnlocked {
+            if DownloadManager.shared.isDownloaded(song: displayedSong) {
+                Button {
+                    showDownloadPicker = true
+                } label: {
+                    Label("重新下载 (更换音质)", systemImage: "arrow.clockwise.circle")
+                }
+                if displayedSong.source != .synology {
+                    Button {
+                        DownloadManager.shared.startUploadToNAS(song: displayedSong)
+                    } label: {
+                        Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                    }
+                }
+                if let url = DownloadManager.shared.localAudioURL(for: displayedSong) {
+                    Button {
+                        shareFile = ShareFileItem(url: url)
+                    } label: {
+                        Label("分享 / 导出音频文件", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Button(role: .destructive) {
+                    DownloadManager.shared.removeDownloaded(song: displayedSong)
+                } label: {
+                    Label("从本地移除下载", systemImage: "trash")
+                }
+            } else {
+                Button {
+                    downloadSong()
+                } label: {
+                    Label(displayedSong.source == .synology ? "离线下载到本机" : "离线下载歌曲", systemImage: "arrow.down.circle")
+                }
+                if displayedSong.source != .synology {
+                    Button {
+                        DownloadManager.shared.startUploadToNAS(song: displayedSong)
+                    } label: {
+                        Label("转档到群晖 NAS", systemImage: "externaldrive.badge.plus")
+                    }
+                }
+            }
+        }
+        if displayedSong.source == .synology {
+            Button {
+                showSynologyMetadataEditor = true
+            } label: {
+                Label("编辑 NAS 标签与封面", systemImage: "pencil")
+            }
+        } else if displayedSong.source == .local || DownloadManager.shared.isDownloaded(song: displayedSong) {
+            Button {
+                showLocalMetadataEditor = true
+            } label: {
+                Label("编辑歌曲信息与封面", systemImage: "pencil")
+            }
+        }
+        if !isCurrent {
+            Button {
+                if let playbackIndex, !playbackContext.isEmpty {
+                    player.play(songs: playbackContext, startAt: playbackIndex)
+                } else if let index = player.queue.firstIndex(of: displayedSong) {
+                    player.playQueueIndex(index)
+                } else {
+                    player.play(songs: [displayedSong], startAt: 0)
+                }
+            } label: {
+                Label("立即播放", systemImage: "play.fill")
             }
         }
     }
@@ -357,6 +373,40 @@ struct SongCell: View {
                 .fill(Color.atmusicComment.opacity(0.18))
                 .frame(height: 0.5)
                 .padding(.leading, dividerLeading)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                player.playNext(displayedSong)
+                ATMusicHaptics.tap()
+            } label: {
+                Label("下一首", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+            .tint(Color.atmusicAmber)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                showAddToPlaylist = true
+            } label: {
+                Label("添加到歌单", systemImage: "text.badge.plus")
+            }
+            .tint(.purple)
+
+            if downloadFeatureUnlocked {
+                if DownloadManager.shared.isDownloaded(song: displayedSong) {
+                    Button(role: .destructive) {
+                        DownloadManager.shared.removeDownloaded(song: displayedSong)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                } else {
+                    Button {
+                        downloadSong()
+                    } label: {
+                        Label("下载", systemImage: "arrow.down.circle")
+                    }
+                    .tint(.blue)
+                }
+            }
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .listRowBackground(Color.clear)

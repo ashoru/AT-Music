@@ -3041,6 +3041,7 @@ struct SynologyAlbumView: View {
     let coverURL: URL?
     /// 搜索页打开专辑时传入的首批歌曲，用于先渲染详情页，避免等待完整 NAS 索引。
     var initialSongs: [Song] = []
+    var isModal: Bool = true
     @State private var tracks: [Song] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -3191,12 +3192,14 @@ struct SynologyAlbumView: View {
                 }
                 .accessibilityLabel("更多操作")
 
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                if isModal {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                    }
                 }
             }
         }
