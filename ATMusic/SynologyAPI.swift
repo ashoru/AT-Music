@@ -12,6 +12,7 @@ struct SynologyFolderItem: Identifiable, Hashable, Codable {
     let name: String
     let kind: Kind
     let song: Song?
+    var path: String? = nil
 }
 
 struct SynologySearchResult {
@@ -21,9 +22,9 @@ struct SynologySearchResult {
 }
 
 /// 文件夹直接与十级深度内容概要：是否含可支持音频文件、取到的第一首歌（封面预览用）。
-struct SynologyFolderOverview {
-    var hasSupportedAudio = false
-    var previewSong: Song?
+struct SynologyFolderOverview: Hashable, Codable {
+    var hasSupportedAudio: Bool = false
+    var previewSong: Song? = nil
 
     var hasSong: Bool { hasSupportedAudio }
     var hasFolder: Bool = false
@@ -139,6 +140,8 @@ final class SynologyAPI: ObservableObject {
     private var playlistCountCache: [String: (count: Int, at: Date)] = [:]
     private var didRestorePersistentLibraryIndex = false
     private var librarySongsIndex: [String: Song] = [:]
+    private var knownMusicFolderPaths: Set<String> = []
+    private var folderPreviewSongsByPath: [String: Song] = [:]
     private let indexLock = NSLock()
 
     private let uploadedCoverLock = NSLock()
@@ -149,6 +152,8 @@ final class SynologyAPI: ObservableObject {
         librarySongsCacheUpdatedAt = .distantPast
         indexLock.lock()
         librarySongsIndex.removeAll()
+        knownMusicFolderPaths.removeAll()
+        folderPreviewSongsByPath.removeAll()
         indexLock.unlock()
         uploadedCoverLock.lock()
         uploadedCoverFolders.removeAll()
@@ -157,6 +162,9 @@ final class SynologyAPI: ObservableObject {
 
     private func rebuildLibrarySongsIndex() {
         var map: [String: Song] = [:]
+        var folderPaths = Set<String>()
+        var previewMap: [String: Song] = [:]
+
         for s in librarySongsCache {
             map[s.identityKey] = s
             if let synoId = s.synologyId {
@@ -165,9 +173,24 @@ final class SynologyAPI: ObservableObject {
             if s.id != 0 {
                 map["id_\(s.id)"] = s
             }
+            if let rawPath = s.synologyPath, !rawPath.isEmpty {
+                var parent = (rawPath as NSString).deletingLastPathComponent
+                while !parent.isEmpty && parent != "/" && parent != "." {
+                    folderPaths.insert(parent)
+                    let trimmed = parent.hasPrefix("/") ? String(parent.dropFirst()) : parent
+                    folderPaths.insert(trimmed)
+                    if previewMap[parent] == nil {
+                        previewMap[parent] = s
+                        previewMap[trimmed] = s
+                    }
+                    parent = (parent as NSString).deletingLastPathComponent
+                }
+            }
         }
         indexLock.lock()
         librarySongsIndex = map
+        knownMusicFolderPaths = folderPaths
+        folderPreviewSongsByPath = previewMap
         indexLock.unlock()
     }
 
@@ -179,6 +202,19 @@ final class SynologyAPI: ObservableObject {
         }
         if song.id != 0 {
             librarySongsIndex["id_\(song.id)"] = song
+        }
+        if let rawPath = song.synologyPath, !rawPath.isEmpty {
+            var parent = (rawPath as NSString).deletingLastPathComponent
+            while !parent.isEmpty && parent != "/" && parent != "." {
+                knownMusicFolderPaths.insert(parent)
+                let trimmed = parent.hasPrefix("/") ? String(parent.dropFirst()) : parent
+                knownMusicFolderPaths.insert(trimmed)
+                if folderPreviewSongsByPath[parent] == nil {
+                    folderPreviewSongsByPath[parent] = song
+                    folderPreviewSongsByPath[trimmed] = song
+                }
+                parent = (parent as NSString).deletingLastPathComponent
+            }
         }
         indexLock.unlock()
     }
@@ -1035,72 +1071,225 @@ final class SynologyAPI: ObservableObject {
             guard let id = Self.stringValue(item["id"]), !id.isEmpty else { return nil }
             let title = Self.stringValue(item["title"]) ?? Self.stringValue(item["name"]) ?? "未命名"
             let type = Self.stringValue(item["type"])?.lowercased()
+            let path = Self.stringValue(item["path"])
             if type == "folder" || type == "directory" {
-                return SynologyFolderItem(id: id, name: title, kind: .folder, song: nil)
+                return SynologyFolderItem(id: id, name: title, kind: .folder, song: nil, path: path)
             }
             guard let song = self.parseSong(item) else { return nil }
-            return SynologyFolderItem(id: id, name: title, kind: .song, song: song)
+            return SynologyFolderItem(id: id, name: title, kind: .song, song: song, path: path)
         }
     }
 
     private let folderOverviewLock = NSLock()
     private var folderOverviewMemoryCache: [String: SynologyFolderOverview] = [:]
 
-    /// 递归（最多十级子文件夹）检测文件夹及其子目录中是否包含可支持的音频文件。
-    /// 只要在任何一层找到音频文件，立即短路返回并保留封面预览歌；
-    /// 若十级内全无任何音频文件，则判定该文件夹无音乐，前台自动隐藏。
-    func folderOverview(folderID: String, maxDepth: Int = 10) async -> SynologyFolderOverview {
+    private func storeFolderOverviewInMemory(_ overview: SynologyFolderOverview, folderID: String) {
         folderOverviewLock.lock()
-        if let cached = folderOverviewMemoryCache[folderID] {
-            folderOverviewLock.unlock()
+        folderOverviewMemoryCache[folderID] = overview
+        folderOverviewLock.unlock()
+    }
+
+    private func getFolderOverviewFromMemory(folderID: String) -> SynologyFolderOverview? {
+        folderOverviewLock.lock()
+        defer { folderOverviewLock.unlock() }
+        return folderOverviewMemoryCache[folderID]
+    }
+
+    private func folderOverviewCacheURL(folderID: String) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let scopeHash = SHA256.hash(data: Data(currentServerScope.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let folderHash = SHA256.hash(data: Data(folderID.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return caches
+            .appendingPathComponent("ATMusicSynologyFolderOverviewCache", isDirectory: true)
+            .appendingPathComponent(scopeHash, isDirectory: true)
+            .appendingPathComponent(folderHash + ".json")
+    }
+
+    private func saveFolderOverviewToDisk(_ overview: SynologyFolderOverview, folderID: String) {
+        let url = folderOverviewCacheURL(folderID: folderID)
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let data = try JSONEncoder().encode(overview)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                // 忽略非关键磁盘缓存写入错误
+            }
+        }
+    }
+
+    private func loadFolderOverviewFromDisk(folderID: String) -> SynologyFolderOverview? {
+        let url = folderOverviewCacheURL(folderID: folderID)
+        guard let data = try? Data(contentsOf: url),
+              let ov = try? JSONDecoder().decode(SynologyFolderOverview.self, from: data) else {
+            return nil
+        }
+        return ov
+    }
+
+    /// 0ms 纯内存 / 磁盘 / 索引高速查询文件夹概要（是否含音乐 + 封面预览歌），绝不阻塞主线程与网络
+    func cachedFolderOverview(folderID: String, folderPath: String? = nil) -> SynologyFolderOverview? {
+        if let cached = getFolderOverviewFromMemory(folderID: folderID) {
             return cached
         }
-        folderOverviewLock.unlock()
+
+        restorePersistentLibraryIndexIfNeeded()
+
+        indexLock.lock()
+        let knownPaths = knownMusicFolderPaths
+        let previewMap = folderPreviewSongsByPath
+        let isLibraryLoaded = !librarySongsCache.isEmpty
+        indexLock.unlock()
+
+        if let path = folderPath, !path.isEmpty {
+            let normalized = path.hasPrefix("/") ? String(path.dropFirst()) : path
+            if knownPaths.contains(path) || knownPaths.contains(normalized) {
+                let preview = previewMap[path] ?? previewMap[normalized]
+                let ov = SynologyFolderOverview(hasSupportedAudio: true, previewSong: preview, hasFolder: false)
+                storeFolderOverviewInMemory(ov, folderID: folderID)
+                saveFolderOverviewToDisk(ov, folderID: folderID)
+                return ov
+            } else if isLibraryLoaded, path.lowercased().contains("music") {
+                let ov = SynologyFolderOverview(hasSupportedAudio: false, previewSong: nil, hasFolder: false)
+                storeFolderOverviewInMemory(ov, folderID: folderID)
+                saveFolderOverviewToDisk(ov, folderID: folderID)
+                return ov
+            }
+        }
+
+        if let diskCached = loadFolderOverviewFromDisk(folderID: folderID) {
+            storeFolderOverviewInMemory(diskCached, folderID: folderID)
+            return diskCached
+        }
+
+        return nil
+    }
+
+    /// 递归检测文件夹及其子目录中是否包含可支持音频文件（优先查内存与索引，未命中时极速轻量探针探查）
+    func folderOverview(folderID: String, folderPath: String? = nil, maxDepth: Int = 10) async -> SynologyFolderOverview {
+        if let cached = cachedFolderOverview(folderID: folderID, folderPath: folderPath) {
+            return cached
+        }
 
         var visited = Set<String>()
         var queue: [(id: String, depth: Int)] = [(folderID, 1)]
         visited.insert(folderID)
 
         var result = SynologyFolderOverview()
+        var requestCount = 0
+        let maxRequests = 12
 
-        while !queue.isEmpty {
+        while !queue.isEmpty, requestCount < maxRequests, !Task.isCancelled {
             let current = queue.removeFirst()
-            let items: [SynologyFolderItem]
-            if let cached = cachedFolderItems(folderID: current.id, allowStale: true) {
-                items = cached
-            } else {
-                items = (try? await folderItems(folderID: current.id, limit: 200)) ?? []
-            }
+            requestCount += 1
 
-            var subfolderIDs: [String] = []
-            for item in items {
-                if let song = item.song {
-                    result.hasSupportedAudio = true
-                    if result.previewSong == nil {
-                        result.previewSong = song
-                    }
-                    folderOverviewLock.lock()
-                    folderOverviewMemoryCache[folderID] = result
-                    folderOverviewLock.unlock()
-                    return result
-                } else if item.kind == .folder {
-                    result.hasFolder = true
-                    if current.depth < maxDepth, !visited.contains(item.id) {
-                        visited.insert(item.id)
-                        subfolderIDs.append(item.id)
+            if let cachedItems = cachedFolderItems(folderID: current.id, allowStale: true) {
+                var foundAudio = false
+                var subfolderIDs: [String] = []
+                for item in cachedItems {
+                    if let song = item.song {
+                        result.hasSupportedAudio = true
+                        if result.previewSong == nil {
+                            result.previewSong = song
+                        }
+                        foundAudio = true
+                        break
+                    } else if item.kind == .folder {
+                        result.hasFolder = true
+                        let lowerName = item.name.lowercased()
+                        if current.depth < maxDepth, !visited.contains(item.id),
+                           !lowerName.hasPrefix("@"), !lowerName.hasPrefix("."), lowerName != "#recycle" {
+                            visited.insert(item.id)
+                            subfolderIDs.append(item.id)
+                        }
                     }
                 }
+                if foundAudio {
+                    storeFolderOverviewInMemory(result, folderID: folderID)
+                    saveFolderOverviewToDisk(result, folderID: folderID)
+                    return result
+                }
+                for subID in subfolderIDs {
+                    queue.append((subID, current.depth + 1))
+                }
+                continue
             }
 
-            for subID in subfolderIDs {
-                queue.append((subID, current.depth + 1))
+            do {
+                let probe = try await folderItemsLightweight(folderID: current.id, limit: 30)
+                if probe.hasAudio {
+                    result.hasSupportedAudio = true
+                    if result.previewSong == nil {
+                        result.previewSong = probe.previewSong
+                    }
+                    storeFolderOverviewInMemory(result, folderID: folderID)
+                    saveFolderOverviewToDisk(result, folderID: folderID)
+                    return result
+                } else {
+                    result.hasFolder = result.hasFolder || !probe.subfolderIDs.isEmpty
+                    if current.depth < maxDepth {
+                        for subID in probe.subfolderIDs where !visited.contains(subID) {
+                            visited.insert(subID)
+                            queue.append((subID, current.depth + 1))
+                        }
+                    }
+                }
+            } catch {
+                continue
             }
         }
 
-        folderOverviewLock.lock()
-        folderOverviewMemoryCache[folderID] = result
-        folderOverviewLock.unlock()
+        storeFolderOverviewInMemory(result, folderID: folderID)
+        saveFolderOverviewToDisk(result, folderID: folderID)
         return result
+    }
+
+    /// 轻量级极速文件夹探针：只拉取基础条目类型与文件名，不读取昂贵的 ID3/Vorbis 媒体标签与音频参数
+    private func folderItemsLightweight(folderID: String, limit: Int = 30) async throws -> (hasAudio: Bool, previewSong: Song?, subfolderIDs: [String]) {
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.AudioStation.Folder"),
+            URLQueryItem(name: "version", value: "3"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "library", value: "all"),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "id", value: folderID)
+        ]
+        let json = try await get("/webapi/AudioStation/folder.cgi", query: query, authenticated: true)
+        guard let data = json["data"] as? [String: Any], let items = data["items"] as? [[String: Any]] else {
+            return (false, nil, [])
+        }
+
+        let audioExts: Set<String> = [
+            "mp3", "flac", "wav", "m4a", "m4b", "aac", "alac", "ogg", "opus", "ape", "aiff", "aif", "dsf", "dff", "mpga", "mp2"
+        ]
+
+        var subfolderIDs: [String] = []
+        for item in items {
+            guard let id = Self.stringValue(item["id"]), !id.isEmpty else { continue }
+            let title = Self.stringValue(item["title"]) ?? Self.stringValue(item["name"]) ?? ""
+            let type = Self.stringValue(item["type"])?.lowercased()
+            let path = Self.stringValue(item["path"]) ?? ""
+
+            if type == "folder" || type == "directory" {
+                let lowerTitle = title.lowercased()
+                if !lowerTitle.hasPrefix("@"), !lowerTitle.hasPrefix("."), lowerTitle != "#recycle", lowerTitle != "photos", lowerTitle != "video" {
+                    subfolderIDs.append(id)
+                }
+            } else {
+                let ext = (path as NSString).pathExtension.lowercased()
+                if audioExts.contains(ext) || type == "file" || type == "song" {
+                    let preview = self.parseSong(item)
+                    return (true, preview, [])
+                }
+            }
+        }
+        return (false, nil, subfolderIDs)
     }
 
     /// 获取歌单列表 (SYNO.AudioStation.Playlist)
@@ -1566,6 +1755,14 @@ final class SynologyAPI: ObservableObject {
         }
     }
 
+    private static let discRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"(?:^|[/\\( _-])(?:cd|disc)[ _-]*0*([1-9]\\d*)"#, options: .caseInsensitive)
+    }()
+
+    private static let trackRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"^(?:(?:cd|disc)?\\s*([1-9]\\d*)[-_])?0*([1-9]\\d*)[.\\s_-]"#, options: .caseInsensitive)
+    }()
+
     private func parseSong(_ dict: [String: Any]) -> Song? {
         guard let synoId = dict["id"] as? String ?? (dict["id"] as? Int).map(String.init) else {
             return nil
@@ -1584,7 +1781,7 @@ final class SynologyAPI: ObservableObject {
             ?? ""
         let path = dict["path"] as? String ?? ""
         let filename = (path as NSString).lastPathComponent
-        let cleanName = filename.replacingOccurrences(of: "\\.[^.]+$", with: "", options: .regularExpression)
+        let cleanName = (filename as NSString).deletingPathExtension
         let name = rawTitle.isEmpty ? (cleanName.isEmpty ? "未知歌曲" : cleanName) : rawTitle
 
         let artist = (Self.stringValue(tag?["artist"]) ?? Self.stringValue(dict["artist"]) ?? "")
@@ -1602,7 +1799,7 @@ final class SynologyAPI: ObservableObject {
         var parsedDisc = Self.intValue(tag?["disc"]) ?? Self.intValue(tag?["disc_number"]) ?? Self.intValue(dict["disc"]) ?? Self.intValue(dict["disc_number"]) ?? 1
         if parsedDisc <= 1, !path.isEmpty {
             let lowerPath = path.lowercased()
-            if let regex = try? NSRegularExpression(pattern: #"(?:^|[/\\( _-])(?:cd|disc)[ _-]*0*([1-9]\d*)"#, options: .caseInsensitive),
+            if let regex = Self.discRegex,
                let match = regex.firstMatch(in: lowerPath, options: [], range: NSRange(location: 0, length: lowerPath.utf16.count)),
                let range = Range(match.range(at: 1), in: lowerPath),
                let num = Int(lowerPath[range]) {
@@ -1612,7 +1809,7 @@ final class SynologyAPI: ObservableObject {
         var parsedTrack = Self.intValue(tag?["track"]) ?? Self.intValue(dict["track"]) ?? 0
         if parsedTrack <= 0, !filename.isEmpty {
             // 支持 "01. Title"、"01 - Title"、"1-01 Title" 等文件名序号智能提取
-            if let regex = try? NSRegularExpression(pattern: #"^(?:(?:cd|disc)?\s*([1-9]\d*)[-_])?0*([1-9]\d*)[.\s_-]"#, options: .caseInsensitive),
+            if let regex = Self.trackRegex,
                let match = regex.firstMatch(in: filename, options: [], range: NSRange(location: 0, length: filename.utf16.count)) {
                 if match.numberOfRanges > 1, let dRange = Range(match.range(at: 1), in: filename), let dNum = Int(filename[dRange]), parsedDisc <= 1 {
                     parsedDisc = dNum

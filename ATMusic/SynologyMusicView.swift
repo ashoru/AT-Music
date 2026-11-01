@@ -2046,17 +2046,40 @@ struct SynologyLibrarySection: View {
             songs = newSongs
             playlists = newPlaylists
             var overviews: [String: SynologyFolderOverview] = [:]
-            await withTaskGroup(of: (String, SynologyFolderOverview).self) { group in
-                for item in newRoot where item.kind == .folder {
-                    group.addTask {
-                        (item.id, await synology.folderOverview(folderID: item.id))
-                    }
-                }
-                for await (folderID, ov) in group {
-                    overviews[folderID] = ov
+            var uncachedFolders: [SynologyFolderItem] = []
+            for item in newRoot where item.kind == .folder {
+                if let cached = synology.cachedFolderOverview(folderID: item.id, folderPath: item.path) {
+                    overviews[item.id] = cached
+                } else {
+                    uncachedFolders.append(item)
                 }
             }
             folderOverviewCache = overviews
+
+            if !uncachedFolders.isEmpty {
+                await withTaskGroup(of: (String, SynologyFolderOverview).self) { group in
+                    let concurrency = 3
+                    var cursor = 0
+                    while cursor < min(concurrency, uncachedFolders.count) {
+                        let item = uncachedFolders[cursor]
+                        cursor += 1
+                        group.addTask {
+                            (item.id, await synology.folderOverview(folderID: item.id, folderPath: item.path))
+                        }
+                    }
+                    for await (folderID, ov) in group {
+                        overviews[folderID] = ov
+                        if cursor < uncachedFolders.count {
+                            let next = uncachedFolders[cursor]
+                            cursor += 1
+                            group.addTask {
+                                (next.id, await synology.folderOverview(folderID: next.id, folderPath: next.path))
+                            }
+                        }
+                    }
+                }
+                folderOverviewCache = overviews
+            }
             var playlistPreviews: [String: Song] = [:]
             await withTaskGroup(of: (String, Song?).self) { group in
                 for playlist in newPlaylists {
@@ -2087,40 +2110,47 @@ struct SynologyFolderView: View {
     let title: String
     let breadcrumbs: [String]
     @State private var items: [SynologyFolderItem] = []
+    @State private var displayedFolders: [SynologyFolderItem] = []
+    @State private var displayedSongs: [Song] = []
     /// 各文件夹内容概要（含歌/子文件夹 + 封面预览歌），用于隐藏无音乐文件夹与取封面。
     @State private var folderOverviews: [String: SynologyFolderOverview] = [:]
     @State private var isSelecting = false
-    @State private var selectedIDs: Set<Int> = []
+    @State private var selectedSongKeys: Set<String> = []
     @State private var showBatchEditor = false
     @State private var showBatchAddToPlaylist = false
     @State private var dragStartIndex: Int? = nil
-    @State private var initialSelectedIDsOnDrag: Set<Int>? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
     @State private var dragTargetSelected = true
     @State private var lastDragIndex: Int? = nil
+    @State private var overviewTask: Task<Void, Never>? = nil
 
     private var selectedSongs: [Song] {
-        songs.filter { selectedIDs.contains($0.id) }
+        displayedSongs.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private var songs: [Song] {
+        displayedSongs
     }
 
     private func toggleSelection(_ song: Song) {
-        if selectedIDs.contains(song.id) {
-            selectedIDs.remove(song.id)
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
         } else {
-            selectedIDs.insert(song.id)
+            selectedSongKeys.insert(song.identityKey)
         }
     }
 
     private func handleDragChange(startIndex: Int, deltaRows: Int) {
-        let songList = songs
+        let songList = displayedSongs
         guard startIndex >= 0, startIndex < songList.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
-            initialSelectedIDsOnDrag = selectedIDs
-            let willSelect = !selectedIDs.contains(songList[startIndex].id)
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(songList[startIndex].identityKey)
             dragTargetSelected = willSelect
             lastDragIndex = nil
         }
-        guard let start = dragStartIndex, let initial = initialSelectedIDsOnDrag else { return }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
         let current = min(max(0, start + deltaRows), songList.count - 1)
         guard current != lastDragIndex else { return }
         lastDragIndex = current
@@ -2130,19 +2160,19 @@ struct SynologyFolderView: View {
         let high = max(start, current)
         var updated = initial
         for idx in low...high {
-            let id = songList[idx].id
+            let key = songList[idx].identityKey
             if dragTargetSelected {
-                updated.insert(id)
+                updated.insert(key)
             } else {
-                updated.remove(id)
+                updated.remove(key)
             }
         }
-        selectedIDs = updated
+        selectedSongKeys = updated
     }
 
     private func handleDragEnd() {
         dragStartIndex = nil
-        initialSelectedIDsOnDrag = nil
+        initialSelectedKeysOnDrag = nil
         lastDragIndex = nil
     }
 
@@ -2155,7 +2185,8 @@ struct SynologyFolderView: View {
     @State private var errorMessage: String?
     @State private var query = ""
 
-    private var displayedItems: [SynologyFolderItem] {
+    /// 高性能增量过滤排序：绝不每次求值重复遍历与多次本地化比较，彻底杜绝滑动掉帧卡顿
+    private func updateDisplayedContent() {
         let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filtered = keyword.isEmpty ? items : items.filter { item in
             if item.name.lowercased().contains(keyword) { return true }
@@ -2166,30 +2197,29 @@ struct SynologyFolderView: View {
             }
             return false
         }
-        // 隐藏十级子文件夹内无支持音频文件的文件夹：概要未回先显示，回来后再收起。
+        // 隐藏十级子文件夹内无支持音频文件的文件夹：概要未回先显示，确认无音乐后再收起。
         let musicOnly = filtered.filter { item in
             if item.kind == .song { return true }
             guard let ov = folderOverviews[item.id] else { return true }
             return ov.hasSupportedAudio
         }
-        return musicOnly.sorted { lhs, rhs in
-            if lhs.kind != rhs.kind {
-                return lhs.kind == .folder
+
+        var folders: [SynologyFolderItem] = []
+        var songList: [Song] = []
+        folders.reserveCapacity(musicOnly.count)
+        songList.reserveCapacity(musicOnly.count)
+
+        for item in musicOnly {
+            if item.kind == .folder {
+                folders.append(item)
+            } else if let song = item.song {
+                songList.append(song)
             }
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-    }
 
-    private var displayedFolders: [SynologyFolderItem] {
-        displayedItems.filter { $0.kind == .folder }
-    }
-
-    private var displayedSongs: [Song] {
-        displayedItems.compactMap(\.song)
-    }
-
-    private var songs: [Song] {
-        displayedSongs
+        folders.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        self.displayedFolders = folders
+        self.displayedSongs = songList
     }
 
     private var breadcrumbsView: some View {
@@ -2308,7 +2338,7 @@ struct SynologyFolderView: View {
 
                     if !displayedSongs.isEmpty {
                         Section {
-                            ForEach(Array(displayedSongs.enumerated()), id: \.element.id) { index, song in
+                            ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 SongCell(
                                     song: song,
                                     glassRow: false,
@@ -2318,7 +2348,7 @@ struct SynologyFolderView: View {
                                         player.play(songs: displayedSongs, startAt: index)
                                     },
                                     isMultiSelecting: isSelecting,
-                                    isSelected: selectedIDs.contains(song.id),
+                                    isSelected: selectedSongKeys.contains(song.identityKey),
                                     onToggleSelection: {
                                         toggleSelection(song)
                                     },
@@ -2348,20 +2378,23 @@ struct SynologyFolderView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle(isSelecting ? (selectedIDs.isEmpty ? "选择歌曲" : "已选 \(selectedIDs.count) 首") : title)
+        .navigationTitle(isSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索当前文件夹")
+        .onChange(of: query) { _ in
+            updateDisplayedContent()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if !displayedSongs.isEmpty {
                     if isSelecting {
                         HStack(spacing: 12) {
-                            Button(selectedIDs.count == displayedSongs.count ? "取消全选" : "全选") {
+                            Button(selectedSongKeys.count == displayedSongs.count ? "取消全选" : "全选") {
                                 ATMusicHaptics.tap()
-                                if selectedIDs.count == displayedSongs.count {
-                                    selectedIDs.removeAll()
+                                if selectedSongKeys.count == displayedSongs.count {
+                                    selectedSongKeys.removeAll()
                                 } else {
-                                    selectedIDs = Set(displayedSongs.map(\.id))
+                                    selectedSongKeys = Set(displayedSongs.map(\.identityKey))
                                 }
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
@@ -2370,7 +2403,7 @@ struct SynologyFolderView: View {
                             Button("完成") {
                                 ATMusicHaptics.tap()
                                 isSelecting = false
-                                selectedIDs.removeAll()
+                                selectedSongKeys.removeAll()
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
@@ -2410,28 +2443,28 @@ struct SynologyFolderView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if isSelecting && !selectedIDs.isEmpty {
+            if isSelecting && !selectedSongKeys.isEmpty {
                 UniversalBatchActionBar(
-                    selectedCount: selectedIDs.count,
-                    totalCount: songs.count,
+                    selectedCount: selectedSongKeys.count,
+                    totalCount: displayedSongs.count,
                     actions: [
                         BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
                             let selected = selectedSongs
                             player.play(songs: selected, startAt: 0)
                             isSelecting = false
-                            selectedIDs.removeAll()
+                            selectedSongKeys.removeAll()
                         },
                         BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
                             let selected = selectedSongs
                             player.playNext(songs: selected)
                             isSelecting = false
-                            selectedIDs.removeAll()
+                            selectedSongKeys.removeAll()
                         },
                         BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
                             let selected = selectedSongs
                             player.appendToQueue(songs: selected)
                             isSelecting = false
-                            selectedIDs.removeAll()
+                            selectedSongKeys.removeAll()
                         },
                         BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
                             showBatchAddToPlaylist = true
@@ -2447,7 +2480,7 @@ struct SynologyFolderView: View {
                             }
                             DownloadManager.shared.startBatchDownload(songs: selected, quality: quality)
                             isSelecting = false
-                            selectedIDs.removeAll()
+                            selectedSongKeys.removeAll()
                         },
                         BatchActionItem(id: "edit", title: "批量编辑", systemImage: "square.and.pencil", tint: Color.atmusicAmber) {
                             showBatchEditor = true
@@ -2460,7 +2493,7 @@ struct SynologyFolderView: View {
             }
         }
         .sheet(isPresented: $showBatchEditor) {
-            let selected = songs.filter { selectedIDs.contains($0.id) }
+            let selected = selectedSongs
             SynologyBatchMetadataEditorSheet(songs: selected, keyword: selected.first?.name ?? "")
                 .environmentObject(player)
                 .environmentObject(theme)
@@ -2473,14 +2506,18 @@ struct SynologyFolderView: View {
         .refreshable {
             await load(force: true)
         }
+        .onDisappear {
+            overviewTask?.cancel()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
             if let updated = note.object as? Song {
                 for i in items.indices {
                     if let s = items[i].song,
                        (s.identityKey == updated.identityKey || LocalLibraryStore.isMatchingSong(s, updated) || (s.source == updated.source && s.id == updated.id && s.id != 0)) {
-                        items[i] = SynologyFolderItem(id: items[i].id, name: items[i].kind == .song ? updated.name : items[i].name, kind: items[i].kind, song: updated)
+                        items[i] = SynologyFolderItem(id: items[i].id, name: items[i].kind == .song ? updated.name : items[i].name, kind: items[i].kind, song: updated, path: items[i].path)
                     }
                 }
+                updateDisplayedContent()
             }
         }
     }
@@ -2497,12 +2534,14 @@ struct SynologyFolderView: View {
             synology.invalidateFolderCache(folderID: folderID)
         } else if let fresh = synology.cachedFolderItems(folderID: folderID, allowStale: false) {
             items = fresh
+            updateDisplayedContent()
             isLoading = false
             refreshFolderOverviews()
             return
         } else if let stale = synology.cachedFolderItems(folderID: folderID, allowStale: true) {
             // 旧缓存先展示，网络刷新在后面静默进行。
             items = stale
+            updateDisplayedContent()
             isLoading = false
             refreshFolderOverviews()
         }
@@ -2523,19 +2562,24 @@ struct SynologyFolderView: View {
                 if page.isEmpty { break }
 
                 loaded.append(contentsOf: page)
-                var seen = Set<String>()
-                loaded = loaded.filter { seen.insert("\($0.kind.rawValue)|\($0.id)").inserted }
-                items = loaded
-                isLoading = false
-
                 offset += page.count
                 if page.count < pageSize { break }
             }
 
-            if !loaded.isEmpty {
-                synology.cacheFolderItems(loaded, folderID: folderID)
+            guard !Task.isCancelled else { return }
+
+            var seen = Set<String>()
+            let deduplicated = loaded.filter { seen.insert("\($0.kind.rawValue)|\($0.id)").inserted }
+
+            if !deduplicated.isEmpty {
+                synology.cacheFolderItems(deduplicated, folderID: folderID)
             } else if items.isEmpty {
                 synology.cacheFolderItems([], folderID: folderID)
+            }
+
+            if items != deduplicated {
+                items = deduplicated
+                updateDisplayedContent()
             }
             refreshFolderOverviews()
             isLoading = false
@@ -2550,24 +2594,61 @@ struct SynologyFolderView: View {
         }
     }
 
-    /// 并发查询各文件夹内容概要：用于隐藏无音乐文件夹 + 文件夹封面预览。
+    /// 渐进式轻量刷新文件夹概要：优先命中内存与磁盘缓存，未命中走限流并发（最大 3 并发），绝不堵塞主线程
     private func refreshFolderOverviews() {
-        let folderIDs = items.filter { $0.kind == .folder }.map(\.id)
-        if folderIDs.isEmpty {
+        overviewTask?.cancel()
+        let folderList = items.filter { $0.kind == .folder }
+        guard !folderList.isEmpty else {
             folderOverviews = [:]
+            updateDisplayedContent()
             return
         }
-        Task {
-            var overviews: [String: SynologyFolderOverview] = [:]
+
+        var currentOverviews = folderOverviews
+        var uncachedFolders: [SynologyFolderItem] = []
+
+        for f in folderList {
+            if let existing = synology.cachedFolderOverview(folderID: f.id, folderPath: f.path) {
+                currentOverviews[f.id] = existing
+            } else {
+                uncachedFolders.append(f)
+            }
+        }
+
+        if currentOverviews != folderOverviews {
+            folderOverviews = currentOverviews
+            updateDisplayedContent()
+        }
+
+        guard !uncachedFolders.isEmpty else { return }
+
+        overviewTask = Task {
+            let concurrency = 3
+            var cursor = 0
             await withTaskGroup(of: (String, SynologyFolderOverview).self) { group in
-                for id in folderIDs {
+                while cursor < min(concurrency, uncachedFolders.count) {
+                    let folder = uncachedFolders[cursor]
+                    cursor += 1
                     group.addTask {
-                        (id, await synology.folderOverview(folderID: id))
+                        (folder.id, await synology.folderOverview(folderID: folder.id, folderPath: folder.path))
                     }
                 }
-                for await (fid, ov) in group { overviews[fid] = ov }
+
+                for await (id, ov) in group {
+                    guard !Task.isCancelled else { break }
+                    await MainActor.run {
+                        folderOverviews[id] = ov
+                        updateDisplayedContent()
+                    }
+                    if cursor < uncachedFolders.count {
+                        let nextFolder = uncachedFolders[cursor]
+                        cursor += 1
+                        group.addTask {
+                            (nextFolder.id, await synology.folderOverview(folderID: nextFolder.id, folderPath: nextFolder.path))
+                        }
+                    }
+                }
             }
-            await MainActor.run { folderOverviews = overviews }
         }
     }
 }
