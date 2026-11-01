@@ -298,8 +298,8 @@ struct MusicLibraryHomeView: View {
                         quickAccess
                         playlistsPreview
                     }
-                    .padding(.horizontal, isNativeClean ? 24 : 16)
-                    .padding(.top, isNativeClean ? 18 : 10)
+                    .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+                    .padding(.top, 12)
                     .padding(.bottom, 190)
                     .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
                     .frame(maxWidth: .infinity)
@@ -325,14 +325,15 @@ struct MusicLibraryHomeView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("音乐库")
-                    .font(ATMusicFont.appFont(isNativeClean ? 34 : 30, .bold))
+                    .font(ATMusicFont.appFont(32, .bold))
                     .foregroundStyle(Color.atmusicLabel)
                 Text("自己的音乐，一处找到")
-                    .font(ATMusicFont.appFont(12, .medium))
+                    .font(ATMusicFont.appFont(13, .medium))
                     .foregroundStyle(Color.atmusicComment)
             }
             Spacer()
         }
+        .padding(.top, 4)
     }
 
     private var favoriteHeroCard: some View {
@@ -892,6 +893,10 @@ struct MusicLibraryAllPlaylistsView: View {
     @State private var showDescAlert = false
     @State private var coverLocalID: UUID?
     @State private var showCoverPicker = false
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetSelected: Bool = true
+    @State private var lastDragIndex: Int?
+    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
 
     fileprivate init(initialFilter: MusicLibraryPlaylistFilter = .all) {
         self._filter = State(initialValue: initialFilter)
@@ -909,6 +914,60 @@ struct MusicLibraryAllPlaylistsView: View {
             selectedIDs.insert(item.id)
         }
         ATMusicHaptics.tap()
+    }
+
+    private func handlePlaylistDragChange(startIndex: Int, currentY: CGFloat) {
+        let allIDs = items.map(\.id)
+        guard startIndex >= 0, startIndex < allIDs.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            let id = allIDs[startIndex]
+            let willSelect = !selectedIDs.contains(id)
+            dragTargetSelected = willSelect
+            if willSelect {
+                selectedIDs.insert(id)
+            } else {
+                selectedIDs.remove(id)
+            }
+            lastDragIndex = startIndex
+            ATMusicHaptics.select()
+        }
+        guard let start = dragStartIndex else { return }
+
+        var targetIndex: Int?
+        for (idx, frame) in multiSelectRowFrames {
+            if frame.minY <= currentY && currentY <= frame.maxY {
+                targetIndex = idx
+                break
+            }
+        }
+        if targetIndex == nil {
+            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
+                targetIndex = minEntry.key
+            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
+                targetIndex = maxEntry.key
+            }
+        }
+        guard let current = targetIndex, current >= 0, current < allIDs.count else { return }
+        let low = min(start, current)
+        let high = max(start, current)
+        for idx in low...high {
+            let id = allIDs[idx]
+            if dragTargetSelected {
+                selectedIDs.insert(id)
+            } else {
+                selectedIDs.remove(id)
+            }
+        }
+        if current != lastDragIndex {
+            lastDragIndex = current
+            ATMusicHaptics.select()
+        }
+    }
+
+    private func handlePlaylistDragEnd() {
+        dragStartIndex = nil
+        lastDragIndex = nil
     }
 
     @ViewBuilder
@@ -947,27 +1006,52 @@ struct MusicLibraryAllPlaylistsView: View {
     }
 
     @ViewBuilder
-    private func playlistItemCore(_ item: MusicLibraryPlaylistItem, isCard: Bool) -> some View {
+    private func playlistItemCore(_ item: MusicLibraryPlaylistItem, index: Int, isCard: Bool) -> some View {
         if isManaging {
-            playlistItemContent(item, isCard: isCard)
+            playlistItemContent(item, index: index, isCard: isCard)
                 .contextMenu {
                     manageMenu(for: item)
                 }
         } else {
-            playlistItemContent(item, isCard: isCard)
+            playlistItemContent(item, index: index, isCard: isCard)
         }
     }
 
     @ViewBuilder
-    private func playlistItemContent(_ item: MusicLibraryPlaylistItem, isCard: Bool) -> some View {
+    private func playlistItemContent(_ item: MusicLibraryPlaylistItem, index: Int, isCard: Bool) -> some View {
         if isSelecting {
-            Button {
-                toggleItemSelection(item)
-            } label: {
-                playlistItemLabel(item, isCard: isCard)
-                    .overlay(alignment: .topTrailing) {
-                        selectionBadge(for: item)
-                    }
+            if isCard {
+                Button {
+                    toggleItemSelection(item)
+                } label: {
+                    playlistItemLabel(item, isCard: isCard)
+                        .overlay(alignment: .topTrailing) {
+                            selectionBadge(for: item)
+                        }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    MultiSelectCheckmark(
+                        isSelected: selectedIDs.contains(item.id),
+                        index: index,
+                        coordinateSpace: "AllPlaylistsListSpace",
+                        onToggle: {
+                            toggleItemSelection(item)
+                        },
+                        onDragChange: { startIdx, y in
+                            handlePlaylistDragChange(startIndex: startIdx, currentY: y)
+                        },
+                        onDragEnd: {
+                            handlePlaylistDragEnd()
+                        }
+                    )
+                    playlistItemLabel(item, isCard: false)
+                }
+                .multiSelectRow(index: index, coordinateSpace: "AllPlaylistsListSpace")
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    toggleItemSelection(item)
+                }
             }
         } else {
             NavigationLink {
@@ -1226,7 +1310,15 @@ struct MusicLibraryAllPlaylistsView: View {
     }
 
     private var batchBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
+            Button(selectedIDs.count == items.count && !items.isEmpty ? "取消全选" : "全选") {
+                if selectedIDs.count == items.count {
+                    selectedIDs.removeAll()
+                } else {
+                    selectedIDs = Set(items.map(\.id))
+                }
+                ATMusicHaptics.tap()
+            }
             Text(selectedIDs.isEmpty ? "未选择歌单" : "已选 \(selectedIDs.count) 个")
                 .font(ATMusicFont.appFont(12, .medium))
                 .foregroundStyle(Color.atmusicComment)
@@ -1239,6 +1331,8 @@ struct MusicLibraryAllPlaylistsView: View {
                 .disabled(selectedIDs.isEmpty)
             Button("完成") {
                 isManaging = false
+                isSelecting = false
+                selectedIDs.removeAll()
             }
         }
         .font(ATMusicFont.appFont(13, .semibold))
@@ -1397,8 +1491,8 @@ struct MusicLibraryAllPlaylistsView: View {
         ZStack {
             GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
             VStack(spacing: 0) {
-                modeSegmented
                 filterSegmented
+                    .padding(.top, 8)
 
                 if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                     ScrollView {
@@ -1410,8 +1504,8 @@ struct MusicLibraryAllPlaylistsView: View {
                                 columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 160, maxWidth: 240, spacing: 16),
                                 spacing: 18
                             ) {
-                                ForEach(items) { item in
-                                    playlistItemCore(item, isCard: true)
+                                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                    playlistItemCore(item, index: index, isCard: true)
                                         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                                 }
                             }
@@ -1429,8 +1523,8 @@ struct MusicLibraryAllPlaylistsView: View {
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                         } else {
-                            ForEach(items) { item in
-                                playlistItemCore(item, isCard: false)
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                playlistItemCore(item, index: index, isCard: false)
                                     .listRowInsets(EdgeInsets())
                                     .listRowBackground(Color.clear)
                                     .listRowSeparator(.hidden)
@@ -1439,6 +1533,10 @@ struct MusicLibraryAllPlaylistsView: View {
                     }
                     .atmusicScrollContentBackgroundHidden()
                     .listStyle(.plain)
+                    .coordinateSpace(name: "AllPlaylistsListSpace")
+                    .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
+                        multiSelectRowFrames = frames
+                    }
                 }
             }
         }
@@ -1455,17 +1553,31 @@ struct MusicLibraryAllPlaylistsView: View {
             prompt: "搜索歌单名称"
         )
         .toolbar {
-            if isManaging {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 14) {
-                        Menu {
-                            Button("新建本地歌单") { beginCreate(source: .local) }
-                            Button("新建网易云歌单") { beginCreate(source: .netease) }
-                            Button("新建 QQ 歌单") { beginCreate(source: .qq) }
-                        } label: {
-                            Image(systemName: "plus")
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 14) {
+                    Menu {
+                        Button("新建本地歌单") { beginCreate(source: .local) }
+                        Button("新建网易云歌单") { beginCreate(source: .netease) }
+                        Button("新建 QQ 歌单") { beginCreate(source: .qq) }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    if isManaging {
+                        Button("完成") {
+                            isManaging = false
+                            isSelecting = false
+                            selectedIDs.removeAll()
+                            ATMusicHaptics.tap()
                         }
-                        Button("完成") { isManaging = false }
+                        .font(ATMusicFont.appFont(15, .semibold))
+                    } else {
+                        Button("管理") {
+                            isManaging = true
+                            isSelecting = true
+                            selectedIDs.removeAll()
+                            ATMusicHaptics.tap()
+                        }
+                        .font(ATMusicFont.appFont(15))
                     }
                 }
             }
@@ -1997,6 +2109,10 @@ struct LocalPlaylistBrowserView: View {
     @State private var showCoverPicker = false
     @State private var showDescriptionAlert = false
     @State private var descriptionText = ""
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetSelected: Bool = true
+    @State private var lastDragIndex: Int?
+    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
 
     private var selectedLocalSongs: [Song] {
         let selected = Set(selectedKeys)
@@ -2268,14 +2384,21 @@ struct LocalPlaylistBrowserView: View {
             Section {
                 ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
                     HStack(spacing: 12) {
-                        Button {
-                            toggleLocalSelection(song)
-                        } label: {
-                            Image(systemName: selectedKeys.contains(song.identityKey) ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(selectedKeys.contains(song.identityKey) ? Color.atmusicAmber : Color.atmusicComment)
-                        }
-                        .buttonStyle(.plain)
+                        MultiSelectCheckmark(
+                            isSelected: selectedKeys.contains(song.identityKey),
+                            index: index,
+                            coordinateSpace: "LocalPlaylistEditListSpace",
+                            onToggle: {
+                                toggleLocalSelection(song)
+                                ATMusicHaptics.tap()
+                            },
+                            onDragChange: { startIdx, y in
+                                handleLocalDragChange(startIndex: startIdx, currentY: y)
+                            },
+                            onDragEnd: {
+                                handleLocalDragEnd()
+                            }
+                        )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.name)
                                 .font(ATMusicFont.appFont(14, .medium))
@@ -2293,6 +2416,7 @@ struct LocalPlaylistBrowserView: View {
                                 .foregroundStyle(Color.atmusicComment.opacity(0.55))
                         }
                     }
+                    .multiSelectRow(index: index, coordinateSpace: "LocalPlaylistEditListSpace")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .contentShape(Rectangle())
@@ -2337,6 +2461,10 @@ struct LocalPlaylistBrowserView: View {
         .atmusicScrollContentBackgroundHidden()
         .listStyle(.plain)
         .environment(\.editMode, .constant(.active))
+        .coordinateSpace(name: "LocalPlaylistEditListSpace")
+        .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
+            multiSelectRowFrames = frames
+        }
     }
 
     private var localEditBottomBar: some View {
@@ -2376,6 +2504,60 @@ struct LocalPlaylistBrowserView: View {
         } else {
             selectedKeys.insert(song.identityKey)
         }
+    }
+
+    private func handleLocalDragChange(startIndex: Int, currentY: CGFloat) {
+        let keys = songs.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            let key = keys[startIndex]
+            let willSelect = !selectedKeys.contains(key)
+            dragTargetSelected = willSelect
+            if willSelect {
+                selectedKeys.insert(key)
+            } else {
+                selectedKeys.remove(key)
+            }
+            lastDragIndex = startIndex
+            ATMusicHaptics.select()
+        }
+        guard let start = dragStartIndex else { return }
+
+        var targetIndex: Int?
+        for (idx, frame) in multiSelectRowFrames {
+            if frame.minY <= currentY && currentY <= frame.maxY {
+                targetIndex = idx
+                break
+            }
+        }
+        if targetIndex == nil {
+            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
+                targetIndex = minEntry.key
+            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
+                targetIndex = maxEntry.key
+            }
+        }
+        guard let current = targetIndex, current >= 0, current < keys.count else { return }
+        let low = min(start, current)
+        let high = max(start, current)
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                selectedKeys.insert(k)
+            } else {
+                selectedKeys.remove(k)
+            }
+        }
+        if current != lastDragIndex {
+            lastDragIndex = current
+            ATMusicHaptics.select()
+        }
+    }
+
+    private func handleLocalDragEnd() {
+        dragStartIndex = nil
+        lastDragIndex = nil
     }
 
     private func moveLocalSelected(to target: PlaylistEditTarget) async {

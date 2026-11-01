@@ -54,6 +54,10 @@ struct PlaylistView: View {
     @State private var isBatchUploading = false
     @State private var showNASPlaylistEditor = false
     @State private var showNASPlaylistDelete = false
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetSelected: Bool = true
+    @State private var lastDragIndex: Int?
+    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
 
     @MainActor
     private func batchDownloadPlaylist() {
@@ -627,21 +631,20 @@ struct PlaylistView: View {
                 Spacer(minLength: 0)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                     guard !displayedTracks.isEmpty else { return }
                     player.play(songs: displayedTracks, startAt: 0)
                 }
                 .disabled(displayedTracks.isEmpty)
+                .frame(maxWidth: .infinity)
 
-                GlassIconButton(systemName: "shuffle", size: 42, active: false) {
+                GlassButton(title: "随机播放", systemName: "shuffle", prominent: false) {
                     guard !displayedTracks.isEmpty else { return }
                     player.play(songs: displayedTracks.shuffled(), startAt: 0)
                 }
                 .disabled(displayedTracks.isEmpty)
-                .accessibilityLabel("随机播放")
-
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity)
             }
 
             playlistSearchRow
@@ -678,6 +681,60 @@ struct PlaylistView: View {
 
     // MARK: - 编辑态（阶段 2）
 
+    private func handleDragChange(startIndex: Int, currentY: CGFloat) {
+        let keys = displayedTracks.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            let key = keys[startIndex]
+            let willSelect = !selectedKeys.contains(key)
+            dragTargetSelected = willSelect
+            if willSelect {
+                selectedKeys.insert(key)
+            } else {
+                selectedKeys.remove(key)
+            }
+            lastDragIndex = startIndex
+            ATMusicHaptics.select()
+        }
+        guard let start = dragStartIndex else { return }
+
+        var targetIndex: Int?
+        for (idx, frame) in multiSelectRowFrames {
+            if frame.minY <= currentY && currentY <= frame.maxY {
+                targetIndex = idx
+                break
+            }
+        }
+        if targetIndex == nil {
+            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
+                targetIndex = minEntry.key
+            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
+                targetIndex = maxEntry.key
+            }
+        }
+        guard let current = targetIndex, current >= 0, current < keys.count else { return }
+        let low = min(start, current)
+        let high = max(start, current)
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                selectedKeys.insert(k)
+            } else {
+                selectedKeys.remove(k)
+            }
+        }
+        if current != lastDragIndex {
+            lastDragIndex = current
+            ATMusicHaptics.select()
+        }
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        lastDragIndex = nil
+    }
+
     private var editHintText: String {
         var parts: [String] = []
         if capabilities.canRemoveSongs {
@@ -698,15 +755,21 @@ struct PlaylistView: View {
             Section {
                 ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
                     HStack(spacing: 12) {
-                        Button {
-                            toggleSelection(song)
-                            ATMusicHaptics.tap()
-                        } label: {
-                            Image(systemName: selectedKeys.contains(song.identityKey) ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(selectedKeys.contains(song.identityKey) ? Color.atmusicAmber : Color.atmusicComment)
-                        }
-                        .buttonStyle(.plain)
+                        MultiSelectCheckmark(
+                            isSelected: selectedKeys.contains(song.identityKey),
+                            index: index,
+                            coordinateSpace: "PlaylistEditListSpace",
+                            onToggle: {
+                                toggleSelection(song)
+                                ATMusicHaptics.tap()
+                            },
+                            onDragChange: { startIdx, y in
+                                handleDragChange(startIndex: startIdx, currentY: y)
+                            },
+                            onDragEnd: {
+                                handleDragEnd()
+                            }
+                        )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.name)
                                 .font(ATMusicFont.appFont(14, .medium))
@@ -724,6 +787,7 @@ struct PlaylistView: View {
                                 .foregroundStyle(Color.atmusicComment.opacity(0.55))
                         }
                     }
+                    .multiSelectRow(index: index, coordinateSpace: "PlaylistEditListSpace")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .contentShape(Rectangle())
@@ -762,6 +826,10 @@ struct PlaylistView: View {
         .atmusicScrollContentBackgroundHidden()
         .listStyle(.plain)
         .environment(\.editMode, .constant(.active))
+        .coordinateSpace(name: "PlaylistEditListSpace")
+        .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
+            multiSelectRowFrames = frames
+        }
     }
 
     private var editBottomBar: some View {

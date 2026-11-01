@@ -486,7 +486,7 @@ struct SearchView: View {
     private var headerTitle: some View {
         HStack(alignment: .center, spacing: 10) {
             Text(keyword.isEmpty ? "搜索" : keyword)
-                .font(ATMusicFont.appFont(keyword.isEmpty ? 30 : 42, .bold))
+                .font(ATMusicFont.appFont(keyword.isEmpty ? 32 : 42, .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
                 .foregroundStyle(Color.atmusicLabel)
@@ -2566,19 +2566,17 @@ struct AlbumDetailView: View {
             }
 
             if !sortedTracks.isEmpty {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                         player.play(songs: sortedTracks, startAt: 0)
                     }
-                    GlassIconButton(systemName: "shuffle", size: 44, active: false) {
+                    .frame(maxWidth: .infinity)
+
+                    GlassButton(title: "随机播放", systemName: "shuffle", prominent: false) {
                         guard !sortedTracks.isEmpty else { return }
                         player.play(songs: sortedTracks.shuffled(), startAt: 0)
                     }
-                    if discGroups.count > 1 {
-                        GlassIconButton(systemName: "arrow.triangle.swap", size: 44, active: false) {
-                            player.play(songs: sortedTracks, startAt: 0)
-                        }
-                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }

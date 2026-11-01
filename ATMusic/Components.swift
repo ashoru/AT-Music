@@ -1828,3 +1828,84 @@ struct ToastView: View {
         .allowsHitTesting(false)
     }
 }
+
+
+// MARK: - 滑动多选 / 连续拖拽批量选择支持 (Swipe Multi-Select)
+
+public struct MultiSelectRowFramePreference: PreferenceKey {
+    public static var defaultValue: [Int: CGRect] = [:]
+    public static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+public struct MultiSelectRowFrameModifier: ViewModifier {
+    let index: Int
+    let coordinateSpace: String
+
+    public func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: MultiSelectRowFramePreference.self,
+                        value: [index: geo.frame(in: .named(coordinateSpace))]
+                    )
+                }
+            )
+    }
+}
+
+extension View {
+    public func multiSelectRow(index: Int, coordinateSpace: String) -> some View {
+        modifier(MultiSelectRowFrameModifier(index: index, coordinateSpace: coordinateSpace))
+    }
+}
+
+/// 支持点按切换与连续拖拽滑动多选的复选圈
+public struct MultiSelectCheckmark: View {
+    let isSelected: Bool
+    let index: Int
+    let coordinateSpace: String
+    let onToggle: () -> Void
+    let onDragChange: (Int, CGFloat) -> Void
+    let onDragEnd: () -> Void
+
+    public init(
+        isSelected: Bool,
+        index: Int,
+        coordinateSpace: String,
+        onToggle: @escaping () -> Void,
+        onDragChange: @escaping (Int, CGFloat) -> Void,
+        onDragEnd: @escaping () -> Void
+    ) {
+        self.isSelected = isSelected
+        self.index = index
+        self.coordinateSpace = coordinateSpace
+        self.onToggle = onToggle
+        self.onDragChange = onDragChange
+        self.onDragEnd = onDragEnd
+    }
+
+    public var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+            .frame(width: 38, height: 38)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .named(coordinateSpace))
+                    .onChanged { val in
+                        onDragChange(index, val.location.y)
+                    }
+                    .onEnded { _ in
+                        onDragEnd()
+                    }
+            )
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    onToggle()
+                }
+            )
+    }
+}

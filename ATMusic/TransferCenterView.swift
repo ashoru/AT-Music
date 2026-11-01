@@ -25,6 +25,64 @@ struct TransferCenterView: View {
     @State private var showLyricsBatch: Bool = false
     @State private var showCancelAllDownloadsAlert: Bool = false
     @State private var showCancelAllUploadsAlert: Bool = false
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetSelected: Bool = true
+    @State private var lastDragIndex: Int?
+    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
+
+    private func handleOfflineDragChange(startIndex: Int, currentY: CGFloat) {
+        let keys = downloadManager.downloadedSongs.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            let key = keys[startIndex]
+            let willSelect = !selectedOfflineIDs.contains(key)
+            dragTargetSelected = willSelect
+            if willSelect {
+                selectedOfflineIDs.insert(key)
+            } else {
+                selectedOfflineIDs.remove(key)
+            }
+            lastDragIndex = startIndex
+            ATMusicHaptics.select()
+        }
+        guard let start = dragStartIndex else { return }
+
+        var targetIndex: Int?
+        for (idx, frame) in multiSelectRowFrames {
+            if frame.minY <= currentY && currentY <= frame.maxY {
+                targetIndex = idx
+                break
+            }
+        }
+        if targetIndex == nil {
+            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
+                targetIndex = minEntry.key
+            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
+                targetIndex = maxEntry.key
+            }
+        }
+        guard let current = targetIndex, current >= 0, current < keys.count else { return }
+        let low = min(start, current)
+        let high = max(start, current)
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                selectedOfflineIDs.insert(k)
+            } else {
+                selectedOfflineIDs.remove(k)
+            }
+        }
+        if current != lastDragIndex {
+            lastDragIndex = current
+            ATMusicHaptics.select()
+        }
+    }
+
+    private func handleOfflineDragEnd() {
+        dragStartIndex = nil
+        lastDragIndex = nil
+    }
 
     private var selectedOfflineSongs: [Song] {
         downloadManager.downloadedSongs.filter { selectedOfflineIDs.contains($0.identityKey) }

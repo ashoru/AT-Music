@@ -474,6 +474,11 @@ struct FeaturedView: View {
 
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @AppStorage("atmusic.featuredSource") private var featuredSourceRaw = FeaturedSource.netease.rawValue
+    @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
+
+    private var isNativeClean: Bool {
+        ATMusicUIStyle(rawValue: uiStyleRaw) == .nativeClean
+    }
 
     private var availableFeaturedSources: [FeaturedSource] {
         var list: [FeaturedSource] = [.aggregate]
@@ -524,8 +529,8 @@ struct FeaturedView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     featuredSearchField
-                        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
-                        .padding(.bottom, 14)
+                        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+                        .padding(.bottom, 12)
                     categoryChips
                         .padding(.bottom, 12)
 
@@ -605,7 +610,7 @@ struct FeaturedView: View {
         }
     }
 
-    /// 左上角：当前来源品牌图标 + 标题 + 下拉箭头，点击弹出「聚合 / 网易云 / QQ / 酷狗」切换菜单。
+    /// 左上角：纯净标题 + 下拉箭头，点击弹出「聚合 / 网易云 / QQ / 酷狗」切换菜单（对标 Apple Music 规范，去除页面图标）
     private var header: some View {
         HStack(alignment: .center) {
             Menu {
@@ -620,18 +625,8 @@ struct FeaturedView: View {
                 }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let imageName = featuredSource.brandImageName {
-                        Image(imageName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 24, height: 24)
-                    } else {
-                        Image(systemName: featuredSource.aggregateIcon)
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(Color.atmusicAmber)
-                    }
                     Text(featuredSource.title)
-                        .font(ATMusicFont.appFont(30, .bold))
+                        .font(ATMusicFont.appFont(32, .bold))
                         .foregroundStyle(Color.atmusicLabel)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
@@ -644,9 +639,9 @@ struct FeaturedView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
-        .padding(.top, 10)
-        .padding(.bottom, 14)
+        .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+        .padding(.top, 12)
+        .padding(.bottom, 12)
     }
 
     private var featuredSearchField: some View {
@@ -668,30 +663,46 @@ struct FeaturedView: View {
 
     private var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(categories, id: \.self) { category in
+                    let isSelected = selectedCategory == category
                     Button {
                         guard selectedCategory != category else { return }
                         ATMusicHaptics.select()
-                        selectedCategory = category
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                            selectedCategory = category
+                        }
                     } label: {
                         Text(category)
-                            .font(ATMusicFont.appFont(13, .medium))
-                            .atmusicSelectionForeground(selected: selectedCategory == category, accent: .atmusicAmber)
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 8)
+                            .font(ATMusicFont.appFont(13, isSelected ? .semibold : .medium))
+                            .foregroundStyle(
+                                isSelected
+                                    ? (isNativeClean ? Color.primary : Color.white)
+                                    : Color.atmusicComment
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
                             .background {
-                                ATMusicSelectableSurface(
-                                    selected: selectedCategory == category,
-                                    shape: Capsule(),
-                                    accent: .atmusicAmber
-                                )
+                                if isSelected {
+                                    if isNativeClean {
+                                        Capsule()
+                                            .fill(Color(uiColor: .systemFill))
+                                            .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.6))
+                                    } else {
+                                        Capsule()
+                                            .fill(Color.atmusicAmber)
+                                            .shadow(color: Color.atmusicAmber.opacity(0.35), radius: 6, y: 2)
+                                    }
+                                } else {
+                                    Capsule()
+                                        .fill(Color(uiColor: .secondarySystemFill))
+                                }
                             }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(GlassPressButtonStyle(scale: 0.96))
                 }
             }
-            .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : 24)
+            .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
         }
     }
 

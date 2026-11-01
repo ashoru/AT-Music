@@ -22,6 +22,7 @@ struct ProfileView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage("atmusic.themeMode") private var themeModeRaw = ATMusicThemeMode.system.rawValue
     @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
     @AppStorage("atmusic.homeHeaderHideSort") private var homeHeaderHideSort = false
@@ -119,12 +120,12 @@ struct ProfileView: View {
     /// 顶部标题 + 右上角设置齿轮
     private var header: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("我的")
-                    .font(ATMusicFont.appFont(30, .bold))
+                    .font(ATMusicFont.appFont(32, .bold))
                     .foregroundStyle(Color.atmusicLabel)
-            Text(isEnglish ? "\(displayPlatformSummary) account and appearance settings" : "\(platformPrefs.summaryText) 账号与外观设置")
-                    .font(ATMusicFont.appFont(13))
+                Text(isEnglish ? "\(displayPlatformSummary) account and appearance settings" : "\(platformPrefs.summaryText) 账号与外观设置")
+                    .font(ATMusicFont.appFont(13, .medium))
                     .foregroundStyle(Color.atmusicComment)
             }
             Spacer()
@@ -142,14 +143,14 @@ struct ProfileView: View {
                 }
             }
         }
-        .padding(.top, 8)
+        .padding(.top, 4)
     }
 
     private var appleHeader: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .center) {
                 Text("我的")
-                    .font(ATMusicFont.appFont(38, .bold))
+                    .font(ATMusicFont.appFont(32, .bold))
                     .foregroundStyle(Color.atmusicLabel)
                 Spacer(minLength: 12)
                 if !hideAppearanceToggle {
@@ -202,8 +203,8 @@ struct ProfileView: View {
                     // 更新日志已在设置页提供，我的页不再展示。
                     profileVersionFooter
                 }
-                .padding(.horizontal, isNativeClean ? 24 : 16)
-                .padding(.top, isNativeClean ? 14 : 8)
+                .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+                .padding(.top, 12)
                 .padding(.bottom, 190)
                 .frame(maxWidth: 860)
                 .frame(maxWidth: .infinity)

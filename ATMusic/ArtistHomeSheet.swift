@@ -581,20 +581,25 @@ struct AllSourcesArtistHomeSheet: View {
 
     private var songsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                SectionHeader(title: "全部歌曲")
-                Spacer()
-                if !filteredSongs.isEmpty {
-                    Button {
+            SectionHeader(title: "全部歌曲")
+                .padding(.horizontal, 16)
+
+            if !filteredSongs.isEmpty {
+                HStack(spacing: 12) {
+                    GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
                         ATMusicHaptics.tap()
                         player.play(songs: filteredSongs, startAt: 0)
-                    } label: {
-                        Label("播放全部", systemImage: "play.fill")
-                            .font(ATMusicFont.appFont(12, .semibold))
-                            .foregroundStyle(Color.atmusicAmber)
                     }
-                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                    .frame(maxWidth: .infinity)
+
+                    GlassButton(title: "随机播放", systemName: "shuffle", prominent: false) {
+                        ATMusicHaptics.tap()
+                        player.play(songs: filteredSongs.shuffled(), startAt: 0)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 2)
             }
             if !visibleSongs.isEmpty {
                 HStack(spacing: 8) {

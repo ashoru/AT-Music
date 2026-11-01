@@ -142,8 +142,8 @@ struct DiscoverView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, isNativeClean ? 24 : 16)
-                    .padding(.top, isNativeClean ? 32 : 8)
+                    .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+                    .padding(.top, 12)
                     .padding(.bottom, 190)
                     .frame(maxWidth: DeviceLayoutHelper.contentMaxWidth(for: horizontalSizeClass))
                     .frame(maxWidth: .infinity)
@@ -293,30 +293,20 @@ struct DiscoverView: View {
         }
     }
 
-    /// 顶部问候区：大标题 + 刷新按钮
+    /// 顶部问候区：大标题 + 刷新按钮（对标 Apple Music 规范，去除页面图标）
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Menu {
                         homePlatformSelectionMenu
                     } label: {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            if !isHomeAggregate, let imageName = source.brandImageName {
-                                Image(imageName)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: isNativeClean ? 25 : 21, height: isNativeClean ? 25 : 21)
-                            } else if isHomeAggregate {
-                                Image(systemName: "square.stack.3d.up.fill")
-                                    .font(.system(size: isNativeClean ? 20 : 17, weight: .semibold))
-                                    .foregroundStyle(Color.atmusicAmber)
-                            }
                             Text(LocalizedStringKey(homeHeaderTitle))
-                                .font(ATMusicFont.greetingFont(isNativeClean ? 38 : 30, .bold))
+                                .font(ATMusicFont.appFont(32, .bold))
                                 .foregroundStyle(Color.atmusicLabel)
                             Image(systemName: "chevron.down")
-                                .font(.system(size: isNativeClean ? 14 : 12, weight: .bold))
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundStyle(Color.atmusicComment)
                         }
                         .contentShape(Rectangle())
