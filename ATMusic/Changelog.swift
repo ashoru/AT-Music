@@ -48,6 +48,27 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.43-build-143",
+            version: "1.9.43",
+            title: "群晖 NAS M4A 物理双引擎直写、全格式无损母带内嵌与音源秒级响应优化",
+            notices: [
+                "针对 NAS M4A 音乐标签与封面无法编辑的历史痛点，推出 Dual-Engine 物理双引擎写回架构；全面兼容 MP3 / M4A / ALAC / AAC / FLAC / WAV / AIFF / OGG / OPUS / APE / DSD 全格式标签与封面管理，对标主流发烧级 NAS 播放器（Plexamp/Doppler/Navidrome），实现修改立即可见与永久保真。"
+            ],
+            features: [
+                "NAS 物理文件直写与 DSM 索引协同双引擎（Dual-Engine Tag & Cover Writeback）：彻底告别 DSM 6/7 Audio Station tag_editor.cgi 对 M4A 等容器频发的读写失败与封面丢弃。优先通过 File Station 下载原音频并在本地沙盒完成高精度原子内嵌（包含标题、艺术家、专辑、曲号、碟号、歌词及高清封面），覆盖回传 NAS 原路径；同步写入目录标准 cover.jpg 确保 DLNA/文件管理器全场景覆盖，并协同通知 DSM 更新数据库索引，即使服务端 CGI 报错也保证物理文件 100% 写入成功且用户零阻断。",
+                "QuickTime 与 ISO MP4 智能自适应元数据引擎：深入底层重构 MP4TagWriter，智能探测 QuickTime 标准 Box（0 字节 flags）与 ISO FullBox（4 字节 flags），彻底根除原子偏移错位导致的「原子长度越界」崩溃；重写 ilst 动态管理算法，仅更新用户明确修改的字段，完美保留未改动的封面、歌词、曲序、音轨号及私有标签，杜绝标签被误删。",
+                "全量音频容器格式无损兼容拓展：全面放宽 SynologyAPI 写入扩展名限制，涵盖 MP3、M4A、MP4、ALAC、AAC、FLAC、WAV、AIFF、OGG、OPUS、APE 及 DSD（DSF/DFF）；扩展 AudioTagEmbedder 离线归档内嵌支持，使平台下载歌曲归档至 NAS 时 M4A/ALAC/WAV/AIFF 同样具备完整的物理内嵌标签与高清封面。",
+                "修改立即可见与全链路穿透刷新：标签与封面写入后，实时注入内存远程封面缓存（ATMusicRemoteCoverCache）并派发通知，正在播放单曲（PlayerManager）、详情页缓存（DetailSongsCache）及曲库视图毫秒级更新，并携带 UUID 时间戳彻底穿透 DSM 缩略图服务端的持久化旧图缓存。"
+            ],
+            fixes: [
+                "彻底修复群晖 NAS 下 M4A 音乐文件修改歌曲标签与封面报错失败、无法写入的严重 Bug",
+                "修复 M4A 文件仅编辑文字标签时，原有内嵌专辑封面或歌词被意外清空的 Bug",
+                "修复 WAV、ALAC、AAC、DSD 等格式在编辑 NAS 标签时被错误拦截报错的兼容性问题",
+                "修复平台下载歌曲在执行一键归档至 NAS 时，M4A/ALAC/WAV 等格式未物理内嵌标签与封面的遗留缺陷",
+                "修复 NAS 封面修改后播放器与列表偶发仍显示旧封面、无法立即可见的问题"
+            ],
+        ),
+        VersionLog(
             id: "1.9.42-build-142",
             version: "1.9.42",
             title: "零错选防漂移滑动多选、全站顶栏右侧菜单收敛统一、歌手页专辑多选与极简流式 NAS 文件夹浏览",

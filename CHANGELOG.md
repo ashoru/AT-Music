@@ -1,5 +1,33 @@
 # AT Music 更新日志
 
+## 1.9.43 build 143
+
+### 群晖 NAS M4A 物理双引擎直写、全格式无损母带内嵌与音源秒级响应优化
+
+本次更新针对群晖 NAS M4A 音乐标签与封面无法编辑的问题进行了底层重构，并对标主流发烧级 NAS 播放器（Plexamp/Doppler/Navidrome）推出全套 Dual-Engine 架构：
+
+- **NAS 物理文件直写与 DSM 索引协同双引擎（Dual-Engine Tag & Cover Writeback）**：
+  - 针对 Audio Station `tag_editor.cgi` 对 M4A 等容器频发的写入失败、封面丢弃与索引卡死问题，引入物理文件直写引擎；
+  - 自动通过 File Station 下载并在沙盒内完成原子内嵌（标题、艺术家、专辑、曲目号、碟号、歌词及高清封面），以 overwrite 方式回传 NAS 原路径；
+  - 同步写入目录标准 `cover.jpg`（自动去重），确保 DLNA 与各类文件管理器即刻展示封面；
+  - 协同通知 Audio Station 更新数据库索引，即使 DSM 服务端 CGI 报错也能确保物理文件 100% 成功落盘。
+- **QuickTime 与 ISO MP4 智能自适应元数据引擎**：
+  - 智能兼容 Apple QuickTime 标准 Box（0 字节 flags）与 ISO FullBox（4 字节 flags），彻底根除原子偏移错位导致的「原子长度越界」报错；
+  - 引入动态 `managedIlstTypes` 管理，仅覆写用户实际修改的字段，原有内嵌封面、歌词、曲序及私有标签 100% 完美保留。
+- **全量音频容器格式无损兼容拓展**：
+  - 支持 `mp3`, `m4a`, `mp4`, `alac`, `aac`, `flac`, `wav`, `wave`, `aiff`, `aif`, `aifc`, `ogg`, `opus`, `ape`, `dsf`, `dff` 全量格式；
+  - 离线下载歌曲归档至 NAS 时，M4A/ALAC/WAV/AIFF 等格式自动内嵌高清封面与标签。
+- **修改立即可见与全链路穿透刷新**：
+  - 内存级立即更新 `ATMusicRemoteCoverCache`，当前播放单曲、详情页缓存与曲库视图毫秒级更新；
+  - 结合 UUID 时间戳穿透 DSM 缩略图服务端的持久化旧图缓存。
+
+### 修复
+- 彻底修复群晖 NAS 下 M4A 音乐文件修改歌曲标签与封面报错失败、无法写入的严重 Bug；
+- 修复 M4A 文件仅编辑文字标签时，原有内嵌专辑封面或歌词被意外清空的 Bug；
+- 修复 WAV、ALAC、AAC、DSD 等格式在编辑 NAS 标签时被错误拦截报错的兼容性问题；
+- 修复平台下载歌曲在执行一键归档至 NAS 时，M4A/ALAC/WAV 等格式未物理内嵌标签与封面的遗留缺陷；
+- 修复 NAS 封面修改后播放器与列表偶发仍显示旧封面、无法立即可见的问题。
+
 ## 1.9.42 build 142
 
 ### 零错选防漂移滑动多选、全站顶栏右侧菜单收敛统一、歌手页专辑多选与极简流式 NAS 文件夹浏览

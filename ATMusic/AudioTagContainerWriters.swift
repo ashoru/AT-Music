@@ -16,10 +16,22 @@ enum MP4TagWriter {
         let end: Int
     }
 
-    /// 我们完全接管的 ilst 子项；其余（©wrt / ©too / ---- 等）原样保留。
-    private static let managedIlstTypes: Set<String> = [
-        "©nam", "©ART", "aART", "©alb", "©gen", "©day", "©cmt", "©lyr", "trkn", "disk", "covr"
-    ]
+    /// 动态确定本次需要覆盖接管的 ilst 子项；未在 tags 中修改或未提供的子项（如未改封面、未改歌词等）原样保留。
+    private static func managedIlstTypes(for tags: AudioTagSet) -> Set<String> {
+        var types: Set<String> = []
+        if tags.title != nil { types.insert("©nam") }
+        if tags.artist != nil { types.insert("©ART") }
+        if tags.albumArtist != nil { types.insert("aART") }
+        if tags.album != nil { types.insert("©alb") }
+        if tags.genre != nil { types.insert("©gen") }
+        if tags.year != nil { types.insert("©day") }
+        if tags.comment != nil { types.insert("©cmt") }
+        if tags.lyrics != nil { types.insert("©lyr") }
+        if tags.track > 0 { types.insert("trkn") }
+        if tags.disc > 0 { types.insert("disk") }
+        if tags.coverData != nil { types.insert("covr") }
+        return types
+    }
 
     private static let versionFlags: [UInt8] = [0x00, 0x00, 0x00, 0x00]
 
@@ -88,29 +100,66 @@ enum MP4TagWriter {
         return atom("udta", parts.flatMap { $0 })
     }
 
-    private static func rebuildMeta(bytes: [UInt8], meta: Atom, tags: AudioTagSet) throws -> [UInt8] {
-        guard meta.bodyStart + 4 <= meta.end else { throw AudioTagWriteError.damaged("meta 原子过短") }
-        let flags = Array(bytes[meta.bodyStart..<(meta.bodyStart + 4)])
-        let children = try parseAtoms(bytes, in: (meta.bodyStart + 4)..<meta.end)
+    private static func detectMetaHeader(bytes: [UInt8], meta: Atom) -> (flags: [UInt8], childrenStart: Int) {
+        // 尝试 1：QuickTime / iTunes 风格（标准 Box，0 字节 flags，子原子直接从 meta.bodyStart 开始）
+        if let directAtoms = try? parseAtoms(bytes, in: meta.bodyStart..<meta.end),
+           directAtoms.contains(where: { $0.type == "hdlr" || $0.type == "ilst" || $0.type == "keys" }) {
+            return ([], meta.bodyStart)
+        }
 
-        var parts: [[UInt8]] = []
-        var hasHandler = false
+        // 尝试 2：ISO MP4 FullBox 风格（有 4 字节的 version/flags，子原子从 meta.bodyStart + 4 开始）
+        if meta.bodyStart + 4 <= meta.end,
+           let fullBoxAtoms = try? parseAtoms(bytes, in: (meta.bodyStart + 4)..<meta.end),
+           fullBoxAtoms.contains(where: { $0.type == "hdlr" || $0.type == "ilst" || $0.type == "keys" }) {
+            let flags = Array(bytes[meta.bodyStart..<(meta.bodyStart + 4)])
+            return (flags, meta.bodyStart + 4)
+        }
+
+        // 兜底 1：直接从 bodyStart 解析有效原子无报错
+        if let directAtoms = try? parseAtoms(bytes, in: meta.bodyStart..<meta.end), !directAtoms.isEmpty {
+            return ([], meta.bodyStart)
+        }
+
+        // 兜底 2：4 字节 flags
+        if meta.bodyStart + 4 <= meta.end {
+            let flags = Array(bytes[meta.bodyStart..<(meta.bodyStart + 4)])
+            return (flags, meta.bodyStart + 4)
+        }
+
+        return ([], meta.bodyStart)
+    }
+
+    private static func rebuildMeta(bytes: [UInt8], meta: Atom, tags: AudioTagSet) throws -> [UInt8] {
+        guard meta.bodyStart <= meta.end else { throw AudioTagWriteError.damaged("meta 原子过短") }
+        let (flags, childrenStart) = detectMetaHeader(bytes: bytes, meta: meta)
+        let children = try parseAtoms(bytes, in: childrenStart..<meta.end)
+
+        let managed = managedIlstTypes(for: tags)
+        var handlerAtomBytes: [UInt8]? = nil
+        var otherChildren: [[UInt8]] = []
         var keptIlstChildren: [[UInt8]] = []
+
         for child in children {
             switch child.type {
             case "ilst":
                 let ilstChildren = try parseAtoms(bytes, in: child.bodyStart..<child.end)
                 keptIlstChildren = ilstChildren
-                    .filter { !managedIlstTypes.contains($0.type) }
+                    .filter { !managed.contains($0.type) }
                     .map { Array(bytes[$0.start..<$0.end]) }
             case "hdlr":
-                hasHandler = true
-                parts.append(Array(bytes[child.start..<child.end]))
+                handlerAtomBytes = Array(bytes[child.start..<child.end])
             default:
-                parts.append(Array(bytes[child.start..<child.end]))
+                otherChildren.append(Array(bytes[child.start..<child.end]))
             }
         }
-        if !hasHandler { parts.append(handlerAtom) }
+
+        var parts: [[UInt8]] = []
+        if let handlerAtomBytes {
+            parts.append(handlerAtomBytes)
+        } else {
+            parts.append(handlerAtom)
+        }
+        parts.append(contentsOf: otherChildren)
         parts.append(buildIlst(tags: tags, keeping: keptIlstChildren))
         return atom("meta", flags + parts.flatMap { $0 })
     }
@@ -127,14 +176,14 @@ enum MP4TagWriter {
             children += atom(name, dataAtom(typeIndicator: 1, payload: Array(value.utf8)))
         }
 
-        text("©nam", tags.title)
-        text("©ART", tags.artist)
-        text("aART", tags.albumArtist)
-        text("©alb", tags.album)
-        text("©gen", tags.genre)
-        text("©day", tags.year)
-        text("©cmt", tags.comment)
-        text("©lyr", tags.lyrics)
+        if tags.title != nil { text("©nam", tags.title) }
+        if tags.artist != nil { text("©ART", tags.artist) }
+        if tags.albumArtist != nil { text("aART", tags.albumArtist) }
+        if tags.album != nil { text("©alb", tags.album) }
+        if tags.genre != nil { text("©gen", tags.genre) }
+        if tags.year != nil { text("©day", tags.year) }
+        if tags.comment != nil { text("©cmt", tags.comment) }
+        if tags.lyrics != nil { text("©lyr", tags.lyrics) }
 
         if tags.track > 0 {
             let total = max(0, min(Int(UInt16.max), tags.trackTotal))
@@ -246,7 +295,15 @@ enum MP4TagWriter {
                 bodyStart = pos + 16
                 end = pos + large
             } else if size == 0 {
-                end = range.upperBound
+                if pos == 0 || range.upperBound == bytes.count {
+                    end = range.upperBound
+                } else {
+                    let remaining = bytes[pos..<range.upperBound]
+                    if remaining.allSatisfy({ $0 == 0 }) {
+                        break
+                    }
+                    end = range.upperBound
+                }
             } else {
                 end = pos + size
             }

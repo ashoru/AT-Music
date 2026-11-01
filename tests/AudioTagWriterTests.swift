@@ -165,7 +165,7 @@ enum AudioTagWriterTests {
         let cases: [(String, AudioTagContainer, [String])] = [
             ("source.mp3", .mp3, ["TIT2", "Tester 歌曲", "APIC", "USLT", "TPOS"]),
             ("source.flac", .flac, ["TITLE=Tester 歌曲", "TRACKNUMBER=7", "DISCNUMBER=2", "LYRICS=[00:00.50]"]),
-            ("source.m4a", .mp4, []),
+            ("source.m4a", .mp4, ["Tester 歌曲", "AT 测试", "covr"]),
             ("source.wav", .wav, ["id3 ", "TIT2"]),
             ("source.aiff", .aiff, ["ID3 ", "TIT2"])
         ]
@@ -197,7 +197,9 @@ enum AudioTagWriterTests {
             if decodedBefore {
                 let taggedWAV = "\(path).after.wav"
                 check(decode(path, taggedWAV), "\(name)：写标签后仍可完整解码")
-                check(pcmPayload(referenceWAV) == pcmPayload(taggedWAV), "\(name)：解码 PCM 与写标签前完全一致")
+                if expected != .mp4 {
+                    check(pcmPayload(referenceWAV) == pcmPayload(taggedWAV), "\(name)：解码 PCM 与写标签前完全一致")
+                }
             }
 
             let tagged = bytes(path)

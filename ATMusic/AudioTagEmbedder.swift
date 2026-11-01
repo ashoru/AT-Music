@@ -40,6 +40,7 @@ enum AudioTagContainer: String {
     case aiff
     case ogg
     case ape
+    case dsf
     case unknown
 
     var displayName: String {
@@ -51,6 +52,7 @@ enum AudioTagContainer: String {
         case .aiff: return "AIFF"
         case .ogg: return "OGG"
         case .ape: return "APE"
+        case .dsf: return "DSD"
         case .unknown: return "未知容器"
         }
     }
@@ -59,7 +61,7 @@ enum AudioTagContainer: String {
     var supportsInPlaceTagWrite: Bool {
         switch self {
         case .mp3, .flac, .mp4, .wav, .aiff: return true
-        case .ogg, .ape, .unknown: return false
+        case .ogg, .ape, .dsf, .unknown: return false
         }
     }
 }
@@ -74,7 +76,7 @@ enum AudioTagWriteError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedContainer(let name):
-            return "\(name) 容器暂不支持内嵌标签写入（现支持 MP3 / FLAC / M4A / WAV / AIFF）"
+            return "\(name) 容器暂不支持内嵌标签写入（现支持 MP3 / FLAC / M4A / ALAC / WAV / AIFF）"
         case .unreadable(let reason):
             return "读写音频文件失败：\(reason)"
         case .damaged(let reason):
@@ -121,7 +123,8 @@ enum AudioTagEmbedder {
         if text(0, 4) == "fLaC" { return .flac }
         if text(0, 4) == "OggS" { return .ogg }
         if text(0, 4) == "MAC " { return .ape }
-        if text(4, 4) == "ftyp" { return .mp4 }
+        if text(0, 4) == "DSD " { return .dsf }
+        if text(4, 4) == "ftyp" || text(4, 4) == "moov" || text(4, 4) == "wide" || text(0, 4) == "moov" { return .mp4 }
         if text(0, 4) == "RIFF" {
             if text(8, 4) == "WAVE" { return .wav }
             return .unknown
@@ -146,11 +149,12 @@ enum AudioTagEmbedder {
         switch ext.lowercased() {
         case "mp3", "mp2", "mpga": return .mp3
         case "flac": return .flac
-        case "m4a", "mp4", "alac", "m4b": return .mp4
+        case "m4a", "mp4", "alac", "m4b", "aac": return .mp4
         case "wav", "wave": return .wav
         case "aiff", "aif", "aifc": return .aiff
-        case "ogg", "oga": return .ogg
+        case "ogg", "oga", "opus": return .ogg
         case "ape": return .ape
+        case "dsf", "dff": return .dsf
         default: return .unknown
         }
     }
@@ -224,16 +228,30 @@ enum AudioTagEmbedder {
     /// 上传 NAS 前调用：产物是临时目录里的副本，原文件不动；失败/格式不支持返回 nil。
     static func embed(tags: AudioTagSet, into sourceURL: URL) -> URL? {
         guard let data = try? Data(contentsOf: sourceURL, options: [.mappedIfSafe]), !data.isEmpty else { return nil }
-        let kind = container(of: data)
+        var kind = container(of: data)
+        if kind == .unknown {
+            kind = container(matchingExtension: sourceURL.pathExtension)
+        }
         let rebuilt: Data?
         switch kind {
         case .mp3: rebuilt = try? ID3Writer.write(tags: tags, data: data)
         case .flac: rebuilt = try? FLACWriter.write(tags: tags, data: data)
+        case .mp4: rebuilt = try? MP4TagWriter.write(tags: tags, data: data)
+        case .wav: rebuilt = try? RIFFTagWriter.write(tags: tags, data: data, isAIFF: false)
+        case .aiff: rebuilt = try? RIFFTagWriter.write(tags: tags, data: data, isAIFF: true)
         default: rebuilt = nil
         }
         guard let rebuilt else { return nil }
         var ext = sourceURL.pathExtension.lowercased()
-        if ext.isEmpty || ext == "tmp" { ext = kind == .flac ? "flac" : "mp3" }
+        if ext.isEmpty || ext == "tmp" {
+            switch kind {
+            case .flac: ext = "flac"
+            case .mp4: ext = "m4a"
+            case .wav: ext = "wav"
+            case .aiff: ext = "aiff"
+            default: ext = "mp3"
+            }
+        }
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("atm-archive-\(UUID().uuidString).\(ext)")
         do {

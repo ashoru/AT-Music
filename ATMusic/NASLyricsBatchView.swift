@@ -798,7 +798,16 @@ final class NASLyricsBatchRunner: ObservableObject {
         var ready = 0
         var skipped = 0
         var unmatched = 0
-        let writableExtensions: Set<String> = ["mp3", "m4a", "m4b", "ogg", "flac", "aiff"]
+        let writableExtensions: Set<String> = [
+            "mp3", "mp2", "mpga",
+            "m4a", "m4b", "mp4", "alac", "aac",
+            "flac",
+            "wav", "wave",
+            "aiff", "aif", "aifc",
+            "ogg", "oga", "opus",
+            "ape",
+            "dsf", "dff"
+        ]
 
         for item in items {
             if Task.isCancelled { break }

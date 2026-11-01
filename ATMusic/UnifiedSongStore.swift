@@ -208,16 +208,25 @@ enum AudioFormatDetector {
             return "dsf"
         }
 
+        // AIFF: "FORM" .... "AIFF" / "AIFC"
+        if header.starts(with: [0x46, 0x4F, 0x52, 0x4D]) && header.count >= 12 {
+            if header[8] == 0x41 && header[9] == 0x49 && header[10] == 0x46 && (header[11] == 0x46 || header[11] == 0x43) {
+                return "aiff"
+            }
+        }
+
         return fallback
     }
 
     static func mimeType(forExtension ext: String) -> String {
         switch ext.lowercased() {
         case "flac": return "audio/flac"
-        case "mp3": return "audio/mpeg"
-        case "m4a", "aac", "mp4": return "audio/mp4"
-        case "wav": return "audio/wav"
-        case "ogg": return "audio/ogg"
+        case "mp3", "mp2", "mpga": return "audio/mpeg"
+        case "m4a", "aac", "mp4", "alac", "m4b": return "audio/mp4"
+        case "wav", "wave": return "audio/wav"
+        case "aiff", "aif", "aifc": return "audio/aiff"
+        case "ogg", "oga": return "audio/ogg"
+        case "opus": return "audio/opus"
         case "ape": return "audio/x-ape"
         case "dsf", "dff": return "audio/x-dsf"
         default: return "application/octet-stream"

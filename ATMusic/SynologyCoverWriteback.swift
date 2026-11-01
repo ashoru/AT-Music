@@ -36,7 +36,7 @@ extension SynologyAPI {
             throw SynologyCoverWriteError.missingPath
         }
         let ext = (path as NSString).pathExtension.lowercased()
-        let writable: Set<String> = ["mp3", "flac", "m4a", "mp4", "alac", "wav", "aiff", "aif"]
+        let writable: Set<String> = ["mp3", "mp2", "mpga", "flac", "m4a", "mp4", "alac", "m4b", "wav", "wave", "aiff", "aif", "aifc"]
         guard writable.contains(ext) else {
             throw SynologyCoverWriteError.unsupportedContainer(ext)
         }
@@ -55,19 +55,17 @@ extension SynologyAPI {
         defer { try? FileManager.default.removeItem(at: tempURL) }
         try downloaded.write(to: tempURL, options: .atomic)
 
-        var tags = AudioTagSet(
-            title: song.name,
-            artist: song.artists,
-            album: song.album,
-            albumArtist: song.albumArtist?.isEmpty == false ? song.albumArtist : song.artists,
-            genre: song.genre,
-            year: song.year,
-            comment: song.comment,
-            track: song.trackNumber,
-            disc: song.discNumber,
-            coverData: coverData
-        )
-        tags.lyrics = nil  // 不写歌词，保留文件里已有的内嵌歌词
+        var tags = AudioTagSet(coverData: coverData)
+        if !song.name.isEmpty && song.name != "未知歌曲" { tags.title = song.name }
+        if !song.artists.isEmpty && song.artists != "未知艺术家" { tags.artist = song.artists }
+        if !song.album.isEmpty && song.album != "群晖 NAS" { tags.album = song.album }
+        if let aa = song.albumArtist, !aa.isEmpty { tags.albumArtist = aa }
+        if let g = song.genre, !g.isEmpty { tags.genre = g }
+        if let y = song.year, !y.isEmpty { tags.year = y }
+        if let c = song.comment, !c.isEmpty { tags.comment = c }
+        if song.trackNumber > 0 { tags.track = song.trackNumber }
+        if song.discNumber > 0 { tags.disc = song.discNumber }
+        tags.lyrics = nil  // 保留原有歌词不动
         let report = try AudioTagEmbedder.writeInPlace(tags: tags, fileURL: tempURL)
 
         // 3. 覆盖回传
