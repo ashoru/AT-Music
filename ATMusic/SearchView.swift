@@ -2148,7 +2148,6 @@ struct AlbumDetailView: View {
         SongCell(
             song: song,
             glassRow: true,
-            playbackContext: sortedTracks,
             playbackIndex: playbackIndex,
             trackNumber: trackNumber,
             onTap: {

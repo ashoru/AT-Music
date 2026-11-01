@@ -2632,6 +2632,12 @@ struct SynologyFileLibraryView: View {
 
 // MARK: - 统一我喜欢的音乐详情页
 
+private struct FavoriteRowItem: Identifiable {
+    let index: Int
+    let song: Song
+    var id: String { "\(index)_\(song.identityKey)" }
+}
+
 struct UnifiedFavoritesDetailView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var theme: ThemeStore
@@ -2648,9 +2654,41 @@ struct UnifiedFavoritesDetailView: View {
     @State private var dragTargetSelected = true
     @State private var lastDragIndex: Int? = nil
     @State private var showBatchAddToPlaylist = false
+    @State private var displayedSongs: [Song] = []
+    @State private var renderLimit: Int = 100
+    @State private var dragCachedKeys: [String] = []
 
     private var selectedSongs: [Song] {
         displayedSongs.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private var visibleFavoriteItems: [FavoriteRowItem] {
+        let count = min(renderLimit, displayedSongs.count)
+        guard count > 0 else { return [] }
+        return (0..<count).map { FavoriteRowItem(index: $0, song: displayedSongs[$0]) }
+    }
+
+    private func loadMoreSongsIfNeeded(at index: Int) {
+        if index >= renderLimit - 25 && renderLimit < displayedSongs.count {
+            renderLimit = min(renderLimit + 120, displayedSongs.count)
+        }
+    }
+
+    private func updateDisplayedSongs() {
+        let base = filteredByPlatformSongs
+        let kw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let result: [Song]
+        if kw.isEmpty {
+            result = base
+        } else {
+            result = base.filter {
+                $0.name.lowercased().contains(kw)
+                    || $0.artists.lowercased().contains(kw)
+                    || $0.album.lowercased().contains(kw)
+            }
+        }
+        displayedSongs = result
+        renderLimit = min(100, max(result.count, 0))
     }
 
     private func toggleSelection(_ song: Song) {
@@ -2662,15 +2700,16 @@ struct UnifiedFavoritesDetailView: View {
     }
 
     private func handleDragChange(startIndex: Int, deltaRows: Int) {
-        let keys = displayedSongs.map(\.identityKey)
-        guard startIndex >= 0, startIndex < keys.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
             initialSelectedKeysOnDrag = selectedSongKeys
-            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragCachedKeys = displayedSongs.map(\.identityKey)
+            let willSelect = startIndex < dragCachedKeys.count ? !selectedSongKeys.contains(dragCachedKeys[startIndex]) : true
             dragTargetSelected = willSelect
             lastDragIndex = nil
         }
+        let keys = dragCachedKeys
+        guard startIndex >= 0, startIndex < keys.count else { return }
         guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
         let current = min(max(0, start + deltaRows), keys.count - 1)
         guard current != lastDragIndex else { return }
@@ -2695,13 +2734,13 @@ struct UnifiedFavoritesDetailView: View {
         dragStartIndex = nil
         initialSelectedKeysOnDrag = nil
         lastDragIndex = nil
+        dragCachedKeys.removeAll()
     }
 
     @ViewBuilder
     private func favoriteSongRow(song: Song, index: Int) -> some View {
         SongCell(
             song: song,
-            playbackContext: displayedSongs,
             playbackIndex: index,
             subtitleText: "\(song.artists) · \(song.album)",
             favoriteToggle: {
@@ -2725,6 +2764,9 @@ struct UnifiedFavoritesDetailView: View {
             },
             selectionIndex: index
         )
+        .onAppear {
+            loadMoreSongsIfNeeded(at: index)
+        }
     }
 
     private var allSongs: [Song] {
@@ -2748,16 +2790,7 @@ struct UnifiedFavoritesDetailView: View {
         }
     }
 
-    private var displayedSongs: [Song] {
-        let base = filteredByPlatformSongs
-        let kw = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return base }
-        return base.filter {
-            $0.name.lowercased().contains(kw)
-                || $0.artists.lowercased().contains(kw)
-                || $0.album.lowercased().contains(kw)
-        }
-    }
+
 
     var body: some View {
         ZStack {
@@ -2790,8 +2823,11 @@ struct UnifiedFavoritesDetailView: View {
                         }
 
                         Section {
-                            ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                favoriteSongRow(song: song, index: index)
+                            ForEach(visibleFavoriteItems) { item in
+                                favoriteSongRow(song: item.song, index: item.index)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                             }
                         } header: {
                             HStack {
@@ -2938,9 +2974,25 @@ struct UnifiedFavoritesDetailView: View {
         }
         .task {
             await favorites.syncAllFromCloud()
+            updateDisplayedSongs()
         }
         .refreshable {
             await favorites.syncAllFromCloud()
+            updateDisplayedSongs()
+        }
+        .onAppear {
+            updateDisplayedSongs()
+        }
+        .onChange(of: query) { _ in
+            updateDisplayedSongs()
+        }
+        .onChange(of: selectedPlatformFilter) { _ in
+            updateDisplayedSongs()
+        }
+        .onReceive(favorites.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                updateDisplayedSongs()
+            }
         }
     }
 
@@ -3088,8 +3140,8 @@ struct UnifiedFavoritesDetailView: View {
                     .padding(.top, 24)
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
-                        ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                            favoriteSongRow(song: song, index: index)
+                        ForEach(visibleFavoriteItems) { item in
+                            favoriteSongRow(song: item.song, index: item.index)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -3162,8 +3214,8 @@ struct UnifiedFavoritesDetailView: View {
                 .padding(.horizontal, 20)
 
                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
-                    ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        favoriteSongRow(song: song, index: index)
+                    ForEach(visibleFavoriteItems) { item in
+                        favoriteSongRow(song: item.song, index: item.index)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background {

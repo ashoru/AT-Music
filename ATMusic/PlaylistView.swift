@@ -8,6 +8,12 @@ enum PlaylistSortMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private struct PlaylistRowItem: Identifiable {
+    let index: Int
+    let song: Song
+    var id: String { "\(index)_\(song.identityKey)" }
+}
+
 struct PlaylistView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var player: PlayerManager
@@ -41,6 +47,45 @@ struct PlaylistView: View {
         return displayedTracks.filter { selected.contains($0.identityKey) }
     }
     @State private var tracks: [Song] = []
+    @State private var displayedTracks: [Song] = []
+    @State private var renderLimit: Int = 100
+    @State private var dragCachedKeys: [String] = []
+
+    private var visibleTrackItems: [PlaylistRowItem] {
+        let count = min(renderLimit, displayedTracks.count)
+        guard count > 0 else { return [] }
+        return (0..<count).map { PlaylistRowItem(index: $0, song: displayedTracks[$0]) }
+    }
+
+    private func loadMoreTracksIfNeeded(at index: Int) {
+        if index >= renderLimit - 25 && renderLimit < displayedTracks.count {
+            renderLimit = min(renderLimit + 120, displayedTracks.count)
+        }
+    }
+
+    private func updateDisplayedTracks() {
+        var list = tracks
+        if sortMode == .original {
+            list = PlaylistSongOrderStore.shared.apply(to: list, playlistKey: playlistKey)
+        }
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !kw.isEmpty {
+            list = list.filter { song in
+                song.name.lowercased().contains(kw)
+                    || song.artists.lowercased().contains(kw)
+                    || song.album.lowercased().contains(kw)
+            }
+        }
+        switch sortMode {
+        case .original: break
+        case .name:
+            list.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .duration:
+            list.sort { $0.duration < $1.duration }
+        }
+        displayedTracks = list
+        renderLimit = min(100, max(list.count, 0))
+    }
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var resolvedCoverURL: URL?
@@ -172,14 +217,16 @@ struct PlaylistView: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         Section {
-                            ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                // 1.8.1 的歌单内歌曲是连续列表，不是每首一张独立玻璃卡。
-                                SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
-                                    player.play(songs: displayedTracks, startAt: index)
+                            ForEach(visibleTrackItems) { item in
+                                SongCell(song: item.song, playbackIndex: item.index) {
+                                    player.play(songs: displayedTracks, startAt: item.index)
                                 }
                                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
+                                .onAppear {
+                                    loadMoreTracksIfNeeded(at: item.index)
+                                }
                             }
                         } header: {
                             HStack(spacing: 6) {
@@ -404,6 +451,21 @@ struct PlaylistView: View {
         }
         .onChange(of: sortMode) { newValue in
             PlaylistSortPreferenceStore.shared.save(sortModeRaw: newValue.rawValue, for: playlistKey)
+            updateDisplayedTracks()
+        }
+        .onChange(of: searchText) { _ in
+            updateDisplayedTracks()
+        }
+        .onChange(of: orderVersion) { _ in
+            updateDisplayedTracks()
+        }
+        .onChange(of: tracks) { _ in
+            updateDisplayedTracks()
+        }
+        .onAppear {
+            if displayedTracks.isEmpty && !tracks.isEmpty {
+                updateDisplayedTracks()
+            }
         }
     }
 
@@ -493,15 +555,18 @@ struct PlaylistView: View {
                     .padding(.top, 24)
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
-                        ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
-                                player.play(songs: displayedTracks, startAt: index)
+                        ForEach(visibleTrackItems) { item in
+                            SongCell(song: item.song, playbackIndex: item.index) {
+                                player.play(songs: displayedTracks, startAt: item.index)
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(Color.primary.opacity(0.03))
+                            }
+                            .onAppear {
+                                loadMoreTracksIfNeeded(at: item.index)
                             }
                         }
                     }
@@ -571,15 +636,18 @@ struct PlaylistView: View {
                 .padding(.horizontal, 20)
 
                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
-                    ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song, playbackContext: displayedTracks, playbackIndex: index) {
-                            player.play(songs: displayedTracks, startAt: index)
+                    ForEach(visibleTrackItems) { item in
+                        SongCell(song: item.song, playbackIndex: item.index) {
+                            player.play(songs: displayedTracks, startAt: item.index)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(Color.primary.opacity(0.03))
+                        }
+                        .onAppear {
+                            loadMoreTracksIfNeeded(at: item.index)
                         }
                     }
                 }
@@ -662,45 +730,21 @@ struct PlaylistView: View {
         .padding(.vertical, 4)
     }
 
-    /// 歌单内搜索 + 排序后的列表。
-    /// 默认排序时先套用用户在编辑态里拖出的本地顺序偏好（网易/QQ/酷狗无服务端重排接口，
-    /// 只影响本机播放与展示顺序）；歌名/时长排序会覆盖它。
-    private var displayedTracks: [Song] {
-        let _ = orderVersion
-        var list = tracks
-        if sortMode == .original {
-            list = PlaylistSongOrderStore.shared.apply(to: list, playlistKey: playlistKey)
-        }
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !kw.isEmpty {
-            list = list.filter { song in
-                song.name.lowercased().contains(kw)
-                    || song.artists.lowercased().contains(kw)
-                    || song.album.lowercased().contains(kw)
-            }
-        }
-        switch sortMode {
-        case .original: break
-        case .name:
-            list.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .duration:
-            list.sort { $0.duration < $1.duration }
-        }
-        return list
-    }
+
 
     // MARK: - 编辑态（阶段 2）
 
     private func handleDragChange(startIndex: Int, deltaRows: Int) {
-        let keys = displayedTracks.map(\.identityKey)
-        guard startIndex >= 0, startIndex < keys.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
             initialSelectedKeysOnDrag = selectedKeys
-            let willSelect = !selectedKeys.contains(keys[startIndex])
+            dragCachedKeys = displayedTracks.map(\.identityKey)
+            let willSelect = startIndex < dragCachedKeys.count ? !selectedKeys.contains(dragCachedKeys[startIndex]) : true
             dragTargetSelected = willSelect
             lastDragIndex = nil
         }
+        let keys = dragCachedKeys
+        guard startIndex >= 0, startIndex < keys.count else { return }
         guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
         let current = min(max(0, start + deltaRows), keys.count - 1)
         guard current != lastDragIndex else { return }
@@ -725,6 +769,7 @@ struct PlaylistView: View {
         dragStartIndex = nil
         initialSelectedKeysOnDrag = nil
         lastDragIndex = nil
+        dragCachedKeys.removeAll()
     }
 
 
@@ -746,14 +791,14 @@ struct PlaylistView: View {
     private var editList: some View {
         List {
             Section {
-                ForEach(Array(displayedTracks.enumerated()), id: \.element.identityKey) { index, song in
+                ForEach(visibleTrackItems) { item in
                     HStack(spacing: 12) {
                         MultiSelectCheckmark(
-                            isSelected: selectedKeys.contains(song.identityKey),
-                            index: index,
+                            isSelected: selectedKeys.contains(item.song.identityKey),
+                            index: item.index,
                             rowHeight: 56,
                             onToggle: {
-                                toggleSelection(song)
+                                toggleSelection(item.song)
                                 ATMusicHaptics.tap()
                             },
                             onDragChange: { startIdx, deltaRows in
@@ -764,11 +809,11 @@ struct PlaylistView: View {
                             }
                         )
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(song.name)
+                            Text(item.song.name)
                                 .font(ATMusicFont.appFont(14, .medium))
                                 .foregroundStyle(Color.atmusicLabel)
                                 .lineLimit(1)
-                            Text(song.artists)
+                            Text(item.song.artists)
                                 .font(ATMusicFont.appFont(11))
                                 .foregroundStyle(Color.atmusicComment)
                                 .lineLimit(1)
@@ -780,11 +825,14 @@ struct PlaylistView: View {
                                 .foregroundStyle(Color.atmusicComment.opacity(0.55))
                         }
                     }
-                    .multiSelectRow(index: index, coordinateSpace: "PlaylistEditListSpace")
+                    .multiSelectRow(index: item.index, coordinateSpace: "PlaylistEditListSpace")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .contentShape(Rectangle())
-                    .onTapGesture { toggleSelection(song) }
+                    .onTapGesture { toggleSelection(item.song) }
+                    .onAppear {
+                        loadMoreTracksIfNeeded(at: item.index)
+                    }
                 }
                 .onMove { offsets, destination in
                     reorderDisplayedTracks(from: offsets, to: destination)
@@ -881,6 +929,7 @@ struct PlaylistView: View {
         reordered.move(fromOffsets: offsets, toOffset: destination)
         PlaylistSongOrderStore.shared.saveOrder(reordered, for: playlistKey)
         orderVersion += 1
+        updateDisplayedTracks()
         ATMusicHaptics.select()
     }
 
@@ -906,6 +955,7 @@ struct PlaylistView: View {
                 let keys = Set(removing.map(\.identityKey))
                 tracks.removeAll { keys.contains($0.identityKey) }
                 selectedKeys.subtract(keys)
+                updateDisplayedTracks()
                 await PlaylistManagementService.invalidateSongsCache(for: playlist)
                 ToastCenter.shared.show("已移除 \(removing.count) 首")
                 ATMusicHaptics.success()
@@ -926,6 +976,7 @@ struct PlaylistView: View {
                 let keys = Set(moving.map(\.identityKey))
                 tracks.removeAll { keys.contains($0.identityKey) }
                 selectedKeys.removeAll()
+                updateDisplayedTracks()
                 await PlaylistManagementService.invalidateSongsCache(for: playlist)
                 ToastCenter.shared.show("已移到「\(target.title)」")
             } else {
@@ -1052,6 +1103,7 @@ struct PlaylistView: View {
         if let cached = cache.cachedSongs(playlist: playlist, accountID: cacheAccountID) {
             tracks = cached.songs
             resolvedCoverURL = cached.songs.first?.coverURL
+            updateDisplayedTracks()
             loading = false
             if !force, cache.isFresh(cached) {
                 return
@@ -1087,6 +1139,7 @@ struct PlaylistView: View {
             if resolvedCoverURL == nil {
                 resolvedCoverURL = tracks.first?.coverURL
             }
+            updateDisplayedTracks()
             if !tracks.isEmpty {
                 cache.saveSongs(tracks, playlist: playlist, accountID: cacheAccountID)
             }

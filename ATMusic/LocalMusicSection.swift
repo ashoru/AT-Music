@@ -256,9 +256,9 @@ struct LocalMusicSection: View {
                     .font(ATMusicFont.appFont(12))
                     .foregroundStyle(Color.atmusicComment)
             }
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(Array(store.importedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, glassRow: true, playbackContext: store.importedSongs, playbackIndex: index) {
+                    SongCell(song: song, glassRow: true, playbackIndex: index) {
                         player.play(songs: store.importedSongs, startAt: index)
                     }
                     .contextMenu {

@@ -287,7 +287,9 @@ struct SongCell: View {
         }
         if !isCurrent {
             Button {
-                if let playbackIndex, !playbackContext.isEmpty {
+                if let onTap {
+                    onTap()
+                } else if let playbackIndex, !playbackContext.isEmpty {
                     player.play(songs: playbackContext, startAt: playbackIndex)
                 } else if let index = player.queue.firstIndex(of: displayedSong) {
                     player.playQueueIndex(index)
