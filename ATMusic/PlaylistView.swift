@@ -218,9 +218,9 @@ struct PlaylistView: View {
                             .listRowSeparator(.hidden)
                         Section {
                             ForEach(visibleTrackItems) { item in
-                                SongCell(song: item.song, playbackIndex: item.index) {
+                                SongCell(song: item.song, playbackIndex: item.index, onTap: {
                                     player.play(songs: displayedTracks, startAt: item.index)
-                                }
+                                })
                                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
@@ -556,9 +556,9 @@ struct PlaylistView: View {
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                         ForEach(visibleTrackItems) { item in
-                            SongCell(song: item.song, playbackIndex: item.index) {
+                            SongCell(song: item.song, playbackIndex: item.index, onTap: {
                                 player.play(songs: displayedTracks, startAt: item.index)
-                            }
+                            })
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -637,9 +637,9 @@ struct PlaylistView: View {
 
                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
                     ForEach(visibleTrackItems) { item in
-                        SongCell(song: item.song, playbackIndex: item.index) {
+                        SongCell(song: item.song, playbackIndex: item.index, onTap: {
                             player.play(songs: displayedTracks, startAt: item.index)
-                        }
+                        })
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background {

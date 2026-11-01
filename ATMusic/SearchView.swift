@@ -1219,10 +1219,10 @@ struct SearchView: View {
             if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                     ForEach(Array(overviewSongs.prefix(songCount).enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                        SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                             ATMusicHaptics.tap()
                             player.play(songs: overviewSongs, startAt: index)
-                        }
+                        })
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background {
@@ -1234,10 +1234,10 @@ struct SearchView: View {
                 }
             } else {
                 ForEach(Array(overviewSongs.prefix(songCount).enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                         ATMusicHaptics.tap()
                         player.play(songs: overviewSongs, startAt: index)
-                    }
+                    })
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background {
@@ -1293,16 +1293,16 @@ struct SearchView: View {
                         if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                             LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                                 ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                                         player.play(songs: songResults, startAt: index)
-                                    }
+                                    })
                                 }
                             }
                         } else {
                             ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                                     player.play(songs: songResults, startAt: index)
-                                }
+                                })
                             }
                         }
                     }
@@ -1459,10 +1459,10 @@ struct SearchView: View {
                         if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                             LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                                 ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                    SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                                         ATMusicHaptics.tap()
                                         player.play(songs: songResults, startAt: index)
-                                    }
+                                    })
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background {
@@ -1472,10 +1472,10 @@ struct SearchView: View {
                             }
                         } else {
                             ForEach(Array(songResults.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean) {
+                                SongCell(song: song, suppressNativeCleanRowGlass: isNativeClean, onTap: {
                                     ATMusicHaptics.tap()
                                     player.play(songs: songResults, startAt: index)
-                                }
+                                })
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background {

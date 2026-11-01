@@ -258,9 +258,9 @@ struct LocalMusicSection: View {
             }
             LazyVStack(spacing: 0) {
                 ForEach(Array(store.importedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, glassRow: true, playbackIndex: index) {
+                    SongCell(song: song, glassRow: true, playbackIndex: index, onTap: {
                         player.play(songs: store.importedSongs, startAt: index)
-                    }
+                    })
                     .contextMenu {
                         Button {
                             selectedImportedSong = song
@@ -942,11 +942,11 @@ struct LocalSearchAddSheet: View {
                 } else {
                     List {
                         ForEach(Array(results.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, glassRow: true) {
+                            SongCell(song: song, glassRow: true, onTap: {
                                 store.addSong(song, to: playlistID)
                                 ATMusicHaptics.success()
                                 ToastCenter.shared.show("已加入本地歌单")
-                            }
+                            })
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }

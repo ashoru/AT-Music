@@ -1905,9 +1905,9 @@ struct QQPlaylistSongsSheet: View {
                         }
                         Section {
                             ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: true) {
+                                SongCell(song: song, glassRow: true, onTap: {
                                     player.play(songs: filteredTracks, startAt: index)
-                                }
+                                })
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                             }
@@ -1981,10 +1981,11 @@ struct QQPlaylistSongsSheet: View {
                                 song: song,
                                 glassRow: true,
                                 playbackContext: filteredTracks,
-                                playbackIndex: index
-                            ) {
-                                player.play(songs: filteredTracks, startAt: index)
-                            }
+                                playbackIndex: index,
+                                onTap: {
+                                    player.play(songs: filteredTracks, startAt: index)
+                                }
+                            )
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -2684,10 +2685,11 @@ struct TopListDetailView: View {
                                 song: song,
                                 glassRow: true,
                                 playbackContext: filteredTracks,
-                                playbackIndex: index
-                            ) {
-                                player.play(songs: filteredTracks, startAt: index)
-                            }
+                                playbackIndex: index,
+                                onTap: {
+                                    player.play(songs: filteredTracks, startAt: index)
+                                }
+                            )
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -2827,9 +2829,9 @@ struct KugouTopListDetailView: View {
                         }
                         Section {
                             ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: true) {
+                                SongCell(song: song, glassRow: true, onTap: {
                                     player.play(songs: filteredTracks, startAt: index)
-                                }
+                                })
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                             }
@@ -2904,10 +2906,11 @@ struct KugouTopListDetailView: View {
                                 song: song,
                                 glassRow: true,
                                 playbackContext: filteredTracks,
-                                playbackIndex: index
-                            ) {
-                                player.play(songs: filteredTracks, startAt: index)
-                            }
+                                playbackIndex: index,
+                                onTap: {
+                                    player.play(songs: filteredTracks, startAt: index)
+                                }
+                            )
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -3176,10 +3179,10 @@ private struct HomeUnifiedSearchSheet: View {
                     .padding(.vertical, 8)
 
                     ForEach(Array(results.enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song) {
+                        SongCell(song: song, onTap: {
                             ATMusicHaptics.tap()
                             player.play(songs: results, startAt: index)
-                        }
+                        })
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background {

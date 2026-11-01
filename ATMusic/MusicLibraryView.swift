@@ -809,9 +809,9 @@ struct MusicLibraryHistoryView: View {
                 ScrollView {
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                         ForEach(Array(player.history.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, glassRow: true, playbackContext: player.history, playbackIndex: index) {
+                            SongCell(song: song, glassRow: true, playbackContext: player.history, playbackIndex: index, onTap: {
                                 player.play(songs: player.history, startAt: index)
-                            }
+                            })
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -829,9 +829,9 @@ struct MusicLibraryHistoryView: View {
             } else {
                 List {
                     ForEach(Array(player.history.enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song, glassRow: false, playbackContext: player.history, playbackIndex: index) {
+                        SongCell(song: song, glassRow: false, playbackContext: player.history, playbackIndex: index, onTap: {
                             player.play(songs: player.history, startAt: index)
-                        }
+                        })
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
@@ -1967,9 +1967,9 @@ struct LocalSongCollectionView: View {
             }
             Section {
                 ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, glassRow: false, playbackContext: filteredSongs, playbackIndex: index) {
+                    SongCell(song: song, glassRow: false, playbackContext: filteredSongs, playbackIndex: index, onTap: {
                         player.play(songs: filteredSongs, startAt: index)
-                    }
+                    })
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 }
@@ -2136,9 +2136,9 @@ struct LocalPlaylistBrowserView: View {
 
                     Section {
                         ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index, onTap: {
                                 player.play(songs: songs, startAt: index)
-                            }
+                            })
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
@@ -2331,10 +2331,11 @@ struct LocalPlaylistBrowserView: View {
                                 song: song,
                                 glassRow: true,
                                 playbackContext: songs,
-                                playbackIndex: index
-                            ) {
-                                player.play(songs: songs, startAt: index)
-                            }
+                                playbackIndex: index,
+                                onTap: {
+                                    player.play(songs: songs, startAt: index)
+                                }
+                            )
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {

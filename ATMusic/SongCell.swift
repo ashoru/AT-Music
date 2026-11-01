@@ -22,7 +22,7 @@ struct SongCell: View {
     var subtitleText: String? = nil
     /// 收藏列表模式：非 nil 时尾部显示红心按钮（替代时长），点击切换收藏
     var favoriteToggle: (() -> Void)? = nil
-    var onTap: (() -> Void)?
+    var onTap: (() -> Void)? = nil
 
     // MARK: - 多选支持（嵌入行内，零间距/高度跳变，消除手势冲突与错位）
     var isMultiSelecting: Bool = false
@@ -31,6 +31,73 @@ struct SongCell: View {
     var onDragSelectionChange: ((_ startIndex: Int, _ deltaRows: Int) -> Void)? = nil
     var onDragSelectionEnd: (() -> Void)? = nil
     var selectionIndex: Int = 0
+
+    // MARK: - 标准初始化器（消除多闭包歧义，尾随闭包必定匹配 onTap，点击行即刻播放）
+    init(
+        song: Song,
+        showCover: Bool = true,
+        glassRow: Bool = false,
+        suppressNativeCleanRowGlass: Bool = false,
+        playbackContext: [Song] = [],
+        playbackIndex: Int? = nil,
+        trackNumber: Int? = nil,
+        subtitleText: String? = nil,
+        onTap: (() -> Void)? = nil
+    ) {
+        self.song = song
+        self.showCover = showCover
+        self.glassRow = glassRow
+        self.suppressNativeCleanRowGlass = suppressNativeCleanRowGlass
+        self.playbackContext = playbackContext
+        self.playbackIndex = playbackIndex
+        self.trackNumber = trackNumber
+        self.subtitleText = subtitleText
+        self.favoriteToggle = nil
+        self.isMultiSelecting = false
+        self.isSelected = false
+        self.onToggleSelection = nil
+        self.onDragSelectionChange = nil
+        self.onDragSelectionEnd = nil
+        self.selectionIndex = 0
+        self.onTap = onTap
+    }
+
+    // MARK: - 扩展多选初始化器（支持批量选择、滑动多选、收藏红心按钮）
+    init(
+        song: Song,
+        showCover: Bool = true,
+        glassRow: Bool = false,
+        suppressNativeCleanRowGlass: Bool = false,
+        playbackContext: [Song] = [],
+        playbackIndex: Int? = nil,
+        trackNumber: Int? = nil,
+        subtitleText: String? = nil,
+        favoriteToggle: (() -> Void)? = nil,
+        onTap: (() -> Void)? = nil,
+        isMultiSelecting: Bool,
+        isSelected: Bool = false,
+        onToggleSelection: (() -> Void)? = nil,
+        onDragSelectionChange: ((_ startIndex: Int, _ deltaRows: Int) -> Void)? = nil,
+        onDragSelectionEnd: (() -> Void)? = nil,
+        selectionIndex: Int = 0
+    ) {
+        self.song = song
+        self.showCover = showCover
+        self.glassRow = glassRow
+        self.suppressNativeCleanRowGlass = suppressNativeCleanRowGlass
+        self.playbackContext = playbackContext
+        self.playbackIndex = playbackIndex
+        self.trackNumber = trackNumber
+        self.subtitleText = subtitleText
+        self.favoriteToggle = favoriteToggle
+        self.isMultiSelecting = isMultiSelecting
+        self.isSelected = isSelected
+        self.onToggleSelection = onToggleSelection
+        self.onDragSelectionChange = onDragSelectionChange
+        self.onDragSelectionEnd = onDragSelectionEnd
+        self.selectionIndex = selectionIndex
+        self.onTap = onTap
+    }
 
     @State private var showAddToPlaylist = false
     @State private var shareFile: ShareFileItem?
@@ -287,15 +354,7 @@ struct SongCell: View {
         }
         if !isCurrent {
             Button {
-                if let onTap {
-                    onTap()
-                } else if let playbackIndex, !playbackContext.isEmpty {
-                    player.play(songs: playbackContext, startAt: playbackIndex)
-                } else if let index = player.queue.firstIndex(of: displayedSong) {
-                    player.playQueueIndex(index)
-                } else {
-                    player.play(songs: [displayedSong], startAt: 0)
-                }
+                handleRowTap()
             } label: {
                 Label("立即播放", systemImage: "play.fill")
             }
@@ -385,6 +444,25 @@ struct SongCell: View {
         DownloadManager.shared.startDownload(song: displayedSong, quality: quality)
     }
 
+    private func handleRowTap() {
+        ATMusicHaptics.tap()
+        if let onTap {
+            onTap()
+        } else if let playbackIndex, !playbackContext.isEmpty, playbackIndex >= 0, playbackIndex < playbackContext.count {
+            player.play(songs: playbackContext, startAt: playbackIndex)
+        } else if !playbackContext.isEmpty {
+            if let idx = playbackContext.firstIndex(where: { $0.identityKey == displayedSong.identityKey }) {
+                player.play(songs: playbackContext, startAt: idx)
+            } else {
+                player.play(songs: playbackContext, startAt: 0)
+            }
+        } else if let index = player.queue.firstIndex(where: { $0.identityKey == displayedSong.identityKey }) {
+            player.playQueueIndex(index)
+        } else {
+            player.play(songs: [displayedSong], startAt: 0)
+        }
+    }
+
     @ViewBuilder
     private var baseRowContent: some View {
         rowContent
@@ -414,7 +492,7 @@ struct SongCell: View {
                 baseRowContent
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        onTap?()
+                        handleRowTap()
                     }
                     .contextMenu {
                         songActionMenuItems

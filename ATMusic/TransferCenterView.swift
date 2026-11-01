@@ -769,8 +769,10 @@ struct TransferCenterView: View {
 
                                 if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 14), spacing: 8) {
-                                        ForEach(group.songs, id: \.identityKey) { song in
-                                            SongCell(song: song)
+                                        ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                            SongCell(song: song, playbackContext: group.songs, playbackIndex: index, onTap: {
+                                                player.play(songs: group.songs, startAt: index)
+                                            })
                                                 .padding(.horizontal, 8)
                                                 .padding(.vertical, 4)
                                                 .background {
@@ -781,8 +783,10 @@ struct TransferCenterView: View {
                                     }
                                 } else {
                                     LazyVStack(spacing: 0) {
-                                        ForEach(group.songs, id: \.identityKey) { song in
-                                            SongCell(song: song)
+                                        ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
+                                            SongCell(song: song, playbackContext: group.songs, playbackIndex: index, onTap: {
+                                                player.play(songs: group.songs, startAt: index)
+                                            })
                                         }
                                     }
                                 }

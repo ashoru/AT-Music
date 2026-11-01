@@ -110,9 +110,9 @@ struct SynologyMusicView: View {
                 // 歌曲列表
                 Section {
                     ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song, glassRow: true, playbackContext: displayedSongs, playbackIndex: index) {
+                        SongCell(song: song, glassRow: true, playbackContext: displayedSongs, playbackIndex: index, onTap: {
                             player.play(songs: displayedSongs, startAt: index)
-                        }
+                        })
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
@@ -949,9 +949,9 @@ struct SynologyHomeSection: View {
                 } else {
                     SectionHeader(title: "歌曲")
                     ForEach(Array(displayedSongs.prefix(30).enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(song: song, glassRow: true, playbackContext: displayedSongs, playbackIndex: index) {
+                        SongCell(song: song, glassRow: true, playbackContext: displayedSongs, playbackIndex: index, onTap: {
                             player.play(songs: displayedSongs, startAt: index)
-                        }
+                        })
                     }
                 }
 
@@ -1324,9 +1324,9 @@ struct SynologySongCollectionView: View {
                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
             }
             ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
-                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index, onTap: {
                     player.play(songs: songs, startAt: index)
-                }
+                })
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
@@ -1366,9 +1366,9 @@ struct SynologyRecommendationView: View {
                 .buttonStyle(GlassPressButtonStyle(scale: 0.97))
             }
             ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
-                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index, onTap: {
                     player.play(songs: songs, startAt: index)
-                }
+                })
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
@@ -1966,9 +1966,9 @@ struct SynologyLibrarySection: View {
                             rootFolderLink(item)
                         }
                     } else if let song = item.song {
-                        SongCell(song: song, glassRow: false) {
+                        SongCell(song: song, glassRow: false, onTap: {
                             player.play(songs: [song])
-                        }
+                        })
                     }
                 }
                 if folderItems.isEmpty {
@@ -3226,9 +3226,9 @@ struct SynologyArtistView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(songs.enumerated()), id: \.element.identityKey) { index, song in
-                    SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
+                    SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index, onTap: {
                         player.play(songs: songs, startAt: index)
-                    }
+                    })
                     }
                 }
             }
