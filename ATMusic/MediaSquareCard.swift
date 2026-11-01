@@ -112,6 +112,9 @@ struct MediaSquareCard: View {
     var titleLineLimit: Int = 1
     var subtitleLineLimit: Int = 1
     var circularCover: Bool = false
+    var isMultiSelecting: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: (() -> Void)? = nil
 
     private var uiStyle: ATMusicUIStyle {
         uiStyleRaw == "outline" ? .clear : (ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid)
@@ -174,7 +177,10 @@ struct MediaSquareCard: View {
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
-        circularCover: Bool = false
+        circularCover: Bool = false,
+        isMultiSelecting: Bool = false,
+        isSelected: Bool = false,
+        onToggleSelection: (() -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -186,6 +192,9 @@ struct MediaSquareCard: View {
         self.titleLineLimit = titleLineLimit
         self.subtitleLineLimit = subtitleLineLimit
         self.circularCover = circularCover
+        self.isMultiSelecting = isMultiSelecting
+        self.isSelected = isSelected
+        self.onToggleSelection = onToggleSelection
     }
 
     init(
@@ -194,7 +203,10 @@ struct MediaSquareCard: View {
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
-        circularCover: Bool = false
+        circularCover: Bool = false,
+        isMultiSelecting: Bool = false,
+        isSelected: Bool = false,
+        onToggleSelection: (() -> Void)? = nil
     ) {
         self.title = item.squareTitle
         self.subtitle = item.squareSubtitle
@@ -206,6 +218,9 @@ struct MediaSquareCard: View {
         self.titleLineLimit = titleLineLimit
         self.subtitleLineLimit = subtitleLineLimit
         self.circularCover = circularCover
+        self.isMultiSelecting = isMultiSelecting
+        self.isSelected = isSelected
+        self.onToggleSelection = onToggleSelection
     }
 
     init(
@@ -214,7 +229,10 @@ struct MediaSquareCard: View {
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
-        circularCover: Bool = false
+        circularCover: Bool = false,
+        isMultiSelecting: Bool = false,
+        isSelected: Bool = false,
+        onToggleSelection: (() -> Void)? = nil
     ) {
         self.init(
             item: playlist,
@@ -222,7 +240,10 @@ struct MediaSquareCard: View {
             fixedCoverSize: fixedCoverSize,
             titleLineLimit: titleLineLimit,
             subtitleLineLimit: subtitleLineLimit,
-            circularCover: circularCover
+            circularCover: circularCover,
+            isMultiSelecting: isMultiSelecting,
+            isSelected: isSelected,
+            onToggleSelection: onToggleSelection
         )
     }
 
@@ -232,7 +253,10 @@ struct MediaSquareCard: View {
         fixedCoverSize: CGFloat? = nil,
         titleLineLimit: Int = 1,
         subtitleLineLimit: Int = 1,
-        circularCover: Bool = false
+        circularCover: Bool = false,
+        isMultiSelecting: Bool = false,
+        isSelected: Bool = false,
+        onToggleSelection: (() -> Void)? = nil
     ) {
         self.init(
             item: album,
@@ -240,7 +264,10 @@ struct MediaSquareCard: View {
             fixedCoverSize: fixedCoverSize,
             titleLineLimit: titleLineLimit,
             subtitleLineLimit: subtitleLineLimit,
-            circularCover: circularCover
+            circularCover: circularCover,
+            isMultiSelecting: isMultiSelecting,
+            isSelected: isSelected,
+            onToggleSelection: onToggleSelection
         )
     }
 
@@ -292,6 +319,15 @@ struct MediaSquareCard: View {
                     .padding(.vertical, 2)
                     .background(.ultraThinMaterial, in: Capsule())
                     .padding(5)
+            }
+
+            if isMultiSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.atmusicAmber : Color.white.opacity(0.85))
+                    .background(Circle().fill(Color.black.opacity(0.35)))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }

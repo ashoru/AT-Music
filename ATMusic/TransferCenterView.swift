@@ -212,17 +212,49 @@ struct TransferCenterView: View {
                     .foregroundStyle(Color.atmusicAmber)
             }
         } else if selectedTab == 1 && !downloadManager.downloadedSongs.isEmpty {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    isMultiSelectingOffline.toggle()
-                    if !isMultiSelectingOffline {
-                        selectedOfflineIDs.removeAll()
+            if isMultiSelectingOffline {
+                HStack(spacing: 12) {
+                    Button(selectedOfflineIDs.count == downloadManager.downloadedSongs.count ? "取消全选" : "全选") {
+                        ATMusicHaptics.tap()
+                        if selectedOfflineIDs.count == downloadManager.downloadedSongs.count {
+                            selectedOfflineIDs.removeAll()
+                        } else {
+                            selectedOfflineIDs = Set(downloadManager.downloadedSongs.map(\.identityKey))
+                        }
                     }
-                }
-            } label: {
-                Text(isMultiSelectingOffline ? "完成" : "多选")
-                    .font(ATMusicFont.appFont(14, .semibold))
+                    .font(ATMusicFont.appFont(13, .semibold))
                     .foregroundStyle(Color.atmusicAmber)
+
+                    Button("完成") {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            isMultiSelectingOffline = false
+                            selectedOfflineIDs.removeAll()
+                        }
+                        ATMusicHaptics.tap()
+                    }
+                    .font(ATMusicFont.appFont(13, .semibold))
+                }
+            } else {
+                Menu {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            isMultiSelectingOffline = true
+                            selectedOfflineIDs.removeAll()
+                        }
+                        ATMusicHaptics.tap()
+                    } label: {
+                        Label("多选管理", systemImage: "checklist")
+                    }
+                    Button(role: .destructive) {
+                        showBatchDeleteAlert = true
+                    } label: {
+                        Label("清空所有离线", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color.primary)
+                }
             }
         }
     }
@@ -605,52 +637,36 @@ struct TransferCenterView: View {
                     if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                         LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 10) {
                             ForEach(Array(downloadManager.downloadedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                if isMultiSelectingOffline {
-                                    let isSelected = selectedOfflineIDs.contains(song.identityKey)
-                                    HStack(spacing: 10) {
-                                        MultiSelectCheckmark(
-                                            isSelected: isSelected,
-                                            index: index,
-                                            rowHeight: 56,
-                                            onToggle: {
-                                                ATMusicHaptics.select()
-                                                if isSelected {
-                                                    selectedOfflineIDs.remove(song.identityKey)
-                                                } else {
-                                                    selectedOfflineIDs.insert(song.identityKey)
-                                                }
-                                            },
-                                            onDragChange: { startIdx, deltaRows in
-                                                handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                                            },
-                                            onDragEnd: {
-                                                handleOfflineDragEnd()
-                                            }
-                                        )
-
-                                        SongCell(song: song)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background {
-                                        ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
+                                let isSelected = selectedOfflineIDs.contains(song.identityKey)
+                                SongCell(
+                                    song: song,
+                                    playbackContext: downloadManager.downloadedSongs,
+                                    playbackIndex: index,
+                                    onTap: {
+                                        player.play(songs: downloadManager.downloadedSongs, startAt: index)
+                                    },
+                                    isMultiSelecting: isMultiSelectingOffline,
+                                    isSelected: isSelected,
+                                    onToggleSelection: {
                                         ATMusicHaptics.select()
                                         if isSelected {
                                             selectedOfflineIDs.remove(song.identityKey)
                                         } else {
                                             selectedOfflineIDs.insert(song.identityKey)
                                         }
-                                    }
-                                } else {
-                                    SongCell(song: song)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background {
-                                            ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                        }
+                                    },
+                                    onDragSelectionChange: { startIdx, deltaRows in
+                                        handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                    },
+                                    onDragSelectionEnd: {
+                                        handleOfflineDragEnd()
+                                    },
+                                    selectionIndex: index
+                                )
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background {
+                                    ATMusicGlass(shape: RoundedRectangle(cornerRadius: 14, style: .continuous))
                                 }
                             }
                         }
@@ -658,43 +674,32 @@ struct TransferCenterView: View {
                     } else {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(downloadManager.downloadedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                if isMultiSelectingOffline {
-                                    let isSelected = selectedOfflineIDs.contains(song.identityKey)
-                                    HStack(spacing: 12) {
-                                        MultiSelectCheckmark(
-                                            isSelected: isSelected,
-                                            index: index,
-                                            rowHeight: 56,
-                                            onToggle: {
-                                                ATMusicHaptics.select()
-                                                if isSelected {
-                                                    selectedOfflineIDs.remove(song.identityKey)
-                                                } else {
-                                                    selectedOfflineIDs.insert(song.identityKey)
-                                                }
-                                            },
-                                            onDragChange: { startIdx, deltaRows in
-                                                handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                                            },
-                                            onDragEnd: {
-                                                handleOfflineDragEnd()
-                                            }
-                                        )
-
-                                        SongCell(song: song)
-                                    }
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
+                                let isSelected = selectedOfflineIDs.contains(song.identityKey)
+                                SongCell(
+                                    song: song,
+                                    playbackContext: downloadManager.downloadedSongs,
+                                    playbackIndex: index,
+                                    onTap: {
+                                        player.play(songs: downloadManager.downloadedSongs, startAt: index)
+                                    },
+                                    isMultiSelecting: isMultiSelectingOffline,
+                                    isSelected: isSelected,
+                                    onToggleSelection: {
                                         ATMusicHaptics.select()
                                         if isSelected {
                                             selectedOfflineIDs.remove(song.identityKey)
                                         } else {
                                             selectedOfflineIDs.insert(song.identityKey)
                                         }
-                                    }
-                                } else {
-                                    SongCell(song: song)
-                                }
+                                    },
+                                    onDragSelectionChange: { startIdx, deltaRows in
+                                        handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                    },
+                                    onDragSelectionEnd: {
+                                        handleOfflineDragEnd()
+                                    },
+                                    selectionIndex: index
+                                )
                             }
                         }
                         .padding(.horizontal, 16)

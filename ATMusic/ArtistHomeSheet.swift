@@ -34,6 +34,7 @@ struct ArtistHomeSheet: View {
     @State private var selectedSection: ArtistHomeSection = .songs
     @State private var isMultiSelecting = false
     @State private var selectedSongKeys: Set<String> = []
+    @State private var selectedAlbumKeys: Set<String> = []
     @State private var dragStartIndex: Int? = nil
     @State private var initialSelectedKeysOnDrag: Set<String>? = nil
     @State private var dragTargetSelected = true
@@ -44,11 +45,100 @@ struct ArtistHomeSheet: View {
         displayedHotSongs.filter { selectedSongKeys.contains($0.identityKey) }
     }
 
+    private var selectedAlbums: [Album] {
+        albums.filter { selectedAlbumKeys.contains($0.identityKey) }
+    }
+
     private func toggleSelection(_ song: Song) {
         if selectedSongKeys.contains(song.identityKey) {
             selectedSongKeys.remove(song.identityKey)
         } else {
             selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func toggleAlbumSelection(_ album: Album) {
+        if selectedAlbumKeys.contains(album.identityKey) {
+            selectedAlbumKeys.remove(album.identityKey)
+        } else {
+            selectedAlbumKeys.insert(album.identityKey)
+        }
+        ATMusicHaptics.tap()
+    }
+
+    private func playSelectedAlbums() async {
+        let albumsToPlay = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToPlay {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.play(songs: allSongs, startAt: 0)
+                ToastCenter.shared.show("已开始播放 \(albumsToPlay.count) 张专辑共 \(allSongs.count) 首")
+            }
+        }
+    }
+
+    private func playNextSelectedAlbums() async {
+        let albumsToPlay = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToPlay {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.playNext(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToPlay.count) 张专辑共 \(allSongs.count) 首设为下一首播放")
+            }
+        }
+    }
+
+    private func queueSelectedAlbums() async {
+        let albumsToQueue = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToQueue {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.appendToQueue(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToQueue.count) 张专辑共 \(allSongs.count) 首加入队列")
+            }
+        }
+    }
+
+    private func downloadSelectedAlbums() async {
+        let albumsToDownload = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToDownload {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                DownloadManager.shared.startBatchDownload(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToDownload.count) 张专辑共 \(allSongs.count) 首加入下载")
+            }
+        }
+    }
+
+    private func archiveSelectedAlbumsToNAS() async {
+        guard SynologyAPI.shared.isLoggedIn else { return }
+        let albumsToArchive = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToArchive {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                DownloadManager.shared.startBatchUploadToNAS(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToArchive.count) 张专辑共 \(allSongs.count) 首加入 NAS 归档")
+            }
         }
     }
 
@@ -118,6 +208,11 @@ struct ArtistHomeSheet: View {
                                 }
                                 .pickerStyle(.segmented)
                                 .padding(.horizontal, 16)
+                                .onChange(of: selectedSection) { _ in
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                    selectedAlbumKeys.removeAll()
+                                }
 
                                 if selectedSection == .songs {
                                     hotSongsSection
@@ -132,66 +227,130 @@ struct ArtistHomeSheet: View {
                     }
                 }
 
-                if isMultiSelecting && !selectedSongKeys.isEmpty {
-                    VStack {
-                        Spacer()
-                        UniversalBatchActionBar(
-                            selectedCount: selectedSongKeys.count,
-                            totalCount: displayedHotSongs.count,
-                            actions: [
-                                BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
-                                    let songs = selectedSongs
-                                    player.play(songs: songs, startAt: 0)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                                    let songs = selectedSongs
-                                    player.playNext(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
-                                    let songs = selectedSongs
-                                    player.appendToQueue(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
-                                    showBatchAddToPlaylist = true
-                                },
-                                BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
-                                    let songs = selectedSongs
-                                    DownloadManager.shared.startBatchDownload(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
-                                    let songs = selectedSongs
-                                    DownloadManager.shared.startBatchUploadToNAS(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                }
-                            ]
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if isMultiSelecting {
+                    if selectedSection == .songs && !selectedSongKeys.isEmpty {
+                        VStack {
+                            Spacer()
+                            UniversalBatchActionBar(
+                                selectedCount: selectedSongKeys.count,
+                                totalCount: displayedHotSongs.count,
+                                actions: [
+                                    BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                        let songs = selectedSongs
+                                        player.play(songs: songs, startAt: 0)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                        let songs = selectedSongs
+                                        player.playNext(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                        let songs = selectedSongs
+                                        player.appendToQueue(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                        showBatchAddToPlaylist = true
+                                    },
+                                    BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                        let songs = selectedSongs
+                                        DownloadManager.shared.startBatchDownload(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                        let songs = selectedSongs
+                                        DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    }
+                                ]
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    } else if selectedSection == .albums && !selectedAlbumKeys.isEmpty {
+                        VStack {
+                            Spacer()
+                            UniversalBatchActionBar(
+                                selectedCount: selectedAlbumKeys.count,
+                                totalCount: albums.count,
+                                actions: [
+                                    BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                        Task { await playSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                        Task { await playNextSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                        Task { await queueSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                        Task { await downloadSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                        Task { await archiveSelectedAlbumsToNAS() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    }
+                                ]
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                 }
             }
-            .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : "歌手主页")
+            .navigationTitle(
+                isMultiSelecting
+                    ? (selectedSection == .songs
+                        ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首")
+                        : (selectedAlbumKeys.isEmpty ? "选择专辑" : "已选 \(selectedAlbumKeys.count) 张"))
+                    : "歌手主页"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !isMultiSelecting {
+                        Button("关闭") { dismiss() }
+                            .font(ATMusicFont.appFont(15))
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if isMultiSelecting {
+                        let totalCount = selectedSection == .songs ? displayedHotSongs.count : albums.count
+                        let isAll = selectedSection == .songs
+                            ? (selectedSongKeys.count == totalCount && !displayedHotSongs.isEmpty)
+                            : (selectedAlbumKeys.count == totalCount && !albums.isEmpty)
                         HStack(spacing: 12) {
-                            Button(selectedSongKeys.count == displayedHotSongs.count && !displayedHotSongs.isEmpty ? "取消全选" : "全选") {
+                            Button(isAll ? "取消全选" : "全选") {
                                 ATMusicHaptics.tap()
-                                if selectedSongKeys.count == displayedHotSongs.count {
-                                    selectedSongKeys.removeAll()
+                                if selectedSection == .songs {
+                                    if selectedSongKeys.count == displayedHotSongs.count {
+                                        selectedSongKeys.removeAll()
+                                    } else {
+                                        selectedSongKeys = Set(displayedHotSongs.map(\.identityKey))
+                                    }
                                 } else {
-                                    selectedSongKeys = Set(displayedHotSongs.map(\.identityKey))
+                                    if selectedAlbumKeys.count == albums.count {
+                                        selectedAlbumKeys.removeAll()
+                                    } else {
+                                        selectedAlbumKeys = Set(albums.map(\.identityKey))
+                                    }
                                 }
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
@@ -201,23 +360,23 @@ struct ArtistHomeSheet: View {
                                 ATMusicHaptics.tap()
                                 isMultiSelecting = false
                                 selectedSongKeys.removeAll()
+                                selectedAlbumKeys.removeAll()
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
                     } else {
-                        Button {
-                            ATMusicHaptics.select()
-                            isMultiSelecting = true
+                        Menu {
+                            Button {
+                                ATMusicHaptics.select()
+                                isMultiSelecting = true
+                            } label: {
+                                Label(selectedSection == .songs ? "多选歌曲" : "多选专辑", systemImage: "checklist")
+                            }
+                            .disabled(selectedSection == .songs ? displayedHotSongs.isEmpty : albums.isEmpty)
                         } label: {
-                            Text("多选")
-                                .font(ATMusicFont.appFont(13, .medium))
+                            Image(systemName: "ellipsis.circle")
                         }
-                        .disabled(displayedHotSongs.isEmpty)
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if !isMultiSelecting {
-                        Button("关闭") { dismiss() }
+                        .accessibilityLabel("更多操作")
                     }
                 }
             }
@@ -332,36 +491,28 @@ struct ArtistHomeSheet: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(displayedHotSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        if isMultiSelecting {
-                            let isSelected = selectedSongKeys.contains(song.identityKey)
-                            HStack(spacing: 8) {
-                                MultiSelectCheckmark(
-                                    isSelected: isSelected,
-                                    index: index,
-                                    rowHeight: 52,
-                                    onToggle: {
-                                        toggleSelection(song)
-                                        ATMusicHaptics.tap()
-                                    },
-                                    onDragChange: { startIdx, deltaRows in
-                                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                                    },
-                                    onDragEnd: {
-                                        handleDragEnd()
-                                    }
-                                )
-                                SongCell(song: song, playbackContext: displayedHotSongs, playbackIndex: index, trackNumber: index + 1, subtitleText: song.album) {}
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                toggleSelection(song)
-                                ATMusicHaptics.tap()
-                            }
-                        } else {
-                            SongCell(song: song, playbackContext: displayedHotSongs, playbackIndex: index, trackNumber: index + 1, subtitleText: song.album) {
+                        SongCell(
+                            song: song,
+                            playbackContext: displayedHotSongs,
+                            playbackIndex: index,
+                            trackNumber: index + 1,
+                            subtitleText: song.album,
+                            onTap: {
                                 player.play(songs: displayedHotSongs, startAt: index)
-                            }
-                        }
+                            },
+                            isMultiSelecting: isMultiSelecting,
+                            isSelected: selectedSongKeys.contains(song.identityKey),
+                            onToggleSelection: {
+                                toggleSelection(song)
+                            },
+                            onDragSelectionChange: { startIdx, deltaRows in
+                                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                            },
+                            onDragSelectionEnd: {
+                                handleDragEnd()
+                            },
+                            selectionIndex: index
+                        )
                     }
                 }
             }
@@ -392,20 +543,36 @@ struct ArtistHomeSheet: View {
             } else {
                 LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
                     ForEach(albums) { album in
-                        NavigationLink {
-                            if album.source == .synology {
-                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
-                                    .environmentObject(player)
-                                    .environmentObject(theme)
-                            } else {
-                                AlbumDetailView(album: album, isModal: false)
-                                    .environmentObject(player)
-                                    .environmentObject(theme)
+                        if isMultiSelecting {
+                            MediaSquareCard(
+                                album: album,
+                                showSourceBadge: false,
+                                isMultiSelecting: true,
+                                isSelected: selectedAlbumKeys.contains(album.identityKey),
+                                onToggleSelection: {
+                                    toggleAlbumSelection(album)
+                                }
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                toggleAlbumSelection(album)
                             }
-                        } label: {
-                            MediaSquareCard(album: album, showSourceBadge: false)
+                        } else {
+                            NavigationLink {
+                                if album.source == .synology {
+                                    SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
+                                        .environmentObject(player)
+                                        .environmentObject(theme)
+                                } else {
+                                    AlbumDetailView(album: album, isModal: false)
+                                        .environmentObject(player)
+                                        .environmentObject(theme)
+                                }
+                            } label: {
+                                MediaSquareCard(album: album, showSourceBadge: false)
+                            }
+                            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                         }
-                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                     }
                 }
                 .padding(.horizontal, 16)
@@ -614,6 +781,7 @@ struct AllSourcesArtistHomeSheet: View {
     @State private var searchText = ""
     @State private var isMultiSelecting = false
     @State private var selectedSongKeys: Set<String> = []
+    @State private var selectedAlbumKeys: Set<String> = []
     @State private var dragStartIndex: Int? = nil
     @State private var initialSelectedKeysOnDrag: Set<String>? = nil
     @State private var dragTargetSelected = true
@@ -624,11 +792,100 @@ struct AllSourcesArtistHomeSheet: View {
         filteredSongs.filter { selectedSongKeys.contains($0.identityKey) }
     }
 
+    private var selectedAlbums: [Album] {
+        visibleAlbums.filter { selectedAlbumKeys.contains($0.identityKey) }
+    }
+
     private func toggleSelection(_ song: Song) {
         if selectedSongKeys.contains(song.identityKey) {
             selectedSongKeys.remove(song.identityKey)
         } else {
             selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func toggleAlbumSelection(_ album: Album) {
+        if selectedAlbumKeys.contains(album.identityKey) {
+            selectedAlbumKeys.remove(album.identityKey)
+        } else {
+            selectedAlbumKeys.insert(album.identityKey)
+        }
+        ATMusicHaptics.tap()
+    }
+
+    private func playSelectedAlbums() async {
+        let albumsToPlay = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToPlay {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.play(songs: allSongs, startAt: 0)
+                ToastCenter.shared.show("已开始播放 \(albumsToPlay.count) 张专辑共 \(allSongs.count) 首")
+            }
+        }
+    }
+
+    private func playNextSelectedAlbums() async {
+        let albumsToPlay = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToPlay {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.playNext(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToPlay.count) 张专辑共 \(allSongs.count) 首设为下一首播放")
+            }
+        }
+    }
+
+    private func queueSelectedAlbums() async {
+        let albumsToQueue = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToQueue {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                player.appendToQueue(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToQueue.count) 张专辑共 \(allSongs.count) 首加入队列")
+            }
+        }
+    }
+
+    private func downloadSelectedAlbums() async {
+        let albumsToDownload = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToDownload {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                DownloadManager.shared.startBatchDownload(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToDownload.count) 张专辑共 \(allSongs.count) 首加入下载")
+            }
+        }
+    }
+
+    private func archiveSelectedAlbumsToNAS() async {
+        guard SynologyAPI.shared.isLoggedIn else { return }
+        let albumsToArchive = selectedAlbums
+        var allSongs: [Song] = []
+        for album in albumsToArchive {
+            let tracks = await DetailSongsCache.fetchSongs(for: album)
+            allSongs.append(contentsOf: tracks)
+        }
+        if !allSongs.isEmpty {
+            await MainActor.run {
+                DownloadManager.shared.startBatchUploadToNAS(songs: allSongs)
+                ToastCenter.shared.show("已将 \(albumsToArchive.count) 张专辑共 \(allSongs.count) 首加入 NAS 归档")
+            }
         }
     }
 
@@ -738,6 +995,11 @@ struct AllSourcesArtistHomeSheet: View {
                             }
                             .pickerStyle(.segmented)
                             .padding(.horizontal, 16)
+                            .onChange(of: selectedSection) { _ in
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                                selectedAlbumKeys.removeAll()
+                            }
 
                             if selectedSection == .songs {
                                 songsSection
@@ -751,66 +1013,130 @@ struct AllSourcesArtistHomeSheet: View {
                     .atmusicScrollIndicatorsHidden()
                 }
 
-                if isMultiSelecting && !selectedSongKeys.isEmpty {
-                    VStack {
-                        Spacer()
-                        UniversalBatchActionBar(
-                            selectedCount: selectedSongKeys.count,
-                            totalCount: filteredSongs.count,
-                            actions: [
-                                BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
-                                    let songs = selectedSongs
-                                    player.play(songs: songs, startAt: 0)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                                    let songs = selectedSongs
-                                    player.playNext(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
-                                    let songs = selectedSongs
-                                    player.appendToQueue(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
-                                    showBatchAddToPlaylist = true
-                                },
-                                BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
-                                    let songs = selectedSongs
-                                    DownloadManager.shared.startBatchDownload(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                },
-                                BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
-                                    let songs = selectedSongs
-                                    DownloadManager.shared.startBatchUploadToNAS(songs: songs)
-                                    isMultiSelecting = false
-                                    selectedSongKeys.removeAll()
-                                }
-                            ]
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                if isMultiSelecting {
+                    if selectedSection == .songs && !selectedSongKeys.isEmpty {
+                        VStack {
+                            Spacer()
+                            UniversalBatchActionBar(
+                                selectedCount: selectedSongKeys.count,
+                                totalCount: filteredSongs.count,
+                                actions: [
+                                    BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                        let songs = selectedSongs
+                                        player.play(songs: songs, startAt: 0)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                        let songs = selectedSongs
+                                        player.playNext(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                        let songs = selectedSongs
+                                        player.appendToQueue(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                        showBatchAddToPlaylist = true
+                                    },
+                                    BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                        let songs = selectedSongs
+                                        DownloadManager.shared.startBatchDownload(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                        let songs = selectedSongs
+                                        DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                        isMultiSelecting = false
+                                        selectedSongKeys.removeAll()
+                                    }
+                                ]
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    } else if selectedSection == .albums && !selectedAlbumKeys.isEmpty {
+                        VStack {
+                            Spacer()
+                            UniversalBatchActionBar(
+                                selectedCount: selectedAlbumKeys.count,
+                                totalCount: visibleAlbums.count,
+                                actions: [
+                                    BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                        Task { await playSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                        Task { await playNextSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                        Task { await queueSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                        Task { await downloadSelectedAlbums() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    },
+                                    BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                        Task { await archiveSelectedAlbumsToNAS() }
+                                        isMultiSelecting = false
+                                        selectedAlbumKeys.removeAll()
+                                    }
+                                ]
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                 }
             }
-            .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : "歌手主页")
+            .navigationTitle(
+                isMultiSelecting
+                    ? (selectedSection == .songs
+                        ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首")
+                        : (selectedAlbumKeys.isEmpty ? "选择专辑" : "已选 \(selectedAlbumKeys.count) 张"))
+                    : "歌手主页"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !isMultiSelecting {
+                        Button("关闭") { dismiss() }
+                            .font(ATMusicFont.appFont(15))
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if isMultiSelecting {
+                        let totalCount = selectedSection == .songs ? filteredSongs.count : visibleAlbums.count
+                        let isAll = selectedSection == .songs
+                            ? (selectedSongKeys.count == totalCount && !filteredSongs.isEmpty)
+                            : (selectedAlbumKeys.count == totalCount && !visibleAlbums.isEmpty)
                         HStack(spacing: 12) {
-                            Button(selectedSongKeys.count == filteredSongs.count && !filteredSongs.isEmpty ? "取消全选" : "全选") {
+                            Button(isAll ? "取消全选" : "全选") {
                                 ATMusicHaptics.tap()
-                                if selectedSongKeys.count == filteredSongs.count {
-                                    selectedSongKeys.removeAll()
+                                if selectedSection == .songs {
+                                    if selectedSongKeys.count == filteredSongs.count {
+                                        selectedSongKeys.removeAll()
+                                    } else {
+                                        selectedSongKeys = Set(filteredSongs.map(\.identityKey))
+                                    }
                                 } else {
-                                    selectedSongKeys = Set(filteredSongs.map(\.identityKey))
+                                    if selectedAlbumKeys.count == visibleAlbums.count {
+                                        selectedAlbumKeys.removeAll()
+                                    } else {
+                                        selectedAlbumKeys = Set(visibleAlbums.map(\.identityKey))
+                                    }
                                 }
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
@@ -820,19 +1146,21 @@ struct AllSourcesArtistHomeSheet: View {
                                 ATMusicHaptics.tap()
                                 isMultiSelecting = false
                                 selectedSongKeys.removeAll()
+                                selectedAlbumKeys.removeAll()
                             }
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
                     } else {
-                        HStack(spacing: 12) {
+                        Menu {
                             Button {
                                 ATMusicHaptics.select()
                                 isMultiSelecting = true
                             } label: {
-                                Text("多选")
-                                    .font(ATMusicFont.appFont(13, .medium))
+                                Label(selectedSection == .songs ? "多选歌曲" : "多选专辑", systemImage: "checklist")
                             }
-                            .disabled(filteredSongs.isEmpty)
+                            .disabled(selectedSection == .songs ? filteredSongs.isEmpty : visibleAlbums.isEmpty)
+
+                            Divider()
 
                             Menu {
                                 Button("全选平台") {
@@ -848,15 +1176,12 @@ struct AllSourcesArtistHomeSheet: View {
                                     }
                                 }
                             } label: {
-                                Image(systemName: "line.3.horizontal.decrease.circle")
+                                Label("过滤平台", systemImage: "line.3.horizontal.decrease.circle")
                             }
-                            .accessibilityLabel("切换显示平台")
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if !isMultiSelecting {
-                        Button("关闭") { dismiss() }
+                        .accessibilityLabel("更多操作")
                     }
                 }
             }
@@ -925,36 +1250,27 @@ struct AllSourcesArtistHomeSheet: View {
             }
             LazyVStack(spacing: 0) {
                 ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
-                    if isMultiSelecting {
-                        let isSelected = selectedSongKeys.contains(song.identityKey)
-                        HStack(spacing: 8) {
-                            MultiSelectCheckmark(
-                                isSelected: isSelected,
-                                index: index,
-                                rowHeight: 52,
-                                onToggle: {
-                                    toggleSelection(song)
-                                    ATMusicHaptics.tap()
-                                },
-                                onDragChange: { startIdx, deltaRows in
-                                    handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                                },
-                                onDragEnd: {
-                                    handleDragEnd()
-                                }
-                            )
-                            SongCell(song: song, glassRow: false, playbackContext: filteredSongs, playbackIndex: index) {}
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            toggleSelection(song)
-                            ATMusicHaptics.tap()
-                        }
-                    } else {
-                        SongCell(song: song, glassRow: false, playbackContext: filteredSongs, playbackIndex: index) {
+                    SongCell(
+                        song: song,
+                        glassRow: false,
+                        playbackContext: filteredSongs,
+                        playbackIndex: index,
+                        onTap: {
                             player.play(songs: filteredSongs, startAt: index)
-                        }
-                    }
+                        },
+                        isMultiSelecting: isMultiSelecting,
+                        isSelected: selectedSongKeys.contains(song.identityKey),
+                        onToggleSelection: {
+                            toggleSelection(song)
+                        },
+                        onDragSelectionChange: { startIdx, deltaRows in
+                            handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                        },
+                        onDragSelectionEnd: {
+                            handleDragEnd()
+                        },
+                        selectionIndex: index
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -973,20 +1289,36 @@ struct AllSourcesArtistHomeSheet: View {
             } else {
                 LazyVGrid(columns: DeviceLayoutHelper.adaptiveCardColumns(for: horizontalSizeClass, minWidth: 140, maxWidth: 200, spacing: 16), spacing: 18) {
                     ForEach(visibleAlbums) { album in
-                        NavigationLink {
-                            if album.source == .synology {
-                                SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
-                                    .environmentObject(player)
-                                    .environmentObject(theme)
-                            } else {
-                                AlbumDetailView(album: album, isModal: false)
-                                    .environmentObject(player)
-                                    .environmentObject(theme)
+                        if isMultiSelecting {
+                            MediaSquareCard(
+                                album: album,
+                                showSourceBadge: true,
+                                isMultiSelecting: true,
+                                isSelected: selectedAlbumKeys.contains(album.identityKey),
+                                onToggleSelection: {
+                                    toggleAlbumSelection(album)
+                                }
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                toggleAlbumSelection(album)
                             }
-                        } label: {
-                            MediaSquareCard(album: album, showSourceBadge: true)
+                        } else {
+                            NavigationLink {
+                                if album.source == .synology {
+                                    SynologyAlbumView(albumName: album.name, artistName: album.artistName, coverURL: album.coverURL, isModal: false)
+                                        .environmentObject(player)
+                                        .environmentObject(theme)
+                                } else {
+                                    AlbumDetailView(album: album, isModal: false)
+                                        .environmentObject(player)
+                                        .environmentObject(theme)
+                                }
+                            } label: {
+                                MediaSquareCard(album: album, showSourceBadge: true)
+                            }
+                            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                         }
-                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
                     }
                 }
                 .padding(.horizontal, 16)

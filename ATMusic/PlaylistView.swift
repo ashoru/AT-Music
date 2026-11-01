@@ -210,34 +210,43 @@ struct PlaylistView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if isEditing {
+                        Button(selectedKeys.count == tracks.count && !tracks.isEmpty ? "取消全选" : "全选") {
+                            ATMusicHaptics.tap()
+                            if selectedKeys.count == tracks.count {
+                                selectedKeys.removeAll()
+                            } else {
+                                selectedKeys = Set(tracks.map(\.identityKey))
+                            }
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+
                         Button("完成") {
                             isEditing = false
                             selectedKeys.removeAll()
                             ATMusicHaptics.tap()
                         }
+                        .font(ATMusicFont.appFont(13, .semibold))
                     } else {
-                        Button {
-                            if playlist.source == .synology {
-                                showNASPlaylistEditor = true
-                            } else {
-                                isEditing = true
+                        Menu {
+                            Button {
+                                if playlist.source == .synology {
+                                    showNASPlaylistEditor = true
+                                } else {
+                                    isEditing = true
+                                }
+                                ATMusicHaptics.tap()
+                            } label: {
+                                Label("编辑歌单", systemImage: "pencil")
                             }
-                            ATMusicHaptics.tap()
-                        } label: {
-                            Label("编辑", systemImage: "pencil")
-                        }
-                        .accessibilityLabel("编辑歌单")
-                    }
-                    Button {
-                        favoritePlaylists.toggle(playlist)
-                    } label: {
-                        let isFav = favoritePlaylists.isFavorite(playlist)
-                        Image(systemName: isFav ? "heart.fill" : "heart")
-                            .foregroundStyle(isFav ? Color.red : Color.primary)
-                    }
-                    .accessibilityLabel(favoritePlaylists.isFavorite(playlist) ? "取消收藏歌单" : "收藏歌单")
 
-                    Menu {
+                            Button {
+                                favoritePlaylists.toggle(playlist)
+                                ATMusicHaptics.select()
+                            } label: {
+                                let isFav = favoritePlaylists.isFavorite(playlist)
+                                Label(isFav ? "取消收藏歌单" : "收藏歌单", systemImage: isFav ? "heart.slash" : "heart")
+                            }
                         if !hideSortButton {
                             Picker("排序", selection: $sortMode) {
                                 ForEach(PlaylistSortMode.allCases) { mode in
@@ -323,6 +332,7 @@ struct PlaylistView: View {
                         Image(systemName: "ellipsis.circle")
                     }
                     .accessibilityLabel("更多")
+                    }
                 }
             }
             .sheet(isPresented: $showNASPlaylistEditor) {
@@ -741,7 +751,7 @@ struct PlaylistView: View {
                         MultiSelectCheckmark(
                             isSelected: selectedKeys.contains(song.identityKey),
                             index: index,
-                            rowHeight: 52,
+                            rowHeight: 56,
                             onToggle: {
                                 toggleSelection(song)
                                 ATMusicHaptics.tap()

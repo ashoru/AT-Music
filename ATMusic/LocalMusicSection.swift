@@ -590,52 +590,30 @@ struct LocalPlaylistDetailSheet: View {
                                     .listRowSeparator(.hidden)
                             } else {
                                 ForEach(visibleSongs, id: \.element.identityKey) { index, song in
-                                    if multiSelectMode {
-                                        HStack(spacing: 10) {
-                                            MultiSelectCheckmark(
-                                                isSelected: selectedSongKeys.contains(song.identityKey),
-                                                index: index,
-                                                rowHeight: 52,
-                                                onToggle: {
-                                                    toggleSelection(song)
-                                                    ATMusicHaptics.tap()
-                                                },
-                                                onDragChange: { startIdx, deltaRows in
-                                                    handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                                                },
-                                                onDragEnd: {
-                                                    handleDragEnd()
-                                                }
-                                            )
-                                            SongCell(song: song, glassRow: true) {}
-                                        }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            toggleSelection(song)
-                                            ATMusicHaptics.tap()
-                                        }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
-                                    } else {
-                                        let resolvedSongs = store.playbackSongs(for: playlistID)
-                                        SongCell(song: song, glassRow: true, playbackContext: resolvedSongs, playbackIndex: index) {
+                                    let resolvedSongs = store.playbackSongs(for: playlistID)
+                                    SongCell(
+                                        song: song,
+                                        glassRow: true,
+                                        playbackContext: resolvedSongs,
+                                        playbackIndex: index,
+                                        onTap: {
                                             player.play(songs: resolvedSongs, startAt: index)
-                                        }
-                                        .listRowBackground(Color.clear)
-                                        .listRowSeparator(.hidden)
-                                        .swipeActions(edge: .trailing) {
-                                            Button(role: .destructive) {
-                                                ATMusicHaptics.tap()
-                                                if playlist.name == "已下载歌曲" {
-                                                    DownloadManager.shared.removeDownloaded(song: song)
-                                                } else {
-                                                    store.removeSong(playlistID: playlistID, songIdentity: song.identityKey)
-                                                }
-                                            } label: {
-                                                Label("移除", systemImage: "trash")
-                                            }
-                                        }
-                                    }
+                                        },
+                                        isMultiSelecting: multiSelectMode,
+                                        isSelected: selectedSongKeys.contains(song.identityKey),
+                                        onToggleSelection: {
+                                            toggleSelection(song)
+                                        },
+                                        onDragSelectionChange: { startIdx, deltaRows in
+                                            handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                        },
+                                        onDragSelectionEnd: {
+                                            handleDragEnd()
+                                        },
+                                        selectionIndex: index
+                                    )
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
                                 }
                             }
                         }
@@ -753,30 +731,37 @@ struct LocalPlaylistDetailSheet: View {
             .navigationTitle(multiSelectMode ? "已选择 \(selectedSongKeys.count) 首" : (playlist?.name ?? "本地歌单"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !multiSelectMode {
+                        Button("完成") { dismiss() }
+                            .font(ATMusicFont.appFont(15, .medium))
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     if multiSelectMode {
                         Button(selectedSongKeys.count == visibleSongs.count && !visibleSongs.isEmpty ? "取消全选" : "全选") {
+                            ATMusicHaptics.tap()
                             if selectedSongKeys.count == visibleSongs.count {
                                 selectedSongKeys.removeAll()
                             } else {
                                 selectedSongKeys = Set(visibleSongs.map { $0.element.identityKey })
                             }
                         }
-                    } else {
-                        Button("完成") { dismiss() }
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    if multiSelectMode {
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+
                         Button("完成") {
                             multiSelectMode = false
                             selectedSongKeys.removeAll()
+                            ATMusicHaptics.tap()
                         }
+                        .font(ATMusicFont.appFont(13, .semibold))
                     } else {
                         Menu {
                             Button {
                                 multiSelectMode = true
                                 selectedSongKeys.removeAll()
+                                ATMusicHaptics.tap()
                             } label: {
                                 Label("多选管理", systemImage: "checklist")
                             }
@@ -1149,6 +1134,7 @@ struct LocalMusicManagementSheet: View {
                                         }
                                         Spacer(minLength: 8)
                                     }
+                                    .frame(height: 56)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         ATMusicHaptics.select()

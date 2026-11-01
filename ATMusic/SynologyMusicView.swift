@@ -2180,8 +2180,43 @@ struct SynologyFolderView: View {
         }
     }
 
-    private var songs: [Song] {
+    private var displayedFolders: [SynologyFolderItem] {
+        displayedItems.filter { $0.kind == .folder }
+    }
+
+    private var displayedSongs: [Song] {
         displayedItems.compactMap(\.song)
+    }
+
+    private var songs: [Song] {
+        displayedSongs
+    }
+
+    private var breadcrumbsView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { idx, crumb in
+                    HStack(spacing: 6) {
+                        if idx > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.5))
+                        }
+                        Text(crumb)
+                            .font(ATMusicFont.appFont(12, idx == breadcrumbs.count - 1 ? .semibold : .medium))
+                            .foregroundStyle(idx == breadcrumbs.count - 1 ? Color.atmusicAmber : Color.atmusicComment)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(idx == breadcrumbs.count - 1 ? Color.atmusicAmber.opacity(0.12) : Color.primary.opacity(0.04))
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
     }
 
     @ViewBuilder
@@ -2192,6 +2227,8 @@ struct SynologyFolderView: View {
                 title: item.name,
                 breadcrumbs: breadcrumbs + [item.name]
             )
+            .environmentObject(theme)
+            .environmentObject(player)
         } label: {
             SynologyLibraryRow(
                 coverURL: folderOverviews[item.id]?.previewSong?.coverURL,
@@ -2200,53 +2237,23 @@ struct SynologyFolderView: View {
                 systemImage: "folder.fill"
             )
         }
-        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
     }
 
-    @ViewBuilder
-    private func songRow(_ song: Song, index: Int) -> some View {
-        if isSelecting {
-            let isSelected = selectedIDs.contains(song.id)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-            .listRowBackground(Color.clear)
+    private func batchDownloadAllFolderSongs() {
+        guard !displayedSongs.isEmpty else { return }
+        ATMusicHaptics.medium()
+        let quality: DownloadQuality
+        let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+        if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+            quality = ThirdPartyAudioQuality.current
         } else {
-            SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
-                player.play(songs: songs, startAt: index)
-            }
+            quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
         }
-    }
-
-    @ViewBuilder
-    private func itemRow(_ item: SynologyFolderItem) -> some View {
-        if item.kind == .folder {
-            folderRow(item)
-        } else if let song = item.song {
-            songRow(song, index: songs.firstIndex(of: song) ?? 0)
-        }
+        DownloadManager.shared.startBatchDownload(songs: displayedSongs, quality: quality)
+        ToastCenter.shared.show("已将 \(displayedSongs.count) 首曲目加入离线下载")
     }
 
     var body: some View {
@@ -2261,64 +2268,143 @@ struct SynologyFolderView: View {
             } else {
                 List {
                     Section {
-                        Text(breadcrumbs.joined(separator: " / "))
-                            .font(ATMusicFont.appFont(11, .medium))
-                            .foregroundStyle(Color.atmusicComment)
-                            .lineLimit(1)
-                            .truncationMode(.head)
+                        breadcrumbsView
                     }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
-                    if !songs.isEmpty {
+                    if !displayedSongs.isEmpty {
                         Section {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 12) {
                                 GlassButton(title: "播放全部", systemName: "play.fill", prominent: true) {
-                                    player.play(songs: songs, startAt: 0)
+                                    player.play(songs: displayedSongs, startAt: 0)
                                 }
                                 GlassButton(title: "随机播放", systemName: "shuffle") {
-                                    player.play(songs: songs.shuffled(), startAt: 0)
+                                    player.play(songs: displayedSongs.shuffled(), startAt: 0)
                                 }
                             }
                         }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
 
-                    Section {
-                        ForEach(displayedItems) { item in
-                            itemRow(item)
+                    if !displayedFolders.isEmpty {
+                        Section {
+                            ForEach(displayedFolders) { item in
+                                folderRow(item)
+                            }
+                        } header: {
+                            Text("文件夹 (\(displayedFolders.count))")
+                                .font(ATMusicFont.appFont(13, .semibold))
+                                .foregroundStyle(Color.atmusicComment)
+                                .padding(.horizontal, 4)
                         }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+
+                    if !displayedSongs.isEmpty {
+                        Section {
+                            ForEach(Array(displayedSongs.enumerated()), id: \.element.id) { index, song in
+                                SongCell(
+                                    song: song,
+                                    glassRow: false,
+                                    playbackContext: displayedSongs,
+                                    playbackIndex: index,
+                                    onTap: {
+                                        player.play(songs: displayedSongs, startAt: index)
+                                    },
+                                    isMultiSelecting: isSelecting,
+                                    isSelected: selectedIDs.contains(song.id),
+                                    onToggleSelection: {
+                                        toggleSelection(song)
+                                    },
+                                    onDragSelectionChange: { startIdx, deltaRows in
+                                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                    },
+                                    onDragSelectionEnd: {
+                                        handleDragEnd()
+                                    },
+                                    selectionIndex: index
+                                )
+                            }
+                        } header: {
+                            if !displayedFolders.isEmpty {
+                                Text("曲目 (\(displayedSongs.count))")
+                                    .font(ATMusicFont.appFont(13, .semibold))
+                                    .foregroundStyle(Color.atmusicComment)
+                                    .padding(.horizontal, 4)
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 }
                 .atmusicScrollContentBackgroundHidden()
                 .listStyle(.plain)
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(isSelecting ? (selectedIDs.isEmpty ? "选择歌曲" : "已选 \(selectedIDs.count) 首") : title)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索当前文件夹")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if !songs.isEmpty {
+                if !displayedSongs.isEmpty {
                     if isSelecting {
-                        HStack(spacing: 14) {
-                            Button(selectedIDs.count == songs.count ? "取消全选" : "全选") {
-                                if selectedIDs.count == songs.count {
+                        HStack(spacing: 12) {
+                            Button(selectedIDs.count == displayedSongs.count ? "取消全选" : "全选") {
+                                ATMusicHaptics.tap()
+                                if selectedIDs.count == displayedSongs.count {
                                     selectedIDs.removeAll()
                                 } else {
-                                    selectedIDs = Set(songs.map(\.id))
+                                    selectedIDs = Set(displayedSongs.map(\.id))
                                 }
                             }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+
                             Button("完成") {
+                                ATMusicHaptics.tap()
                                 isSelecting = false
                                 selectedIDs.removeAll()
                             }
-                        }
-                        .font(ATMusicFont.appFont(13, .semibold))
-                    } else {
-                        Button("编辑") { isSelecting = true }
                             .font(ATMusicFont.appFont(13, .semibold))
+                        }
+                    } else {
+                        Menu {
+                            Button {
+                                ATMusicHaptics.select()
+                                isSelecting = true
+                            } label: {
+                                Label("多选歌曲", systemImage: "checklist")
+                            }
+
+                            Button {
+                                batchDownloadAllFolderSongs()
+                            } label: {
+                                Label("下载全部曲目", systemImage: "arrow.down.circle")
+                            }
+
+                            Button {
+                                player.appendToQueue(songs: displayedSongs)
+                                ToastCenter.shared.show("已将全部 \(displayedSongs.count) 首加入队列")
+                            } label: {
+                                Label("全部加至播放队列", systemImage: "text.badge.plus")
+                            }
+
+                            Button {
+                                showBatchEditor = true
+                            } label: {
+                                Label("批量编辑 NAS 标签", systemImage: "square.and.pencil")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("更多操作")
                     }
                 }
             }
@@ -3212,36 +3298,28 @@ struct SynologyAlbumView: View {
 
     @ViewBuilder
     private func albumSongRow(song: Song, index: Int, playbackIndex: Int, trackNumber: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: playbackIndex, trackNumber: trackNumber) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: playbackIndex, trackNumber: trackNumber) {
+        SongCell(
+            song: song,
+            glassRow: true,
+            playbackContext: sortedTracks,
+            playbackIndex: playbackIndex,
+            trackNumber: trackNumber,
+            onTap: {
                 player.play(songs: sortedTracks, startAt: playbackIndex)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     @MainActor

@@ -1551,36 +1551,27 @@ struct QQTopListDetailView: View {
 
     @ViewBuilder
     private func chartSongRow(song: Song, index: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: true) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(song: song, glassRow: true, playbackContext: filteredTracks, playbackIndex: index) {
+        SongCell(
+            song: song,
+            glassRow: true,
+            playbackContext: filteredTracks,
+            playbackIndex: index,
+            onTap: {
                 player.play(songs: filteredTracks, startAt: index)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     init(topID: Int, name: String) {
@@ -1704,14 +1695,36 @@ struct QQTopListDetailView: View {
                         .font(ATMusicFont.appFont(13, .semibold))
                     }
                 } else {
-                    Button {
-                        ATMusicHaptics.select()
-                        isMultiSelecting = true
+                    Menu {
+                        Button {
+                            ATMusicHaptics.select()
+                            isMultiSelecting = true
+                        } label: {
+                            Label("多选歌曲", systemImage: "checklist")
+                        }
+                        .disabled(filteredTracks.isEmpty)
+
+                        Button {
+                            DownloadManager.shared.startBatchDownload(songs: filteredTracks)
+                            ToastCenter.shared.show("已将 \(filteredTracks.count) 首榜单歌曲加入下载")
+                        } label: {
+                            Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(filteredTracks.isEmpty)
+
+                        if SynologyAPI.shared.isLoggedIn {
+                            Button {
+                                DownloadManager.shared.startBatchUploadToNAS(songs: filteredTracks)
+                                ToastCenter.shared.show("已将 \(filteredTracks.count) 首榜单歌曲加入归档")
+                            } label: {
+                                Label("全部归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            }
+                            .disabled(filteredTracks.isEmpty)
+                        }
                     } label: {
-                        Text("多选")
-                            .font(ATMusicFont.appFont(13, .medium))
+                        Image(systemName: "ellipsis.circle")
                     }
-                    .disabled(filteredTracks.isEmpty)
+                    .accessibilityLabel("更多操作")
                 }
             }
         }
@@ -2079,37 +2092,28 @@ struct DailySongsSheet: View {
 
     @ViewBuilder
     private func dailySongRow(song: Song, index: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: true) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(song: song, glassRow: true) {
+        SongCell(
+            song: song,
+            glassRow: true,
+            playbackContext: filteredSongs,
+            playbackIndex: index,
+            onTap: {
                 ATMusicHaptics.tap()
                 player.play(songs: filteredSongs, startAt: index)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     var body: some View {
@@ -2224,14 +2228,36 @@ struct DailySongsSheet: View {
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
                     } else {
-                        Button {
-                            ATMusicHaptics.select()
-                            isMultiSelecting = true
+                        Menu {
+                            Button {
+                                ATMusicHaptics.select()
+                                isMultiSelecting = true
+                            } label: {
+                                Label("多选歌曲", systemImage: "checklist")
+                            }
+                            .disabled(filteredSongs.isEmpty)
+
+                            Button {
+                                DownloadManager.shared.startBatchDownload(songs: filteredSongs)
+                                ToastCenter.shared.show("已将 \(filteredSongs.count) 首推荐歌曲加入下载")
+                            } label: {
+                                Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                            }
+                            .disabled(filteredSongs.isEmpty)
+
+                            if SynologyAPI.shared.isLoggedIn {
+                                Button {
+                                    DownloadManager.shared.startBatchUploadToNAS(songs: filteredSongs)
+                                    ToastCenter.shared.show("已将 \(filteredSongs.count) 首推荐歌曲加入归档")
+                                } label: {
+                                    Label("全部归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                }
+                                .disabled(filteredSongs.isEmpty)
+                            }
                         } label: {
-                            Text("多选")
-                                .font(ATMusicFont.appFont(13, .medium))
+                            Image(systemName: "ellipsis.circle")
                         }
-                        .disabled(filteredSongs.isEmpty)
+                        .accessibilityLabel("更多操作")
                     }
                 }
             }
@@ -2419,36 +2445,27 @@ struct TopListDetailView: View {
 
     @ViewBuilder
     private func chartSongRow(song: Song, index: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: true) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(song: song, glassRow: true) {
+        SongCell(
+            song: song,
+            glassRow: true,
+            playbackContext: filteredTracks,
+            playbackIndex: index,
+            onTap: {
                 player.play(songs: filteredTracks, startAt: index)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     init(topList: TopList) {
@@ -2572,14 +2589,36 @@ struct TopListDetailView: View {
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
                     } else {
-                        Button {
-                            ATMusicHaptics.select()
-                            isMultiSelecting = true
+                        Menu {
+                            Button {
+                                ATMusicHaptics.select()
+                                isMultiSelecting = true
+                            } label: {
+                                Label("多选歌曲", systemImage: "checklist")
+                            }
+                            .disabled(filteredTracks.isEmpty)
+
+                            Button {
+                                DownloadManager.shared.startBatchDownload(songs: filteredTracks)
+                                ToastCenter.shared.show("已将 \(filteredTracks.count) 首榜单歌曲加入下载")
+                            } label: {
+                                Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                            }
+                            .disabled(filteredTracks.isEmpty)
+
+                            if SynologyAPI.shared.isLoggedIn {
+                                Button {
+                                    DownloadManager.shared.startBatchUploadToNAS(songs: filteredTracks)
+                                    ToastCenter.shared.show("已将 \(filteredTracks.count) 首榜单歌曲加入归档")
+                                } label: {
+                                    Label("全部归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                }
+                                .disabled(filteredTracks.isEmpty)
+                            }
                         } label: {
-                            Text("多选")
-                                .font(ATMusicFont.appFont(13, .medium))
+                            Image(systemName: "ellipsis.circle")
                         }
-                        .disabled(filteredTracks.isEmpty)
+                        .accessibilityLabel("更多操作")
                     }
                 }
             }

@@ -24,6 +24,14 @@ struct SongCell: View {
     var favoriteToggle: (() -> Void)? = nil
     var onTap: (() -> Void)?
 
+    // MARK: - 多选支持（嵌入行内，零间距/高度跳变，消除手势冲突与错位）
+    var isMultiSelecting: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: (() -> Void)? = nil
+    var onDragSelectionChange: ((_ startIndex: Int, _ deltaRows: Int) -> Void)? = nil
+    var onDragSelectionEnd: (() -> Void)? = nil
+    var selectionIndex: Int = 0
+
     @State private var showAddToPlaylist = false
     @State private var shareFile: ShareFileItem?
     @State private var showDownloadedActionSheet = false
@@ -55,7 +63,7 @@ struct SongCell: View {
     private var coverRadius: CGFloat { isNativeClean ? 8 : 10 }
     private var subtitleFontSize: CGFloat { isNativeClean ? 13 : 12 }
     private var dividerLeading: CGFloat {
-        (trackNumber != nil ? 38 : 0) + (showCover ? coverSize + 12 : 0)
+        (trackNumber != nil || isMultiSelecting ? 38 : 0) + (showCover ? coverSize + 12 : 0)
     }
     private var resolvedSubtitle: String {
         if let subtitleText { return subtitleText }
@@ -64,7 +72,24 @@ struct SongCell: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
-            if let trackNumber {
+            if isMultiSelecting {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: selectionIndex,
+                    rowHeight: rowMinHeight,
+                    onToggle: {
+                        onToggleSelection?()
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        onDragSelectionChange?(startIdx, deltaRows)
+                    },
+                    onDragEnd: {
+                        onDragSelectionEnd?()
+                    }
+                )
+                .frame(width: 26, alignment: .center)
+            } else if let trackNumber {
                 Text("\(trackNumber)")
                     .font(ATMusicFont.appFont(14, isCurrent ? .bold : .medium, .monospaced))
                     .foregroundStyle(isCurrent ? Color.atmusicAmber : Color.atmusicComment)
@@ -115,26 +140,20 @@ struct SongCell: View {
                     .frame(minWidth: 36, alignment: .trailing)
             }
 
-            Menu {
-                songActionMenuItems
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.atmusicComment.opacity(0.85))
-                    .frame(width: 24, height: 28)
-                    .contentShape(Rectangle())
+            if !isMultiSelecting {
+                Menu {
+                    songActionMenuItems
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.atmusicComment.opacity(0.85))
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: rowMinHeight)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap?()
-        }
-        .contextMenu {
-            songActionMenuItems
-        }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(song: displayedSong)
                 .environmentObject(theme)
@@ -364,53 +383,76 @@ struct SongCell: View {
         DownloadManager.shared.startDownload(song: displayedSong, quality: quality)
     }
 
+    @ViewBuilder
+    private var baseRowContent: some View {
+        rowContent
+            .frame(height: rowMinHeight)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.atmusicComment.opacity(0.18))
+                    .frame(height: 0.5)
+                    .padding(.leading, dividerLeading)
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+
     var body: some View {
         let _ = theme.accent
-        rowContent
-        // 行内细分隔线同时覆盖 List 与 LazyVStack 场景，确保专辑、歌手、NAS 文件夹和播放队列一致。
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.atmusicComment.opacity(0.18))
-                .frame(height: 0.5)
-                .padding(.leading, dividerLeading)
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                player.playNext(displayedSong)
-                ATMusicHaptics.tap()
-            } label: {
-                Label("下一首", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            .tint(Color.atmusicAmber)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                showAddToPlaylist = true
-            } label: {
-                Label("添加到歌单", systemImage: "text.badge.plus")
-            }
-            .tint(.purple)
+        Group {
+            if isMultiSelecting {
+                baseRowContent
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onToggleSelection?()
+                        ATMusicHaptics.tap()
+                    }
+            } else {
+                baseRowContent
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onTap?()
+                    }
+                    .contextMenu {
+                        songActionMenuItems
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            player.playNext(displayedSong)
+                            ATMusicHaptics.tap()
+                        } label: {
+                            Label("下一首", systemImage: "text.line.first.and.arrowtriangle.forward")
+                        }
+                        .tint(Color.atmusicAmber)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            showAddToPlaylist = true
+                        } label: {
+                            Label("添加到歌单", systemImage: "text.badge.plus")
+                        }
+                        .tint(.purple)
 
-            if downloadFeatureUnlocked {
-                if DownloadManager.shared.isDownloaded(song: displayedSong) {
-                    Button(role: .destructive) {
-                        DownloadManager.shared.removeDownloaded(song: displayedSong)
-                    } label: {
-                        Label("删除", systemImage: "trash")
+                        if downloadFeatureUnlocked {
+                            if DownloadManager.shared.isDownloaded(song: displayedSong) {
+                                Button(role: .destructive) {
+                                    DownloadManager.shared.removeDownloaded(song: displayedSong)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            } else {
+                                Button {
+                                    downloadSong()
+                                } label: {
+                                    Label("下载", systemImage: "arrow.down.circle")
+                                }
+                                .tint(.blue)
+                            }
+                        }
                     }
-                } else {
-                    Button {
-                        downloadSong()
-                    } label: {
-                        Label("下载", systemImage: "arrow.down.circle")
-                    }
-                    .tint(.blue)
-                }
             }
         }
-        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
         .onAppear {
             if overrideSong == nil {
                 if song.source == .synology {

@@ -1856,7 +1856,7 @@ extension View {
 public struct MultiSelectCheckmark: View {
     let isSelected: Bool
     let index: Int
-    var rowHeight: CGFloat = 52
+    var rowHeight: CGFloat = 64
     var coordinateSpace: String = ""
     let onToggle: () -> Void
     let onDragChange: (_ startIndex: Int, _ deltaRows: Int) -> Void
@@ -1867,7 +1867,7 @@ public struct MultiSelectCheckmark: View {
     public init(
         isSelected: Bool,
         index: Int,
-        rowHeight: CGFloat = 52,
+        rowHeight: CGFloat = 64,
         coordinateSpace: String = "",
         onToggle: @escaping () -> Void,
         onDragChange: @escaping (_ startIndex: Int, _ deltaRows: Int) -> Void,
@@ -1884,14 +1884,21 @@ public struct MultiSelectCheckmark: View {
 
     public var body: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 20, weight: .semibold))
+            .font(.system(size: 19, weight: .semibold))
             .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
-            .frame(width: 38, height: 38)
+            .frame(width: 28, height: 28)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 4)
+                DragGesture(minimumDistance: 8)
                     .onChanged { val in
-                        let delta = Int(round(val.translation.height / max(rowHeight, 1)))
+                        let rawTranslation = val.translation.height
+                        let h = max(rowHeight, 1)
+                        let delta: Int
+                        if rawTranslation >= 0 {
+                            delta = Int(floor((rawTranslation + h * 0.25) / h))
+                        } else {
+                            delta = -Int(floor((-rawTranslation + h * 0.25) / h))
+                        }
                         if delta != lastDelta {
                             lastDelta = delta
                             onDragChange(index, delta)

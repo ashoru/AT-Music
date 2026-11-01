@@ -112,6 +112,38 @@ final class DetailSongsCache {
         persistAsync(snapshot)
     }
 
+    static func fetchSongs(for album: Album) async -> [Song] {
+        let cacheKey = "album-\(album.source.rawValue)-\(album.id)"
+        if let cached = shared.cachedSongs(for: cacheKey), !cached.songs.isEmpty {
+            return cached.songs
+        }
+        let songs: [Song]
+        switch album.source {
+        case .synology:
+            songs = await SynologyAPI.shared.albumSongs(albumName: album.name, artistName: album.artistName)
+        case .netease:
+            let id = Int(album.id.replacingOccurrences(of: "netease-", with: ""))
+            if let id, let direct = try? await NetEaseAPI.shared.albumSongs(albumID: id), !direct.isEmpty {
+                songs = direct
+            } else {
+                songs = (try? await NetEaseAPI.shared.search(keyword: "\(album.name) \(album.artistName)", limit: 50)) ?? []
+            }
+        case .qq:
+            songs = (try? await QQMusicAPI.shared.searchSongs(keyword: "\(album.name) \(album.artistName)", limit: 50)) ?? []
+        case .kugou:
+            songs = (try? await KugouMusicAPI.shared.searchSongs(keyword: "\(album.name) \(album.artistName)", limit: 50)) ?? []
+        case .local:
+            songs = LocalLibraryStore.shared.importedSongs.filter {
+                $0.album.localizedCaseInsensitiveContains(album.name) &&
+                $0.artists.localizedCaseInsensitiveContains(album.artistName)
+            }
+        }
+        if !songs.isEmpty {
+            shared.save(songs, for: cacheKey)
+        }
+        return songs
+    }
+
     private func persistAsync(_ value: [String: Entry]) {
         persistenceQueue.async { [defaults, storageKey] in
             guard let data = try? JSONEncoder().encode(value) else { return }

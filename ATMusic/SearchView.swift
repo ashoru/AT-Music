@@ -2145,48 +2145,28 @@ struct AlbumDetailView: View {
 
     @ViewBuilder
     private func albumSongRow(song: Song, index: Int, playbackIndex: Int, trackNumber: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(
-                    song: song,
-                    glassRow: true,
-                    playbackContext: sortedTracks,
-                    playbackIndex: playbackIndex,
-                    trackNumber: trackNumber
-                ) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(
-                song: song,
-                glassRow: true,
-                playbackContext: sortedTracks,
-                playbackIndex: playbackIndex,
-                trackNumber: trackNumber
-            ) {
+        SongCell(
+            song: song,
+            glassRow: true,
+            playbackContext: sortedTracks,
+            playbackIndex: playbackIndex,
+            trackNumber: trackNumber,
+            onTap: {
                 player.play(songs: sortedTracks, startAt: playbackIndex)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     @MainActor

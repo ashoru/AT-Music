@@ -2699,61 +2699,32 @@ struct UnifiedFavoritesDetailView: View {
 
     @ViewBuilder
     private func favoriteSongRow(song: Song, index: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(
-                    song: song,
-                    playbackContext: displayedSongs,
-                    playbackIndex: index,
-                    subtitleText: "\(song.artists) · \(song.album)"
-                ) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
+        SongCell(
+            song: song,
+            playbackContext: displayedSongs,
+            playbackIndex: index,
+            subtitleText: "\(song.artists) · \(song.album)",
+            favoriteToggle: {
+                Task {
+                    await favorites.toggleFavorite(song)
+                }
+            },
+            onTap: {
+                player.play(songs: displayedSongs, startAt: index)
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
                 toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(
-                song: song,
-                playbackContext: displayedSongs,
-                playbackIndex: index,
-                subtitleText: "\(song.artists) · \(song.album)",
-                favoriteToggle: {
-                    Task {
-                        await favorites.toggleFavorite(song)
-                    }
-                },
-                onTap: {
-                    player.play(songs: displayedSongs, startAt: index)
-                }
-            )
-            .swipeActions(edge: .trailing) {
-                Button(role: .destructive) {
-                    Task {
-                        await favorites.toggleFavorite(song)
-                    }
-                } label: {
-                    Label("取消收藏", systemImage: "heart.slash")
-                }
-            }
-        }
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     private var allSongs: [Song] {
@@ -2912,7 +2883,15 @@ struct UnifiedFavoritesDetailView: View {
                         .font(ATMusicFont.appFont(13, .semibold))
                     }
                 } else {
-                    HStack(spacing: 12) {
+                    Menu {
+                        Button {
+                            ATMusicHaptics.select()
+                            isMultiSelecting = true
+                        } label: {
+                            Label("多选歌曲", systemImage: "checklist")
+                        }
+                        .disabled(displayedSongs.isEmpty)
+
                         Button {
                             Task {
                                 isSyncing = true
@@ -2923,44 +2902,33 @@ struct UnifiedFavoritesDetailView: View {
                                 ATMusicHaptics.success()
                             }
                         } label: {
-                            if isSyncing {
-                                ProgressView().tint(Color.atmusicAmber)
-                            } else {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                            }
+                            Label("同步云端红心", systemImage: "arrow.triangle.2.circlepath")
                         }
                         .disabled(isSyncing)
-                        .accessibilityLabel("同步云端红心")
 
-                        Menu {
-                            Button {
-                                ATMusicHaptics.select()
-                                isMultiSelecting = true
-                            } label: {
-                                Label("多选歌曲", systemImage: "checklist")
-                            }
-                            .disabled(displayedSongs.isEmpty)
-
-                            Button {
-                                DownloadManager.shared.startBatchDownload(songs: displayedSongs)
-                            } label: {
-                                Label("下载全部歌曲", systemImage: "arrow.down.circle")
-                            }
-                            .disabled(displayedSongs.isEmpty)
-
-                            if SynologyAPI.shared.isLoggedIn {
-                                Button {
-                                    DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
-                                } label: {
-                                    Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
-                                }
-                                .disabled(displayedSongs.isEmpty)
-                            }
+                        Button {
+                            DownloadManager.shared.startBatchDownload(songs: displayedSongs)
                         } label: {
+                            Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(displayedSongs.isEmpty)
+
+                        if SynologyAPI.shared.isLoggedIn {
+                            Button {
+                                DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                            } label: {
+                                Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                            }
+                            .disabled(displayedSongs.isEmpty)
+                        }
+                    } label: {
+                        if isSyncing {
+                            ProgressView().tint(Color.atmusicAmber)
+                        } else {
                             Image(systemName: "ellipsis.circle")
                         }
-                        .accessibilityLabel("更多操作")
                     }
+                    .accessibilityLabel("更多操作")
                 }
             }
         }

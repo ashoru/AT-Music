@@ -62,36 +62,27 @@ struct HistoryView: View {
 
     @ViewBuilder
     private func historySongRow(song: Song, index: Int) -> some View {
-        if isMultiSelecting {
-            let isSelected = selectedSongKeys.contains(song.identityKey)
-            HStack(spacing: 8) {
-                MultiSelectCheckmark(
-                    isSelected: isSelected,
-                    index: index,
-                    rowHeight: 52,
-                    onToggle: {
-                        toggleSelection(song)
-                        ATMusicHaptics.tap()
-                    },
-                    onDragChange: { startIdx, deltaRows in
-                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
-                    },
-                    onDragEnd: {
-                        handleDragEnd()
-                    }
-                )
-                SongCell(song: song, glassRow: true) {}
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                toggleSelection(song)
-                ATMusicHaptics.tap()
-            }
-        } else {
-            SongCell(song: song, glassRow: false, playbackContext: player.history, playbackIndex: index) {
+        SongCell(
+            song: song,
+            glassRow: false,
+            playbackContext: player.history,
+            playbackIndex: index,
+            onTap: {
                 player.play(songs: player.history, startAt: index)
-            }
-        }
+            },
+            isMultiSelecting: isMultiSelecting,
+            isSelected: selectedSongKeys.contains(song.identityKey),
+            onToggleSelection: {
+                toggleSelection(song)
+            },
+            onDragSelectionChange: { startIdx, deltaRows in
+                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+            },
+            onDragSelectionEnd: {
+                handleDragEnd()
+            },
+            selectionIndex: index
+        )
     }
 
     var body: some View {
@@ -207,20 +198,43 @@ struct HistoryView: View {
                             .font(ATMusicFont.appFont(13, .semibold))
                         }
                     } else {
-                        HStack(spacing: 12) {
-                            if !player.history.isEmpty {
+                        if !player.history.isEmpty {
+                            Menu {
                                 Button {
                                     ATMusicHaptics.select()
                                     isMultiSelecting = true
                                 } label: {
-                                    Text("多选")
-                                        .font(ATMusicFont.appFont(13, .medium))
+                                    Label("多选歌曲", systemImage: "checklist")
                                 }
 
-                                Button("清空") {
-                                    player.clearHistory()
+                                Button {
+                                    DownloadManager.shared.startBatchDownload(songs: player.history)
+                                    ToastCenter.shared.show("已将 \(player.history.count) 首历史歌曲加入下载")
+                                } label: {
+                                    Label("下载全部历史", systemImage: "arrow.down.circle")
                                 }
+
+                                if SynologyAPI.shared.isLoggedIn {
+                                    Button {
+                                        DownloadManager.shared.startBatchUploadToNAS(songs: player.history)
+                                        ToastCenter.shared.show("已将 \(player.history.count) 首历史歌曲加入归档")
+                                    } label: {
+                                        Label("全部归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                    }
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    player.clearHistory()
+                                    ToastCenter.shared.show("已清空播放历史")
+                                } label: {
+                                    Label("清空最近播放", systemImage: "trash")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
                             }
+                            .accessibilityLabel("更多操作")
                         }
                     }
                 }
