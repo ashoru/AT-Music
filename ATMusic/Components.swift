@@ -1834,9 +1834,7 @@ struct ToastView: View {
 
 public struct MultiSelectRowFramePreference: PreferenceKey {
     public static var defaultValue: [Int: CGRect] = [:]
-    public static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
+    public static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {}
 }
 
 public struct MultiSelectRowFrameModifier: ViewModifier {
@@ -1845,42 +1843,39 @@ public struct MultiSelectRowFrameModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: MultiSelectRowFramePreference.self,
-                        value: [index: geo.frame(in: .named(coordinateSpace))]
-                    )
-                }
-            )
     }
 }
 
 extension View {
-    public func multiSelectRow(index: Int, coordinateSpace: String) -> some View {
+    public func multiSelectRow(index: Int, coordinateSpace: String = "") -> some View {
         modifier(MultiSelectRowFrameModifier(index: index, coordinateSpace: coordinateSpace))
     }
 }
 
-/// 支持点按切换与连续拖拽滑动多选的复选圈
+/// 支持点按切换与零延迟连续滑动多选的复选圈（完全对标 iOS 原生滑动多选体验，零布局开销）
 public struct MultiSelectCheckmark: View {
     let isSelected: Bool
     let index: Int
-    let coordinateSpace: String
+    var rowHeight: CGFloat = 52
+    var coordinateSpace: String = ""
     let onToggle: () -> Void
-    let onDragChange: (Int, CGFloat) -> Void
+    let onDragChange: (_ startIndex: Int, _ deltaRows: Int) -> Void
     let onDragEnd: () -> Void
+
+    @State private var lastDelta: Int? = nil
 
     public init(
         isSelected: Bool,
         index: Int,
-        coordinateSpace: String,
+        rowHeight: CGFloat = 52,
+        coordinateSpace: String = "",
         onToggle: @escaping () -> Void,
-        onDragChange: @escaping (Int, CGFloat) -> Void,
+        onDragChange: @escaping (_ startIndex: Int, _ deltaRows: Int) -> Void,
         onDragEnd: @escaping () -> Void
     ) {
         self.isSelected = isSelected
         self.index = index
+        self.rowHeight = rowHeight
         self.coordinateSpace = coordinateSpace
         self.onToggle = onToggle
         self.onDragChange = onDragChange
@@ -1894,11 +1889,16 @@ public struct MultiSelectCheckmark: View {
             .frame(width: 38, height: 38)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 4, coordinateSpace: .named(coordinateSpace))
+                DragGesture(minimumDistance: 4)
                     .onChanged { val in
-                        onDragChange(index, val.location.y)
+                        let delta = Int(round(val.translation.height / max(rowHeight, 1)))
+                        if delta != lastDelta {
+                            lastDelta = delta
+                            onDragChange(index, delta)
+                        }
                     }
                     .onEnded { _ in
+                        lastDelta = nil
                         onDragEnd()
                     }
             )

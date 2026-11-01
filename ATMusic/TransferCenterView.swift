@@ -28,59 +28,41 @@ struct TransferCenterView: View {
     @State private var dragStartIndex: Int?
     @State private var dragTargetSelected: Bool = true
     @State private var lastDragIndex: Int?
-    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
+    @State private var initialSelectedOfflineIDsOnDrag: Set<String>? = nil
 
-    private func handleOfflineDragChange(startIndex: Int, currentY: CGFloat) {
+    private func handleOfflineDragChange(startIndex: Int, deltaRows: Int) {
         let keys = downloadManager.downloadedSongs.map(\.identityKey)
         guard startIndex >= 0, startIndex < keys.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
-            let key = keys[startIndex]
-            let willSelect = !selectedOfflineIDs.contains(key)
+            initialSelectedOfflineIDsOnDrag = selectedOfflineIDs
+            let willSelect = !selectedOfflineIDs.contains(keys[startIndex])
             dragTargetSelected = willSelect
-            if willSelect {
-                selectedOfflineIDs.insert(key)
-            } else {
-                selectedOfflineIDs.remove(key)
-            }
-            lastDragIndex = startIndex
-            ATMusicHaptics.select()
+            lastDragIndex = nil
         }
-        guard let start = dragStartIndex else { return }
+        guard let start = dragStartIndex, let initial = initialSelectedOfflineIDsOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
 
-        var targetIndex: Int?
-        for (idx, frame) in multiSelectRowFrames {
-            if frame.minY <= currentY && currentY <= frame.maxY {
-                targetIndex = idx
-                break
-            }
-        }
-        if targetIndex == nil {
-            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
-                targetIndex = minEntry.key
-            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
-                targetIndex = maxEntry.key
-            }
-        }
-        guard let current = targetIndex, current >= 0, current < keys.count else { return }
         let low = min(start, current)
         let high = max(start, current)
+        var updated = initial
         for idx in low...high {
             let k = keys[idx]
             if dragTargetSelected {
-                selectedOfflineIDs.insert(k)
+                updated.insert(k)
             } else {
-                selectedOfflineIDs.remove(k)
+                updated.remove(k)
             }
         }
-        if current != lastDragIndex {
-            lastDragIndex = current
-            ATMusicHaptics.select()
-        }
+        selectedOfflineIDs = updated
     }
 
     private func handleOfflineDragEnd() {
         dragStartIndex = nil
+        initialSelectedOfflineIDsOnDrag = nil
         lastDragIndex = nil
     }
 
@@ -622,23 +604,29 @@ struct TransferCenterView: View {
                     // 单曲列表：iPad 宽屏下采用自适应双列流式排版，iPhone 保持连续紧凑单列
                     if DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) {
                         LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 10) {
-                            ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
+                            ForEach(Array(downloadManager.downloadedSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 if isMultiSelectingOffline {
                                     let isSelected = selectedOfflineIDs.contains(song.identityKey)
                                     HStack(spacing: 10) {
-                                        Button {
-                                            ATMusicHaptics.select()
-                                            if isSelected {
-                                                selectedOfflineIDs.remove(song.identityKey)
-                                            } else {
-                                                selectedOfflineIDs.insert(song.identityKey)
+                                        MultiSelectCheckmark(
+                                            isSelected: isSelected,
+                                            index: index,
+                                            rowHeight: 56,
+                                            onToggle: {
+                                                ATMusicHaptics.select()
+                                                if isSelected {
+                                                    selectedOfflineIDs.remove(song.identityKey)
+                                                } else {
+                                                    selectedOfflineIDs.insert(song.identityKey)
+                                                }
+                                            },
+                                            onDragChange: { startIdx, deltaRows in
+                                                handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                            },
+                                            onDragEnd: {
+                                                handleOfflineDragEnd()
                                             }
-                                        } label: {
-                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 18, weight: .semibold))
-                                                .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
-                                        }
-                                        .buttonStyle(.plain)
+                                        )
 
                                         SongCell(song: song)
                                     }
@@ -669,23 +657,29 @@ struct TransferCenterView: View {
                         .padding(.horizontal, 16)
                     } else {
                         LazyVStack(spacing: 0) {
-                            ForEach(downloadManager.downloadedSongs, id: \.identityKey) { song in
+                            ForEach(Array(downloadManager.downloadedSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 if isMultiSelectingOffline {
                                     let isSelected = selectedOfflineIDs.contains(song.identityKey)
                                     HStack(spacing: 12) {
-                                        Button {
-                                            ATMusicHaptics.select()
-                                            if isSelected {
-                                                selectedOfflineIDs.remove(song.identityKey)
-                                            } else {
-                                                selectedOfflineIDs.insert(song.identityKey)
+                                        MultiSelectCheckmark(
+                                            isSelected: isSelected,
+                                            index: index,
+                                            rowHeight: 56,
+                                            onToggle: {
+                                                ATMusicHaptics.select()
+                                                if isSelected {
+                                                    selectedOfflineIDs.remove(song.identityKey)
+                                                } else {
+                                                    selectedOfflineIDs.insert(song.identityKey)
+                                                }
+                                            },
+                                            onDragChange: { startIdx, deltaRows in
+                                                handleOfflineDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                            },
+                                            onDragEnd: {
+                                                handleOfflineDragEnd()
                                             }
-                                        } label: {
-                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 20, weight: .semibold))
-                                                .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
-                                        }
-                                        .buttonStyle(.plain)
+                                        )
 
                                         SongCell(song: song)
                                     }

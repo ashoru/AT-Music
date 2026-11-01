@@ -323,17 +323,11 @@ struct MusicLibraryHomeView: View {
 
     private var header: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("音乐库")
-                    .font(ATMusicFont.appFont(32, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
-                Text("自己的音乐，一处找到")
-                    .font(ATMusicFont.appFont(13, .medium))
-                    .foregroundStyle(Color.atmusicComment)
-            }
+            Text("音乐库")
+                .font(ATMusicFont.appFont(32, .bold))
+                .foregroundStyle(Color.atmusicLabel)
             Spacer()
         }
-        .padding(.top, 4)
     }
 
     private var favoriteHeroCard: some View {
@@ -896,7 +890,7 @@ struct MusicLibraryAllPlaylistsView: View {
     @State private var dragStartIndex: Int?
     @State private var dragTargetSelected: Bool = true
     @State private var lastDragIndex: Int?
-    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
+    @State private var initialSelectedIDsOnDrag: Set<String>? = nil
 
     fileprivate init(initialFilter: MusicLibraryPlaylistFilter = .all) {
         self._filter = State(initialValue: initialFilter)
@@ -916,57 +910,39 @@ struct MusicLibraryAllPlaylistsView: View {
         ATMusicHaptics.tap()
     }
 
-    private func handlePlaylistDragChange(startIndex: Int, currentY: CGFloat) {
+    private func handlePlaylistDragChange(startIndex: Int, deltaRows: Int) {
         let allIDs = items.map(\.id)
         guard startIndex >= 0, startIndex < allIDs.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
-            let id = allIDs[startIndex]
-            let willSelect = !selectedIDs.contains(id)
+            initialSelectedIDsOnDrag = selectedIDs
+            let willSelect = !selectedIDs.contains(allIDs[startIndex])
             dragTargetSelected = willSelect
-            if willSelect {
-                selectedIDs.insert(id)
-            } else {
-                selectedIDs.remove(id)
-            }
-            lastDragIndex = startIndex
-            ATMusicHaptics.select()
+            lastDragIndex = nil
         }
-        guard let start = dragStartIndex else { return }
+        guard let start = dragStartIndex, let initial = initialSelectedIDsOnDrag else { return }
+        let current = min(max(0, start + deltaRows), allIDs.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
 
-        var targetIndex: Int?
-        for (idx, frame) in multiSelectRowFrames {
-            if frame.minY <= currentY && currentY <= frame.maxY {
-                targetIndex = idx
-                break
-            }
-        }
-        if targetIndex == nil {
-            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
-                targetIndex = minEntry.key
-            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
-                targetIndex = maxEntry.key
-            }
-        }
-        guard let current = targetIndex, current >= 0, current < allIDs.count else { return }
         let low = min(start, current)
         let high = max(start, current)
+        var updated = initial
         for idx in low...high {
             let id = allIDs[idx]
             if dragTargetSelected {
-                selectedIDs.insert(id)
+                updated.insert(id)
             } else {
-                selectedIDs.remove(id)
+                updated.remove(id)
             }
         }
-        if current != lastDragIndex {
-            lastDragIndex = current
-            ATMusicHaptics.select()
-        }
+        selectedIDs = updated
     }
 
     private func handlePlaylistDragEnd() {
         dragStartIndex = nil
+        initialSelectedIDsOnDrag = nil
         lastDragIndex = nil
     }
 
@@ -1034,12 +1010,12 @@ struct MusicLibraryAllPlaylistsView: View {
                     MultiSelectCheckmark(
                         isSelected: selectedIDs.contains(item.id),
                         index: index,
-                        coordinateSpace: "AllPlaylistsListSpace",
+                        rowHeight: 60,
                         onToggle: {
                             toggleItemSelection(item)
                         },
-                        onDragChange: { startIdx, y in
-                            handlePlaylistDragChange(startIndex: startIdx, currentY: y)
+                        onDragChange: { startIdx, deltaRows in
+                            handlePlaylistDragChange(startIndex: startIdx, deltaRows: deltaRows)
                         },
                         onDragEnd: {
                             handlePlaylistDragEnd()
@@ -1533,10 +1509,7 @@ struct MusicLibraryAllPlaylistsView: View {
                     }
                     .atmusicScrollContentBackgroundHidden()
                     .listStyle(.plain)
-                    .coordinateSpace(name: "AllPlaylistsListSpace")
-                    .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
-                        multiSelectRowFrames = frames
-                    }
+
                 }
             }
         }
@@ -2112,7 +2085,7 @@ struct LocalPlaylistBrowserView: View {
     @State private var dragStartIndex: Int?
     @State private var dragTargetSelected: Bool = true
     @State private var lastDragIndex: Int?
-    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
 
     private var selectedLocalSongs: [Song] {
         let selected = Set(selectedKeys)
@@ -2387,13 +2360,13 @@ struct LocalPlaylistBrowserView: View {
                         MultiSelectCheckmark(
                             isSelected: selectedKeys.contains(song.identityKey),
                             index: index,
-                            coordinateSpace: "LocalPlaylistEditListSpace",
+                            rowHeight: 52,
                             onToggle: {
                                 toggleLocalSelection(song)
                                 ATMusicHaptics.tap()
                             },
-                            onDragChange: { startIdx, y in
-                                handleLocalDragChange(startIndex: startIdx, currentY: y)
+                            onDragChange: { startIdx, deltaRows in
+                                handleLocalDragChange(startIndex: startIdx, deltaRows: deltaRows)
                             },
                             onDragEnd: {
                                 handleLocalDragEnd()
@@ -2461,10 +2434,7 @@ struct LocalPlaylistBrowserView: View {
         .atmusicScrollContentBackgroundHidden()
         .listStyle(.plain)
         .environment(\.editMode, .constant(.active))
-        .coordinateSpace(name: "LocalPlaylistEditListSpace")
-        .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
-            multiSelectRowFrames = frames
-        }
+
     }
 
     private var localEditBottomBar: some View {
@@ -2506,57 +2476,39 @@ struct LocalPlaylistBrowserView: View {
         }
     }
 
-    private func handleLocalDragChange(startIndex: Int, currentY: CGFloat) {
+    private func handleLocalDragChange(startIndex: Int, deltaRows: Int) {
         let keys = songs.map(\.identityKey)
         guard startIndex >= 0, startIndex < keys.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
-            let key = keys[startIndex]
-            let willSelect = !selectedKeys.contains(key)
+            initialSelectedKeysOnDrag = selectedKeys
+            let willSelect = !selectedKeys.contains(keys[startIndex])
             dragTargetSelected = willSelect
-            if willSelect {
-                selectedKeys.insert(key)
-            } else {
-                selectedKeys.remove(key)
-            }
-            lastDragIndex = startIndex
-            ATMusicHaptics.select()
+            lastDragIndex = nil
         }
-        guard let start = dragStartIndex else { return }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
 
-        var targetIndex: Int?
-        for (idx, frame) in multiSelectRowFrames {
-            if frame.minY <= currentY && currentY <= frame.maxY {
-                targetIndex = idx
-                break
-            }
-        }
-        if targetIndex == nil {
-            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
-                targetIndex = minEntry.key
-            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
-                targetIndex = maxEntry.key
-            }
-        }
-        guard let current = targetIndex, current >= 0, current < keys.count else { return }
         let low = min(start, current)
         let high = max(start, current)
+        var updated = initial
         for idx in low...high {
             let k = keys[idx]
             if dragTargetSelected {
-                selectedKeys.insert(k)
+                updated.insert(k)
             } else {
-                selectedKeys.remove(k)
+                updated.remove(k)
             }
         }
-        if current != lastDragIndex {
-            lastDragIndex = current
-            ATMusicHaptics.select()
-        }
+        selectedKeys = updated
     }
 
     private func handleLocalDragEnd() {
         dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
         lastDragIndex = nil
     }
 

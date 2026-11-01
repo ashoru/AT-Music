@@ -675,29 +675,13 @@ struct FeaturedView: View {
                     } label: {
                         Text(category)
                             .font(ATMusicFont.appFont(13, isSelected ? .semibold : .medium))
-                            .foregroundStyle(
-                                isSelected
-                                    ? (isNativeClean ? Color.primary : Color.white)
-                                    : Color.atmusicComment
-                            )
+                            .atmusicSelectionForeground(selected: isSelected, accent: .atmusicAmber, unselected: .atmusicComment)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
                             .background {
-                                if isSelected {
-                                    if isNativeClean {
-                                        Capsule()
-                                            .fill(Color(uiColor: .systemFill))
-                                            .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.6))
-                                    } else {
-                                        Capsule()
-                                            .fill(Color.atmusicAmber)
-                                            .shadow(color: Color.atmusicAmber.opacity(0.35), radius: 6, y: 2)
-                                    }
-                                } else {
-                                    Capsule()
-                                        .fill(Color(uiColor: .secondarySystemFill))
-                                }
+                                ATMusicSelectableSurface(selected: isSelected, shape: Capsule(), accent: .atmusicAmber)
                             }
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(GlassPressButtonStyle(scale: 0.96))
                 }

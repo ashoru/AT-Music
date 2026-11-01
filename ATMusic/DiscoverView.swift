@@ -293,71 +293,63 @@ struct DiscoverView: View {
         }
     }
 
-    /// 顶部问候区：大标题 + 刷新按钮（对标 Apple Music 规范，去除页面图标）
+    /// 顶部问候区：大标题 + 刷新按钮（对标 Apple Music 规范，去除副标题与额外边距，全局顶栏统一对齐）
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Menu {
-                        homePlatformSelectionMenu
+        HStack(alignment: .center) {
+            Menu {
+                homePlatformSelectionMenu
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(LocalizedStringKey(homeHeaderTitle))
+                        .font(ATMusicFont.appFont(32, .bold))
+                        .foregroundStyle(Color.atmusicLabel)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color.atmusicComment)
+                }
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("切换主页平台")
+
+            Spacer()
+
+            HStack(spacing: 10) {
+                if isNativeClean {
+                    Button {
+                        ATMusicHaptics.tap()
+                        onOpenProfile()
                     } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(LocalizedStringKey(homeHeaderTitle))
-                                .font(ATMusicFont.appFont(32, .bold))
-                                .foregroundStyle(Color.atmusicLabel)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Color.atmusicComment)
+                        AsyncImage(url: auth.user?.avatarURL) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFill()
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(Color.atmusicComment)
+                            }
                         }
-                        .contentShape(Rectangle())
+                        .frame(width: 42, height: 42)
+                        .clipShape(Circle())
+                        .background { ATMusicGlass(shape: Circle()) }
                     }
-                    .menuStyle(.borderlessButton)
-                    .accessibilityLabel("切换主页平台")
-                    if !homeHideUsername {
-                        Text(homeHeaderSubtitle)
-                            .font(ATMusicFont.appFont(13, .medium))
-                            .foregroundStyle(Color.atmusicComment)
+                    .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+                    .accessibilityLabel("我的")
+                }
+                if !homeHeaderHideSort {
+                    GlassIconButton(systemName: "arrow.up.arrow.down") {
+                        ATMusicHaptics.tap()
+                        showSectionSort = true
                     }
                 }
-                Spacer()
-                HStack(spacing: 10) {
-                    if isNativeClean {
-                        Button {
-                            ATMusicHaptics.tap()
-                            onOpenProfile()
-                        } label: {
-                            AsyncImage(url: auth.user?.avatarURL) { phase in
-                                if case .success(let image) = phase {
-                                    image.resizable().scaledToFill()
-                                } else {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(Color.atmusicComment)
-                                }
-                            }
-                            .frame(width: 42, height: 42)
-                            .clipShape(Circle())
-                            .background { ATMusicGlass(shape: Circle()) }
-                        }
-                        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-                        .accessibilityLabel("我的")
-                    }
-                    if !homeHeaderHideSort {
-                        GlassIconButton(systemName: "arrow.up.arrow.down") {
-                            ATMusicHaptics.tap()
-                            showSectionSort = true
-                        }
-                    }
-                    if !homeHeaderHideRefresh {
-                        GlassIconButton(systemName: "arrow.clockwise") {
-                            ATMusicHaptics.tap()
-                            Task { await load(force: true) }
-                        }
+                if !homeHeaderHideRefresh {
+                    GlassIconButton(systemName: "arrow.clockwise") {
+                        ATMusicHaptics.tap()
+                        Task { await load(force: true) }
                     }
                 }
             }
         }
-        .padding(.top, isNativeClean ? 4 : 8)
     }
 
     /// 主页平台切换：所有 UI 风格使用同一套紧凑胶囊。

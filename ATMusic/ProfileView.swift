@@ -117,17 +117,12 @@ struct ProfileView: View {
             || (platformPrefs.isEnabled(SearchProvider.synology) && synology.isLoggedIn)
     }
 
-    /// 顶部标题 + 右上角设置齿轮
+    /// 顶部标题 + 右上角设置齿轮（对标 Apple Music 规范，去除副标题与额外边距，全局顶栏统一对齐）
     private var header: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("我的")
-                    .font(ATMusicFont.appFont(32, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
-                Text(isEnglish ? "\(displayPlatformSummary) account and appearance settings" : "\(platformPrefs.summaryText) 账号与外观设置")
-                    .font(ATMusicFont.appFont(13, .medium))
-                    .foregroundStyle(Color.atmusicComment)
-            }
+            Text("我的")
+                .font(ATMusicFont.appFont(32, .bold))
+                .foregroundStyle(Color.atmusicLabel)
             Spacer()
             HStack(spacing: 10) {
                 if !homeHeaderHideSort {
@@ -143,33 +138,26 @@ struct ProfileView: View {
                 }
             }
         }
-        .padding(.top, 4)
     }
 
     private var appleHeader: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .center) {
-                Text("我的")
-                    .font(ATMusicFont.appFont(32, .bold))
-                    .foregroundStyle(Color.atmusicLabel)
-                Spacer(minLength: 12)
-                if !hideAppearanceToggle {
-                    GlassIconButton(systemName: "moon.stars.fill") {
-                        ATMusicHaptics.tap()
-                        themeModeRaw = themeMode == .dark ? ATMusicThemeMode.light.rawValue : ATMusicThemeMode.dark.rawValue
-                    }
-                }
-                GlassIconButton(systemName: "gearshape") {
+        HStack(alignment: .center) {
+            Text("我的")
+                .font(ATMusicFont.appFont(32, .bold))
+                .foregroundStyle(Color.atmusicLabel)
+            Spacer(minLength: 12)
+            if !hideAppearanceToggle {
+                GlassIconButton(systemName: "moon.stars.fill") {
                     ATMusicHaptics.tap()
-                    homeRenderingPaused = true
-                    showSettings = true
+                    themeModeRaw = themeMode == .dark ? ATMusicThemeMode.light.rawValue : ATMusicThemeMode.dark.rawValue
                 }
             }
-            Rectangle()
-                .fill(Color.atmusicLabel.opacity(0.10))
-                .frame(height: 1)
+            GlassIconButton(systemName: "gearshape") {
+                ATMusicHaptics.tap()
+                homeRenderingPaused = true
+                showSettings = true
+            }
         }
-        .padding(.top, 4)
     }
 
     var body: some View {

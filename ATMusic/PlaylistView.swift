@@ -57,7 +57,7 @@ struct PlaylistView: View {
     @State private var dragStartIndex: Int?
     @State private var dragTargetSelected: Bool = true
     @State private var lastDragIndex: Int?
-    @State private var multiSelectRowFrames: [Int: CGRect] = [:]
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
 
     @MainActor
     private func batchDownloadPlaylist() {
@@ -681,59 +681,42 @@ struct PlaylistView: View {
 
     // MARK: - 编辑态（阶段 2）
 
-    private func handleDragChange(startIndex: Int, currentY: CGFloat) {
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
         let keys = displayedTracks.map(\.identityKey)
         guard startIndex >= 0, startIndex < keys.count else { return }
         if dragStartIndex == nil {
             dragStartIndex = startIndex
-            let key = keys[startIndex]
-            let willSelect = !selectedKeys.contains(key)
+            initialSelectedKeysOnDrag = selectedKeys
+            let willSelect = !selectedKeys.contains(keys[startIndex])
             dragTargetSelected = willSelect
-            if willSelect {
-                selectedKeys.insert(key)
-            } else {
-                selectedKeys.remove(key)
-            }
-            lastDragIndex = startIndex
-            ATMusicHaptics.select()
+            lastDragIndex = nil
         }
-        guard let start = dragStartIndex else { return }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
 
-        var targetIndex: Int?
-        for (idx, frame) in multiSelectRowFrames {
-            if frame.minY <= currentY && currentY <= frame.maxY {
-                targetIndex = idx
-                break
-            }
-        }
-        if targetIndex == nil {
-            if let minEntry = multiSelectRowFrames.min(by: { $0.value.minY < $1.value.minY }), currentY < minEntry.value.minY {
-                targetIndex = minEntry.key
-            } else if let maxEntry = multiSelectRowFrames.max(by: { $0.value.maxY < $1.value.maxY }), currentY > maxEntry.value.maxY {
-                targetIndex = maxEntry.key
-            }
-        }
-        guard let current = targetIndex, current >= 0, current < keys.count else { return }
         let low = min(start, current)
         let high = max(start, current)
+        var updated = initial
         for idx in low...high {
             let k = keys[idx]
             if dragTargetSelected {
-                selectedKeys.insert(k)
+                updated.insert(k)
             } else {
-                selectedKeys.remove(k)
+                updated.remove(k)
             }
         }
-        if current != lastDragIndex {
-            lastDragIndex = current
-            ATMusicHaptics.select()
-        }
+        selectedKeys = updated
     }
 
     private func handleDragEnd() {
         dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
         lastDragIndex = nil
     }
+
 
     private var editHintText: String {
         var parts: [String] = []
@@ -758,13 +741,13 @@ struct PlaylistView: View {
                         MultiSelectCheckmark(
                             isSelected: selectedKeys.contains(song.identityKey),
                             index: index,
-                            coordinateSpace: "PlaylistEditListSpace",
+                            rowHeight: 52,
                             onToggle: {
                                 toggleSelection(song)
                                 ATMusicHaptics.tap()
                             },
-                            onDragChange: { startIdx, y in
-                                handleDragChange(startIndex: startIdx, currentY: y)
+                            onDragChange: { startIdx, deltaRows in
+                                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
                             },
                             onDragEnd: {
                                 handleDragEnd()
@@ -826,10 +809,7 @@ struct PlaylistView: View {
         .atmusicScrollContentBackgroundHidden()
         .listStyle(.plain)
         .environment(\.editMode, .constant(.active))
-        .coordinateSpace(name: "PlaylistEditListSpace")
-        .onPreferenceChange(MultiSelectRowFramePreference.self) { frames in
-            multiSelectRowFrames = frames
-        }
+
     }
 
     private var editBottomBar: some View {

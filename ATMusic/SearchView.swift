@@ -312,12 +312,12 @@ struct SearchView: View {
             TabBarAppearanceConfigurator()
             VStack(spacing: 0) {
                 headerTitle
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
-                    .padding(.bottom, 10)
+                    .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
 
                 searchField
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, DeviceLayoutHelper.isIPadRegular(horizontalSizeClass) ? 28 : (isNativeClean ? 24 : 20))
                     .padding(.bottom, 10)
 
                 contentArea
