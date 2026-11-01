@@ -40,7 +40,14 @@ final class CoverBlurView: UIView {
     private let tintView = UIView()
     private var currentURL: URL?
     private var coverUpdateObserver: NSObjectProtocol?
-    private static let imageCache = NSCache<NSURL, UIImage>()
+    private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    private static let imageCache: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.totalCostLimit = 60 * 1024 * 1024 // 60 MB
+        c.countLimit = 40
+        return c
+    }()
     private static let blurQueue = DispatchQueue(label: "atmusic.coverblur", qos: .utility)
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -65,6 +72,22 @@ final class CoverBlurView: UIView {
         addSubview(gradientHost)
         addSubview(tintView)
         startBackgroundAnimations()
+
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.stopBackgroundAnimations()
+        }
+
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.startBackgroundAnimations()
+        }
 
         coverUpdateObserver = NotificationCenter.default.addObserver(
             forName: .atmusicCoverDidUpdate,
@@ -92,6 +115,13 @@ final class CoverBlurView: UIView {
         if let observer = coverUpdateObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = backgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        stopBackgroundAnimations()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -102,6 +132,13 @@ final class CoverBlurView: UIView {
         gradientLayer.frame = bounds
         imageView.frame = bounds
         tintView.frame = bounds
+    }
+
+    /// 停止后台循环动画，释放 GPU RenderServer 与显示总线
+    private func stopBackgroundAnimations() {
+        imageView.layer.removeAnimation(forKey: "atmusicBgBreathe")
+        gradientLayer.removeAnimation(forKey: "atmusicGradStart")
+        gradientLayer.removeAnimation(forKey: "atmusicGradEnd")
     }
 
     /// 背景动态效果：模糊封面缓慢呼吸缩放（UIView 循环动画，可靠运行）+ 主色渐变端点缓慢摆动。

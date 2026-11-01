@@ -3244,7 +3244,7 @@ struct SeekBar: View {
                         .animation(.default, value: scrubbing)
                 case 3:
                     // 波浪：正弦波形，已播放段高亮发光
-                    WaveBar(ratio: ratio, accent: accent, track: track, width: width, isPlaying: player.isPlaying && !reduceVisualMotion)
+                    WaveBar(ratio: ratio, accent: accent, track: track, width: width, isPlaying: player.isPlaying && !player.isInBackground && !reduceVisualMotion)
                 default:
                     // 流光：清透轨道 + 渐变已播放段 + 顶部高光 + 游动光点
                     Capsule()
@@ -3268,7 +3268,7 @@ struct SeekBar: View {
                                 .frame(height: 2.5)
                                 .clipShape(Capsule())
                         }
-                    if player.isPlaying && !reduceVisualMotion {
+                    if player.isPlaying && !player.isInBackground && !reduceVisualMotion {
                         // 游动光点仅在播放中运行，暂停后不保留 repeatForever 动画。
                         ZStack {
                             Circle()
@@ -3473,19 +3473,22 @@ struct LyricsSection: View {
     @State private var selected: Set<Int> = []
     /// iOS 27 原生滚动位置；手动滚动时它同时充当视觉焦点。
     @State private var scrollTarget: Int?
+    /// 当前高亮歌词行索引（事件驱动缓存：只在换行时更新，阻断 250ms 连续重绘）
+    @State private var activeCurrentIndex: Int? = nil
     /// 用户手动滚动时暂停自动跟随，停手后延迟恢复。
     @State private var isUserScrolling = false
     @State private var resumeScrollTask: Task<Void, Never>?
 
-    /// 二分查找当前行（歌词按时间升序），避免逐行扫描降低 CPU
-    private var currentIndex: Int? {
+    /// 二分查找计算指定进度下的歌词行索引
+    private func computeLyricIndex(for progress: Double) -> Int? {
         guard !lyrics.isEmpty else { return nil }
+        let effective = LyricTiming.effectiveProgress(progress, userOffset: Double(lyricOffset))
         var low = 0
         var high = lyrics.count - 1
         var answer: Int?
         while low <= high {
             let mid = (low + high) / 2
-            if lyrics[mid].time <= LyricTiming.effectiveProgress(clock.progress, userOffset: Double(lyricOffset)) {
+            if lyrics[mid].time <= effective {
                 answer = mid
                 low = mid + 1
             } else {
@@ -3493,6 +3496,10 @@ struct LyricsSection: View {
             }
         }
         return answer
+    }
+
+    private var currentIndex: Int? {
+        activeCurrentIndex
     }
 
     @ViewBuilder
@@ -3590,9 +3597,23 @@ struct LyricsSection: View {
             }
         }
         .onAppear {
-            scrollTarget = currentIndex
+            let initial = computeLyricIndex(for: clock.progress)
+            activeCurrentIndex = initial
+            scrollTarget = initial
         }
-        .onChange(of: currentIndex) { newIndex in
+        .onChange(of: clock.progress) { newProgress in
+            let newIndex = computeLyricIndex(for: newProgress)
+            if newIndex != activeCurrentIndex {
+                activeCurrentIndex = newIndex
+            }
+        }
+        .onChange(of: lyricOffset) { _ in
+            let newIndex = computeLyricIndex(for: clock.progress)
+            if newIndex != activeCurrentIndex {
+                activeCurrentIndex = newIndex
+            }
+        }
+        .onChange(of: activeCurrentIndex) { newIndex in
             guard let newIndex, !isUserScrolling else { return }
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 scrollTarget = newIndex

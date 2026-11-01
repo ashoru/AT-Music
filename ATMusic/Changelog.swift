@@ -48,6 +48,29 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.47-build-147",
+            version: "1.9.47",
+            title: "全系统级低功耗重构、蜂窝基带突发节能缓冲与硬件靶向下采样显存熔断",
+            notices: [
+                "针对长时间听歌发热与功耗问题进行底层架构重构；打通蜂窝基带突发缓冲（Burst-Buffer）、SwiftUI 观察者状态解耦、歌词行级事件驱动引擎、图像硬件下采样与显存上限熔断、后台循环动画自动注销与低能耗单次切歌触发，在保持 120Hz 满帧丝滑的同时显著降低机身功耗与发热。"
+            ],
+            features: [
+                "蜂窝基带突发节能缓冲（Burst-Buffer & Radio Sleep）：调整主播放器前向音频缓冲至 60 秒宽裕区间，在线音频流以最大吞吐量迅速载入，让 5G/Wi-Fi 射频芯片在后续播放中深度休眠（Sleep Mode），彻底根治蜂窝网络下长期高功率维持导致的机身发烫与弱网断音。",
+                "ImageIO 硬件靶向下采样与显存熔断（Target-Sized Image Pipeline）：针对 NAS 与各平台 3000×3000 高清大图，列表小封面（48pt）以原生硬件 ImageIO 实时下采样至 180px 渲染，单图显存从 36MB 降至 82KB（缩减 440 倍）；同时为图片缓存池设置 80MB/60MB 显存硬顶与数量熔断，彻底杜绝大歌单 OOM 闪退。",
+                "SwiftUI 状态解耦削峰（State Decoupling）：将听歌时长累加与睡眠定时器从全局 PlayerManager 的高频 @Published 中完全剥离，消除每秒/每 5 秒向全 App 63 个视图广播的无感脏检查重绘开销。",
+                "歌词行级事件驱动引擎（Event-Driven Lyrics Pipeline）：歌词视口重绘从 4Hz 轮询重估转变为基于行索引变更的事件驱动，歌曲同一歌词行内完全冻结重绘，歌词页面 GPU 渲染开销下降 90% 以上。",
+                "CoreAnimation 后台动画自动注销与前台唤醒：CoverBlurBackground 深度监听系统生命周期，切后台与锁屏瞬间即刻注销循环动画，释放 RenderServer；门控进度条流光与波浪动效。",
+                "后台单次低功耗切歌边界触发（Single-Shot Boundary Trigger）：切后台后采用 addBoundaryTimeObserver 在 70% 进度单次无感唤醒预热下一首，消除后台高频轮询耗电，保障无缝切歌。",
+                "NAS 文件夹曲目按需窗口渲染（Render Windowing）：为 SynologyFolderSongListView 增加 100 首首屏窗口分页加载，彻底根治数百首大目录滚动掉帧与卡顿。"
+            ],
+            fixes: [
+                "修复长时间听歌与锁屏后台播放时设备微热、基带射频无法休眠的高功耗问题",
+                "修复大歌单和 NAS 目录中因高清原图全量解压占用巨量显存导致的系统 Jetsam 内存溢出闪退",
+                "修复睡眠定时器每秒倒计时触发全局视图不断重绘的性能缺陷",
+                "修复全屏歌词界面因 250ms 定时器导致整屏视图与复杂模糊效果反复重绘的 CPU/GPU 负载"
+            ],
+        ),
+        VersionLog(
             id: "1.9.46-build-146",
             version: "1.9.46",
             title: "全局歌曲行点按直插即播、闭包参数消除歧义与全场景播放闭环",

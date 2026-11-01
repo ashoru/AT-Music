@@ -113,10 +113,13 @@ final class PlayerManager: NSObject, ObservableObject {
     }
     @Published var rate: Double = 1.0
     @Published var sleepTimerEndsAt: Date?
-    @Published var sleepTimerRemaining: Int = 0
+    var sleepTimerRemaining: Int {
+        guard let end = sleepTimerEndsAt else { return 0 }
+        return max(0, Int(end.timeIntervalSinceNow))
+    }
     @Published var history: [Song] = []
     @Published var playCounts: [String: Int] = [:]
-    @Published private(set) var listeningSeconds = 0
+    private(set) var listeningSeconds = 0
     @Published private(set) var isInBackground: Bool = false
 
     // MARK: - 双播放器实例热备池（Dual-Player Warm-Standby Pipeline）
@@ -162,6 +165,7 @@ final class PlayerManager: NSObject, ObservableObject {
 
     private var player: AVPlayer?
     private var timeObserver: Any?
+    private var backgroundBoundaryObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var itemStatusObserver: NSKeyValueObservation?
@@ -1024,16 +1028,12 @@ final class PlayerManager: NSObject, ObservableObject {
 
     func startSleepTimer(minutes: Int) {
         stopSleepTimer()
-        sleepTimerEndsAt = Date().addingTimeInterval(TimeInterval(minutes * 60))
-        sleepTimerRemaining = minutes * 60
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, let end = self.sleepTimerEndsAt else { return }
-            let remain = Int(end.timeIntervalSinceNow)
-            self.sleepTimerRemaining = max(0, remain)
-            if remain <= 0 {
-                self.stopSleepTimer()
-                self.pausePlayback()
-            }
+        let endsAt = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        sleepTimerEndsAt = endsAt
+        let timer = Timer(timeInterval: TimeInterval(minutes * 60), repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.stopSleepTimer()
+            self.pausePlayback()
         }
         RunLoop.main.add(timer, forMode: .common)
         sleepTimer = timer
@@ -1043,7 +1043,6 @@ final class PlayerManager: NSObject, ObservableObject {
         sleepTimer?.invalidate()
         sleepTimer = nil
         sleepTimerEndsAt = nil
-        sleepTimerRemaining = 0
     }
 
     var sleepTimerFormatted: String? {
@@ -2170,6 +2169,7 @@ final class PlayerManager: NSObject, ObservableObject {
             player = prewarmedPlayer
             player.volume = targetVolume
             self.currentResourceLoader = resourceLoader
+            item.preferredForwardBufferDuration = loadedSong.source == .synology ? 20.0 : 60.0
         } else {
             if isQQAudioHost(url.host) {
                 playbackHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0"
@@ -2191,7 +2191,7 @@ final class PlayerManager: NSObject, ObservableObject {
             )
             item = madeItem
             self.currentResourceLoader = loader
-            item.preferredForwardBufferDuration = loadedSong.source == .synology ? 6.0 : 8.0
+            item.preferredForwardBufferDuration = loadedSong.source == .synology ? 20.0 : 60.0
             player = AVPlayer(playerItem: item)
             player.volume = targetVolume
             player.automaticallyWaitsToMinimizeStalling = false
@@ -2377,6 +2377,7 @@ final class PlayerManager: NSObject, ObservableObject {
         currentPlaybackURL = url
         if isInBackground && isPlaying {
             backgroundPlayDate = Date()
+            setupBackgroundPrewarmTrigger(for: item)
         }
         attachTimeObserverIfNeeded()
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -2639,6 +2640,7 @@ final class PlayerManager: NSObject, ObservableObject {
 
     private func removeCurrentObservers() {
         detachTimeObserver()
+        removeBackgroundBoundaryObserver()
         currentPlaybackURL = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
@@ -2934,10 +2936,14 @@ final class PlayerManager: NSObject, ObservableObject {
         savePersistedPlaybackState()
         updateNowPlaying()
         detachTimeObserver()
+        if let item = player?.currentItem {
+            setupBackgroundPrewarmTrigger(for: item)
+        }
     }
 
     private func handleWillEnterForeground() {
         isInBackground = false
+        removeBackgroundBoundaryObserver()
         recordBackgroundPlaybackDurationIfNeeded()
 
         if let player = self.player {
@@ -2985,6 +2991,28 @@ final class PlayerManager: NSObject, ObservableObject {
         if let timeObserver {
             player?.removeTimeObserver(timeObserver)
             self.timeObserver = nil
+        }
+    }
+
+    private func setupBackgroundPrewarmTrigger(for item: AVPlayerItem) {
+        removeBackgroundBoundaryObserver()
+        guard queue.count > 1, playMode != .repeatOne else { return }
+        let durationSec = item.duration.seconds
+        guard durationSec.isFinite, durationSec > 20 else { return }
+        let triggerSec = max(10, durationSec * 0.7)
+        let triggerTime = NSValue(time: CMTime(seconds: triggerSec, preferredTimescale: 600))
+        backgroundBoundaryObserver = player?.addBoundaryTimeObserver(forTimes: [triggerTime], queue: .main) { [weak self] in
+            guard let self, self.isInBackground, self.standbyPlayback == nil else { return }
+            ATMusicLogger.shared.log("🌙 后台节能单次边界触发：提前预热下一首曲目", level: .info)
+            self.preResolveNextTrackURL()
+            self.removeBackgroundBoundaryObserver()
+        }
+    }
+
+    private func removeBackgroundBoundaryObserver() {
+        if let observer = backgroundBoundaryObserver {
+            player?.removeTimeObserver(observer)
+            backgroundBoundaryObserver = nil
         }
     }
 

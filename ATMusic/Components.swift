@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import CoreImage.CIFilterBuiltins
 
 // MARK: - 工具
@@ -729,8 +730,46 @@ private struct ATMusicDetailMiniPlayerModifier: ViewModifier {
 
 // MARK: - 封面图
 
+// MARK: - 图像轻量硬件靶向下采样引擎（WWDC 推荐最佳实践，彻底杜绝大图全量解码显存爆炸）
+
+enum ImageDownsampler {
+    static func downsample(at url: URL, maxPixelSize: CGFloat) -> UIImage? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, imageSourceOptions) else {
+            return nil
+        }
+        return downsample(imageSource: imageSource, maxPixelSize: maxPixelSize)
+    }
+
+    static func downsample(data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, imageSourceOptions) else {
+            return nil
+        }
+        return downsample(imageSource: imageSource, maxPixelSize: maxPixelSize)
+    }
+
+    private static func downsample(imageSource: CGImageSource, maxPixelSize: CGFloat) -> UIImage? {
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ] as [CFString: Any] as CFDictionary
+        guard let downsampledImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions) else {
+            return nil
+        }
+        return UIImage(cgImage: downsampledImage)
+    }
+}
+
 enum ATMusicRemoteCoverCache {
-    private static let images = NSCache<NSURL, UIImage>()
+    private static let images: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.totalCostLimit = 80 * 1024 * 1024 // 80 MB 显存硬顶，彻底杜绝 OOM 闪退
+        cache.countLimit = 200
+        return cache
+    }()
 
     static func image(for url: URL?) -> UIImage? {
         guard let url else { return nil }
@@ -738,7 +777,8 @@ enum ATMusicRemoteCoverCache {
     }
 
     static func store(_ image: UIImage, for url: URL) {
-        images.setObject(image, forKey: url as NSURL, cost: image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0)
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? (Int(image.size.width * image.size.height) * 4)
+        images.setObject(image, forKey: url as NSURL, cost: cost)
     }
 
     static func remove(for url: URL?) {
@@ -777,7 +817,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
     private var retryCount = 0
     private var retryTask: Task<Void, Never>?
 
-    func load(_ url: URL?, isRetry: Bool = false, force: Bool = false) async {
+    func load(_ url: URL?, targetPixelSize: CGFloat = 800, isRetry: Bool = false, force: Bool = false) async {
         if !isRetry {
             retryCount = 0
             retryTask?.cancel()
@@ -832,6 +872,9 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 if !force, let cached = ATMusicImageFileCache.image(at: resolvedURL.path) {
                     return cached
                 }
+                if let downsampled = ImageDownsampler.downsample(at: resolvedURL, maxPixelSize: targetPixelSize) {
+                    return downsampled
+                }
                 guard let img = UIImage(contentsOfFile: resolvedURL.path)?.preparingForDisplay() else {
                     return nil
                 }
@@ -877,7 +920,10 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 return
             }
             let decoded: UIImage? = await Task.detached(priority: .utility) {
-                UIImage(data: data)?.preparingForDisplay()
+                if let downsampled = ImageDownsampler.downsample(data: data, maxPixelSize: targetPixelSize) {
+                    return downsampled
+                }
+                return UIImage(data: data)?.preparingForDisplay()
             }.value
             guard !Task.isCancelled, currentTargetURL == url, let decoded else {
                 loadedURL = nil
@@ -939,6 +985,14 @@ struct CoverImage: View {
     var isFlexible: Bool = false
     @StateObject private var loader = ATMusicCoverImageLoader()
 
+    private var targetPixelSize: CGFloat {
+        let maxSide = max(width ?? 0, height ?? 0, size)
+        if maxSide <= 0 { return 750 }
+        if maxSide <= 64 { return 180 }
+        if maxSide <= 140 { return 420 }
+        return 800
+    }
+
     private var displayedImage: UIImage? {
         let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
         if let cached = ATMusicRemoteCoverCache.image(for: resolved) { return cached }
@@ -998,7 +1052,7 @@ struct CoverImage: View {
         .task(id: url) {
             let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
             if ATMusicRemoteCoverCache.image(for: resolved) == nil {
-                await loader.load(resolved)
+                await loader.load(resolved, targetPixelSize: targetPixelSize)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
@@ -1010,10 +1064,10 @@ struct CoverImage: View {
                    resolvedUpdated == resolved || (url != nil && resolvedUpdated == url!) ||
                    updatedURL.coverIdentity == resolved.coverIdentity ||
                    (url != nil && updatedURL.coverIdentity == url!.coverIdentity) {
-                    Task { await loader.load(resolved, isRetry: false, force: true) }
+                    Task { await loader.load(resolved, targetPixelSize: targetPixelSize, isRetry: false, force: true) }
                 }
             } else {
-                Task { await loader.load(resolved, isRetry: false, force: true) }
+                Task { await loader.load(resolved, targetPixelSize: targetPixelSize, isRetry: false, force: true) }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in

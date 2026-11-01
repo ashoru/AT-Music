@@ -2112,6 +2112,19 @@ struct SynologyFolderView: View {
     @State private var items: [SynologyFolderItem] = []
     @State private var displayedFolders: [SynologyFolderItem] = []
     @State private var displayedSongs: [Song] = []
+    @State private var renderLimit: Int = 100
+
+    private var visibleSongs: [Song] {
+        let count = min(renderLimit, displayedSongs.count)
+        guard count > 0 else { return [] }
+        return Array(displayedSongs.prefix(count))
+    }
+
+    private func loadMoreSongsIfNeeded(at index: Int) {
+        if index >= renderLimit - 25 && renderLimit < displayedSongs.count {
+            renderLimit = min(renderLimit + 120, displayedSongs.count)
+        }
+    }
     /// 各文件夹内容概要（含歌/子文件夹 + 封面预览歌），用于隐藏无音乐文件夹与取封面。
     @State private var folderOverviews: [String: SynologyFolderOverview] = [:]
     @State private var isSelecting = false
@@ -2220,6 +2233,7 @@ struct SynologyFolderView: View {
         folders.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         self.displayedFolders = folders
         self.displayedSongs = songList
+        self.renderLimit = min(100, max(songList.count, 0))
     }
 
     private var breadcrumbsView: some View {
@@ -2338,7 +2352,7 @@ struct SynologyFolderView: View {
 
                     if !displayedSongs.isEmpty {
                         Section {
-                            ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
+                            ForEach(Array(visibleSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 SongCell(
                                     song: song,
                                     glassRow: false,
@@ -2360,6 +2374,9 @@ struct SynologyFolderView: View {
                                     },
                                     selectionIndex: index
                                 )
+                                .onAppear {
+                                    loadMoreSongsIfNeeded(at: index)
+                                }
                             }
                         } header: {
                             if !displayedFolders.isEmpty {
