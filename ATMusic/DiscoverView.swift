@@ -1493,6 +1493,95 @@ struct QQTopListDetailView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+    @State private var showBatchAddToPlaylist = false
+
+    private var selectedSongs: [Song] {
+        filteredTracks.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
+        } else {
+            selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = filteredTracks.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
+
+    @ViewBuilder
+    private func chartSongRow(song: Song, index: Int) -> some View {
+        if isMultiSelecting {
+            let isSelected = selectedSongKeys.contains(song.identityKey)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(song: song, glassRow: true) {}
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
+        } else {
+            SongCell(song: song, glassRow: true, playbackContext: filteredTracks, playbackIndex: index) {
+                player.play(songs: filteredTracks, startAt: index)
+            }
+        }
+    }
 
     init(topID: Int, name: String) {
         self.topID = topID
@@ -1530,9 +1619,7 @@ struct QQTopListDetailView: View {
                         }
                         Section {
                             ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: true) {
-                                    player.play(songs: filteredTracks, startAt: index)
-                                }
+                                chartSongRow(song: song, index: index)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                             }
@@ -1542,10 +1629,96 @@ struct QQTopListDetailView: View {
                     .listStyle(.plain)
                 }
             }
+
+            if isMultiSelecting && !selectedSongKeys.isEmpty {
+                VStack {
+                    Spacer()
+                    UniversalBatchActionBar(
+                        selectedCount: selectedSongKeys.count,
+                        totalCount: filteredTracks.count,
+                        actions: [
+                            BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                let songs = selectedSongs
+                                player.play(songs: songs, startAt: 0)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                let songs = selectedSongs
+                                player.playNext(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                let songs = selectedSongs
+                                player.appendToQueue(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                showBatchAddToPlaylist = true
+                            },
+                            BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                let songs = selectedSongs
+                                DownloadManager.shared.startBatchDownload(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                let songs = selectedSongs
+                                DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            }
+                        ]
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
-            .navigationTitle(atmusicChartName(name))
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
+        }
+        .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : atmusicChartName(name))
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isMultiSelecting {
+                    HStack(spacing: 12) {
+                        Button(selectedSongKeys.count == filteredTracks.count && !filteredTracks.isEmpty ? "取消全选" : "全选") {
+                            ATMusicHaptics.tap()
+                            if selectedSongKeys.count == filteredTracks.count {
+                                selectedSongKeys.removeAll()
+                            } else {
+                                selectedSongKeys = Set(filteredTracks.map(\.identityKey))
+                            }
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+
+                        Button("完成") {
+                            ATMusicHaptics.tap()
+                            isMultiSelecting = false
+                            selectedSongKeys.removeAll()
+                        }
+                        .font(ATMusicFont.appFont(13, .semibold))
+                    }
+                } else {
+                    Button {
+                        ATMusicHaptics.select()
+                        isMultiSelecting = true
+                    } label: {
+                        Text("多选")
+                            .font(ATMusicFont.appFont(13, .medium))
+                    }
+                    .disabled(filteredTracks.isEmpty)
+                }
+            }
+        }
+        .sheet(isPresented: $showBatchAddToPlaylist) {
+            AddToPlaylistSheet(songs: selectedSongs)
+                .environmentObject(theme)
+        }
         .task { await load() }
     }
 
@@ -1612,14 +1785,7 @@ struct QQTopListDetailView: View {
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                         ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(
-                                song: song,
-                                glassRow: true,
-                                playbackContext: filteredTracks,
-                                playbackIndex: index
-                            ) {
-                                player.play(songs: filteredTracks, startAt: index)
-                            }
+                            chartSongRow(song: song, index: index)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -1855,6 +2021,96 @@ struct DailySongsSheet: View {
 
     let songs: [Song]
     @State private var searchText = ""
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+    @State private var showBatchAddToPlaylist = false
+
+    private var selectedSongs: [Song] {
+        filteredSongs.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
+        } else {
+            selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = filteredSongs.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
+
+    @ViewBuilder
+    private func dailySongRow(song: Song, index: Int) -> some View {
+        if isMultiSelecting {
+            let isSelected = selectedSongKeys.contains(song.identityKey)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(song: song, glassRow: true) {}
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
+        } else {
+            SongCell(song: song, glassRow: true) {
+                ATMusicHaptics.tap()
+                player.play(songs: filteredSongs, startAt: index)
+            }
+        }
+    }
 
     var body: some View {
         let _ = theme.accent
@@ -1883,10 +2139,7 @@ struct DailySongsSheet: View {
                     }
                     Section {
                         ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(song: song, glassRow: true) {
-                                ATMusicHaptics.tap()
-                                player.play(songs: filteredSongs, startAt: index)
-                            }
+                            dailySongRow(song: song, index: index)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                         }
@@ -1896,10 +2149,96 @@ struct DailySongsSheet: View {
                 .listStyle(.plain)
                 }
             }
+
+            if isMultiSelecting && !selectedSongKeys.isEmpty {
+                    VStack {
+                        Spacer()
+                        UniversalBatchActionBar(
+                            selectedCount: selectedSongKeys.count,
+                            totalCount: filteredSongs.count,
+                            actions: [
+                                BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                    let songs = selectedSongs
+                                    player.play(songs: songs, startAt: 0)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                    let songs = selectedSongs
+                                    player.playNext(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                    let songs = selectedSongs
+                                    player.appendToQueue(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                    showBatchAddToPlaylist = true
+                                },
+                                BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                    let songs = selectedSongs
+                                    DownloadManager.shared.startBatchDownload(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                    let songs = selectedSongs
+                                    DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                }
+                            ]
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
             }
-            .navigationTitle("今日推荐")
+            .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : "今日推荐")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索每日推荐", "Search daily recommendations"))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if isMultiSelecting {
+                        HStack(spacing: 12) {
+                            Button(selectedSongKeys.count == filteredSongs.count && !filteredSongs.isEmpty ? "取消全选" : "全选") {
+                                ATMusicHaptics.tap()
+                                if selectedSongKeys.count == filteredSongs.count {
+                                    selectedSongKeys.removeAll()
+                                } else {
+                                    selectedSongKeys = Set(filteredSongs.map(\.identityKey))
+                                }
+                            }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+
+                            Button("完成") {
+                                ATMusicHaptics.tap()
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                        }
+                    } else {
+                        Button {
+                            ATMusicHaptics.select()
+                            isMultiSelecting = true
+                        } label: {
+                            Text("多选")
+                                .font(ATMusicFont.appFont(13, .medium))
+                        }
+                        .disabled(filteredSongs.isEmpty)
+                    }
+                }
+            }
+            .sheet(isPresented: $showBatchAddToPlaylist) {
+                AddToPlaylistSheet(songs: selectedSongs)
+                    .environmentObject(theme)
+            }
     }
 
 
@@ -1971,15 +2310,7 @@ struct DailySongsSheet: View {
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                         ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(
-                                song: song,
-                                glassRow: true,
-                                playbackContext: filteredSongs,
-                                playbackIndex: index
-                            ) {
-                                ATMusicHaptics.tap()
-                                player.play(songs: filteredSongs, startAt: index)
-                            }
+                            dailySongRow(song: song, index: index)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -2030,6 +2361,95 @@ struct TopListDetailView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+    @State private var showBatchAddToPlaylist = false
+
+    private var selectedSongs: [Song] {
+        filteredTracks.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
+        } else {
+            selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = filteredTracks.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
+
+    @ViewBuilder
+    private func chartSongRow(song: Song, index: Int) -> some View {
+        if isMultiSelecting {
+            let isSelected = selectedSongKeys.contains(song.identityKey)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(song: song, glassRow: true) {}
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
+        } else {
+            SongCell(song: song, glassRow: true) {
+                player.play(songs: filteredTracks, startAt: index)
+            }
+        }
+    }
 
     init(topList: TopList) {
         self.topList = topList
@@ -2067,9 +2487,7 @@ struct TopListDetailView: View {
                         }
                         Section {
                             ForEach(Array(filteredTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(song: song, glassRow: true) {
-                                    player.play(songs: filteredTracks, startAt: index)
-                                }
+                                chartSongRow(song: song, index: index)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                             }
@@ -2079,10 +2497,96 @@ struct TopListDetailView: View {
                     .listStyle(.plain)
                 }
             }
+
+            if isMultiSelecting && !selectedSongKeys.isEmpty {
+                    VStack {
+                        Spacer()
+                        UniversalBatchActionBar(
+                            selectedCount: selectedSongKeys.count,
+                            totalCount: filteredTracks.count,
+                            actions: [
+                                BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                    let songs = selectedSongs
+                                    player.play(songs: songs, startAt: 0)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                    let songs = selectedSongs
+                                    player.playNext(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                    let songs = selectedSongs
+                                    player.appendToQueue(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                    showBatchAddToPlaylist = true
+                                },
+                                BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                    let songs = selectedSongs
+                                    DownloadManager.shared.startBatchDownload(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                },
+                                BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: !SynologyAPI.shared.isLoggedIn) {
+                                    let songs = selectedSongs
+                                    DownloadManager.shared.startBatchUploadToNAS(songs: songs)
+                                    isMultiSelecting = false
+                                    selectedSongKeys.removeAll()
+                                }
+                            ]
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
             }
-            .navigationTitle(atmusicChartName(topList.name))
+            .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : atmusicChartName(topList.name))
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if isMultiSelecting {
+                        HStack(spacing: 12) {
+                            Button(selectedSongKeys.count == filteredTracks.count && !filteredTracks.isEmpty ? "取消全选" : "全选") {
+                                ATMusicHaptics.tap()
+                                if selectedSongKeys.count == filteredTracks.count {
+                                    selectedSongKeys.removeAll()
+                                } else {
+                                    selectedSongKeys = Set(filteredTracks.map(\.identityKey))
+                                }
+                            }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                            .foregroundStyle(Color.atmusicAmber)
+
+                            Button("完成") {
+                                ATMusicHaptics.tap()
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            }
+                            .font(ATMusicFont.appFont(13, .semibold))
+                        }
+                    } else {
+                        Button {
+                            ATMusicHaptics.select()
+                            isMultiSelecting = true
+                        } label: {
+                            Text("多选")
+                                .font(ATMusicFont.appFont(13, .medium))
+                        }
+                        .disabled(filteredTracks.isEmpty)
+                    }
+                }
+            }
+            .sheet(isPresented: $showBatchAddToPlaylist) {
+                AddToPlaylistSheet(songs: selectedSongs)
+                    .environmentObject(theme)
+            }
         .task { await load() }
     }
 

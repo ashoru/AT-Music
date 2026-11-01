@@ -48,6 +48,26 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.41-build-141",
+            version: "1.9.41",
+            title: "全场景滑动多选覆盖、全能批量操作底栏引擎与真实硬件规格探测器",
+            notices: [
+                "专辑页（包含多CD分盘）、NAS文件夹/专辑、歌手页、排行榜、每日推荐、收藏列表与播放历史全面接入零延迟滑动多选；多选状态下自适应展示主流播放器规范的全能批量操作浮动底栏；设置页设备信息全面升级为真实内核探测。"
+            ],
+            features: [
+                "全场景滑动多选覆盖（Swipe Multi-Select Everywhere）：在线/本地专辑页（AlbumDetailView）、群晖 NAS 专辑页（SynologyAlbumView）、群晖 NAS 文件夹（SynologyFolderView）、歌手主页与全源歌手页（ArtistHomeSheet）、今日推荐（DailySongsSheet）、官方排行榜（TopListDetailView / QQTopListDetailView）、我的收藏（UnifiedFavoritesDetailView）以及播放历史（HistoryView）全面支持手指上下轻扫连续多选/反选，并在 iPad 宽屏大尺寸布局与 iPhone 单手模式下均保持 120 FPS 极速响应。",
+                "全功能自适应批量操作浮动栏（UniversalBatchActionBar）：深入调研主流网络播放器（Apple Music/网易云/QQ音乐）、本地高保真播放器（Foobar2000/Doppler）与 NAS 音乐客户端（DS Audio/Plexamp/Navidrome），针对不同页面场景自动装配最专业、最高频的批量操作矩阵：批量即刻播放、批量插队下一首、追加队列末尾、批量加歌单、批量离线下载、批量极速归档至 NAS、批量取消收藏、批量移除历史、批量编辑元数据标签等。",
+                "四套全局 UI 风格自适应浮动底栏：批量操作底栏采用轻量级 ATMusicGlass 高性能材质，在流体拟物（22pt）、通透玻璃（18pt）、紧凑信息（14pt）和原生极简（20pt）四套全局风格下动态呈现对应曲面圆角与微光阴影，操作极其丝滑，零重绘阻塞。",
+                "真实硬件型号与屏幕分辨率精准探测（ATMusicDeviceInfo）：重构设置页底层环境信息探测器，废除原先只能返回粗略‘iPhone/iPad’的旧接口；直接通过系统内核 utsname 探测底层芯片架构与精确硬件机型代码，精准映射为真实 Apple 营销型号（如 iPhone 16 Pro、iPhone 15 Pro Max、iPad Pro 11-inch M4 等），并动态探测真实逻辑点数与物理像素分辨率（@2x/@3x）。"
+            ],
+            fixes: [
+                "解决专辑详情页与 NAS 文件夹在歌曲列表长按或点击时缺少滑动多选能力的痛点，现已全场景闭环",
+                "解决 QQ 音乐排行榜（QQTopListDetailView）多选状态缺失与榜单曲目无法批量操作的问题",
+                "解决多选后各页面操作入口分散不统一的问题，收敛为统一的浮动批处理底栏",
+                "解决设置页面最下方设备信息只显示泛称‘iPhone’或‘iPad’且无法反映真实机型与物理分辨率的问题"
+            ],
+        ),
+        VersionLog(
             id: "1.9.40-build-140",
             version: "1.9.40",
             title: "精选胶囊四套UI严格适配、零开销滑动多选引擎与四大主页顶栏基准对齐",

@@ -99,3 +99,131 @@ public struct DeviceLayoutHelper {
         isIPadRegular(horizontalSizeClass) ? regularCount : compactCount
     }
 }
+
+/// 设备真实硬件与显示规格信息探测器（100% 动态读取内核与 UIKit 硬件指标）
+public struct ATMusicDeviceInfo {
+    /// 真实硬件型号标识符（如 iPhone16,1, iPad14,3, arm64 等）
+    public static var hardwareIdentifier: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = machineMirror.children.reduce("") { identifier, element in
+            guard let value = element.value as? Int8, value != 0 else { return identifier }
+            return identifier + String(UnicodeScalar(UInt8(value)))
+        }
+        return identifier.isEmpty ? UIDevice.current.model : identifier
+    }
+
+    /// 真实设备营销名称（如 iPhone 15 Pro, iPhone 16 Pro Max, iPad Pro 11-inch M4 等）
+    public static var marketingModelName: String {
+        let identifier = hardwareIdentifier
+        if let name = modelMapping[identifier] {
+            return name
+        }
+        #if targetEnvironment(simulator)
+        if let simModel = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"],
+           let name = modelMapping[simModel] {
+            return "\(name) (模拟器)"
+        }
+        return "iOS 模拟器 (\(identifier))"
+        #else
+        if identifier.hasPrefix("iPhone") {
+            return "iPhone (\(identifier))"
+        }
+        if identifier.hasPrefix("iPad") {
+            return "iPad (\(identifier))"
+        }
+        return "\(UIDevice.current.model) (\(identifier))"
+        #endif
+    }
+
+    /// 真实显示分辨率、逻辑点数与屏幕缩放比率
+    @MainActor
+    public static var displayMetricsSummary: String {
+        let bounds = ATMusicDisplayMetrics.bounds
+        let scale = ATMusicDisplayMetrics.scale
+        let pixelWidth = Int(round(bounds.width * scale))
+        let pixelHeight = Int(round(bounds.height * scale))
+        return "\(Int(bounds.width))×\(Int(bounds.height)) pt · @\(Int(round(scale)))x (\(pixelWidth)×\(pixelHeight) px)"
+    }
+
+    private static let modelMapping: [String: String] = [
+        // iPhone 16 系列
+        "iPhone17,1": "iPhone 16 Pro",
+        "iPhone17,2": "iPhone 16 Pro Max",
+        "iPhone17,3": "iPhone 16",
+        "iPhone17,4": "iPhone 16 Plus",
+        // iPhone 15 系列
+        "iPhone16,1": "iPhone 15 Pro",
+        "iPhone16,2": "iPhone 15 Pro Max",
+        "iPhone15,4": "iPhone 15",
+        "iPhone15,5": "iPhone 15 Plus",
+        // iPhone 14 系列
+        "iPhone15,2": "iPhone 14 Pro",
+        "iPhone15,3": "iPhone 14 Pro Max",
+        "iPhone14,7": "iPhone 14",
+        "iPhone14,8": "iPhone 14 Plus",
+        // iPhone 13 系列
+        "iPhone14,2": "iPhone 13 Pro",
+        "iPhone14,3": "iPhone 13 Pro Max",
+        "iPhone14,5": "iPhone 13",
+        "iPhone14,4": "iPhone 13 mini",
+        "iPhone14,6": "iPhone SE (第 3 代)",
+        // iPhone 12 系列
+        "iPhone13,1": "iPhone 12 mini",
+        "iPhone13,2": "iPhone 12",
+        "iPhone13,3": "iPhone 12 Pro",
+        "iPhone13,4": "iPhone 12 Pro Max",
+        "iPhone12,8": "iPhone SE (第 2 代)",
+        // iPhone 11 系列
+        "iPhone12,1": "iPhone 11",
+        "iPhone12,3": "iPhone 11 Pro",
+        "iPhone12,5": "iPhone 11 Pro Max",
+        // iPhone X 系列
+        "iPhone11,2": "iPhone XS",
+        "iPhone11,4": "iPhone XS Max",
+        "iPhone11,6": "iPhone XS Max",
+        "iPhone11,8": "iPhone XR",
+        "iPhone10,3": "iPhone X",
+        "iPhone10,6": "iPhone X",
+        // iPad Pro M4
+        "iPad16,3": "iPad Pro 11-inch (M4)",
+        "iPad16,4": "iPad Pro 11-inch (M4)",
+        "iPad16,5": "iPad Pro 13-inch (M4)",
+        "iPad16,6": "iPad Pro 13-inch (M4)",
+        // iPad Pro M2
+        "iPad14,3": "iPad Pro 11-inch (第 4 代)",
+        "iPad14,4": "iPad Pro 11-inch (第 4 代)",
+        "iPad14,5": "iPad Pro 12.9-inch (第 6 代)",
+        "iPad14,6": "iPad Pro 12.9-inch (第 6 代)",
+        // iPad Pro M1
+        "iPad13,4": "iPad Pro 11-inch (第 3 代)",
+        "iPad13,5": "iPad Pro 11-inch (第 3 代)",
+        "iPad13,6": "iPad Pro 11-inch (第 3 代)",
+        "iPad13,7": "iPad Pro 11-inch (第 3 代)",
+        "iPad13,8": "iPad Pro 12.9-inch (第 5 代)",
+        "iPad13,9": "iPad Pro 12.9-inch (第 5 代)",
+        "iPad13,10": "iPad Pro 12.9-inch (第 5 代)",
+        "iPad13,11": "iPad Pro 12.9-inch (第 5 代)",
+        // iPad Air M2
+        "iPad14,8": "iPad Air 11-inch (M2)",
+        "iPad14,9": "iPad Air 11-inch (M2)",
+        "iPad14,10": "iPad Air 13-inch (M2)",
+        "iPad14,11": "iPad Air 13-inch (M2)",
+        // iPad Air M1 & 之前
+        "iPad13,1": "iPad Air (第 4 代)",
+        "iPad13,2": "iPad Air (第 4 代)",
+        "iPad13,16": "iPad Air (第 5 代)",
+        "iPad13,17": "iPad Air (第 5 代)",
+        // iPad mini
+        "iPad14,1": "iPad mini (第 6 代)",
+        "iPad14,2": "iPad mini (第 6 代)",
+        "iPad16,1": "iPad mini (A17 Pro)",
+        "iPad16,2": "iPad mini (A17 Pro)",
+        // iPad 数字代
+        "iPad13,18": "iPad (第 10 代)",
+        "iPad13,19": "iPad (第 10 代)",
+        "iPad12,1": "iPad (第 9 代)",
+        "iPad12,2": "iPad (第 9 代)",
+    ]
+}

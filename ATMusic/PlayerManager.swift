@@ -500,26 +500,59 @@ final class PlayerManager: NSObject, ObservableObject {
         savePersistedPlaybackState()
     }
 
-    /// 插队播放：把歌曲放到当前歌曲之后，不打断当前播放
+    /// 插队播放：把单首歌曲放到当前歌曲之后，不打断当前播放
     func playNext(_ song: Song) {
+        playNext(songs: [song])
+    }
+
+    /// 批量插队播放：把一组歌曲按顺序放到当前歌曲之后，不打断当前播放
+    func playNext(songs: [Song]) {
+        guard !songs.isEmpty else { return }
         guard !queue.isEmpty else {
-            play(songs: [song], startAt: 0)
+            play(songs: songs, startAt: 0)
             return
         }
         let insertAt = currentIndex + 1
-        queue.insert(song, at: min(insertAt, queue.count))
+        let validInsertAt = min(insertAt, queue.count)
+        queue.insert(contentsOf: songs, at: validInsertAt)
         switch playMode {
         case .shuffle:
-            playOrder = playOrder.map { $0 >= insertAt ? $0 + 1 : $0 }
+            let count = songs.count
+            playOrder = playOrder.map { $0 >= validInsertAt ? $0 + count : $0 }
             let nextOrderPosition = min(orderPosition + 1, playOrder.count)
-            playOrder.insert(min(insertAt, queue.count - 1), at: nextOrderPosition)
+            let insertedIndices = Array(validInsertAt..<(validInsertAt + count))
+            playOrder.insert(contentsOf: insertedIndices, at: nextOrderPosition)
         default:
             buildPlayOrder()
         }
         savePersistedPlaybackState()
         refreshPrefetchTarget()
         Task { @MainActor in
-            ToastCenter.shared.show("已加入下一首播放")
+            ToastCenter.shared.show(songs.count == 1 ? "已加入下一首播放" : "已将 \(songs.count) 首歌曲加入下一首播放")
+        }
+    }
+
+    /// 批量追加到播放队列末尾：不打断当前播放
+    func appendToQueue(songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        guard !queue.isEmpty else {
+            play(songs: songs, startAt: 0)
+            return
+        }
+        let startIdx = queue.count
+        queue.append(contentsOf: songs)
+        switch playMode {
+        case .shuffle:
+            let count = songs.count
+            let insertedIndices = Array(startIdx..<(startIdx + count)).shuffled()
+            playOrder.append(contentsOf: insertedIndices)
+        default:
+            buildPlayOrder()
+        }
+        savePersistedPlaybackState()
+        refreshPrefetchTarget()
+        Task { @MainActor in
+            ToastCenter.shared.show(songs.count == 1 ? "已加入播放队列末尾" : "已将 \(songs.count) 首歌曲加入播放队列末尾")
         }
     }
 
@@ -704,6 +737,17 @@ final class PlayerManager: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(history) {
             defaults.set(data, forKey: historyKey)
         }
+    }
+
+    /// 批量删除指定歌曲的播放历史（含持久化）
+    func removeHistory(songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        let keys = Set(songs.map(\.identityKey))
+        history.removeAll { keys.contains($0.identityKey) }
+        if let data = try? JSONEncoder().encode(history) {
+            defaults.set(data, forKey: historyKey)
+        }
+        objectWillChange.send()
     }
 
     /// 清空播放历史（含持久化）

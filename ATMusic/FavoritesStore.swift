@@ -62,6 +62,40 @@ final class FavoritesStore: ObservableObject {
     }
 
     /// 统一红心切换逻辑：同时同步到本地收藏歌单与对应平台的云端/本地收藏
+    /// 批量添加歌曲到收藏（阶段 3 批量操作）
+    @MainActor
+    func addFavorites(_ songs: [Song]) async {
+        guard !songs.isEmpty else { return }
+        for song in songs {
+            if !isSongLiked(song) {
+                _ = LocalLibraryStore.shared.addToDefaultFavorites(song)
+                if !isLiked(song) {
+                    _ = await toggle(song)
+                }
+            }
+        }
+        NotificationCenter.default.post(name: Self.favoritesDidChange, object: self)
+        ToastCenter.shared.show("已将 \(songs.count) 首歌曲加入收藏")
+        ATMusicHaptics.success()
+    }
+
+    /// 批量取消收藏（阶段 3 批量操作）
+    @MainActor
+    func removeFavorites(_ songs: [Song]) async {
+        guard !songs.isEmpty else { return }
+        for song in songs {
+            if isSongLiked(song) {
+                _ = LocalLibraryStore.shared.removeSongFromAllPlaylists(song)
+                if isLiked(song) {
+                    _ = await toggle(song)
+                }
+            }
+        }
+        NotificationCenter.default.post(name: Self.favoritesDidChange, object: self)
+        ToastCenter.shared.show("已将 \(songs.count) 首歌曲取消收藏")
+        ATMusicHaptics.success()
+    }
+
     @MainActor
     func toggleFavorite(_ song: Song) async {
         let currentlyLiked = isSongLiked(song)

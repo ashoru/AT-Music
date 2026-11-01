@@ -2483,11 +2483,11 @@ struct SettingsView: View {
     /// 1.8 新增的运行环境信息。除方便反馈问题外，也为播放器布局预览提供同一套设备基准。
     private var runtimeInfoSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            runtimeInfoRow("设备", UIDevice.current.model, "iphone")
+            runtimeInfoRow("设备型号", ATMusicDeviceInfo.marketingModelName, "iphone")
             runtimeInfoDivider
-            runtimeInfoRow("系统", UIDevice.current.systemVersion, "gearshape.2")
+            runtimeInfoRow("系统版本", "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)", "gearshape.2")
             runtimeInfoDivider
-            runtimeInfoRow("界面尺寸", Self.displaySizeText, "rectangle.on.rectangle")
+            runtimeInfoRow("界面尺寸", ATMusicDeviceInfo.displayMetricsSummary, "rectangle.on.rectangle")
             runtimeInfoDivider
             runtimeInfoRow(
                 "应用版本",

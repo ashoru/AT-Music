@@ -1909,3 +1909,94 @@ public struct MultiSelectCheckmark: View {
             )
     }
 }
+// MARK: - 全局通用多选批量操作浮动栏（四风格自适应，对标 Apple Music 规范）
+
+public struct BatchActionItem: Identifiable {
+    public let id: String
+    public let title: String
+    public let systemImage: String
+    public var tint: Color? = nil
+    public var disabled: Bool = false
+    public var action: () -> Void
+
+    public init(
+        id: String,
+        title: String,
+        systemImage: String,
+        tint: Color? = nil,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
+        self.disabled = disabled
+        self.action = action
+    }
+}
+
+public struct UniversalBatchActionBar: View {
+    @AppStorage("atmusic.uiStyle") private var uiStyleRaw = ATMusicUIStyle.liquid.rawValue
+    let selectedCount: Int
+    var totalCount: Int? = nil
+    var onSelectAll: (() -> Void)? = nil
+    let actions: [BatchActionItem]
+
+    public init(
+        selectedCount: Int,
+        totalCount: Int? = nil,
+        onSelectAll: (() -> Void)? = nil,
+        actions: [BatchActionItem]
+    ) {
+        self.selectedCount = selectedCount
+        self.totalCount = totalCount
+        self.onSelectAll = onSelectAll
+        self.actions = actions
+    }
+
+    private var uiStyle: ATMusicUIStyle {
+        uiStyleRaw == "outline" ? .clear : (ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid)
+    }
+
+    private var cornerRadius: CGFloat {
+        switch uiStyle {
+        case .liquid: return 22
+        case .clear: return 18
+        case .compact: return 14
+        case .nativeClean: return 20
+        }
+    }
+
+    public var body: some View {
+        HStack(spacing: 0) {
+            ForEach(actions) { item in
+                Button {
+                    ATMusicHaptics.tap()
+                    item.action()
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: item.systemImage)
+                            .font(.system(size: 15, weight: .medium))
+                        Text(item.title)
+                            .font(ATMusicFont.appFont(10, .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(item.tint ?? Color.atmusicLabel)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(item.disabled)
+                .opacity(item.disabled ? 0.4 : 1.0)
+            }
+        }
+        .frame(maxWidth: 580)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background {
+            ATMusicGlass(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .shadow(color: Color.black.opacity(0.18), radius: 16, x: 0, y: 6)
+        }
+    }
+}

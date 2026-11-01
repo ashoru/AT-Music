@@ -2092,6 +2092,59 @@ struct SynologyFolderView: View {
     @State private var isSelecting = false
     @State private var selectedIDs: Set<Int> = []
     @State private var showBatchEditor = false
+    @State private var showBatchAddToPlaylist = false
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedIDsOnDrag: Set<Int>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+
+    private var selectedSongs: [Song] {
+        songs.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedIDs.contains(song.id) {
+            selectedIDs.remove(song.id)
+        } else {
+            selectedIDs.insert(song.id)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let songList = songs
+        guard startIndex >= 0, startIndex < songList.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedIDsOnDrag = selectedIDs
+            let willSelect = !selectedIDs.contains(songList[startIndex].id)
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedIDsOnDrag else { return }
+        let current = min(max(0, start + deltaRows), songList.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let id = songList[idx].id
+            if dragTargetSelected {
+                updated.insert(id)
+            } else {
+                updated.remove(id)
+            }
+        }
+        selectedIDs = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedIDsOnDrag = nil
+        lastDragIndex = nil
+    }
 
     init(folderID: String?, title: String, breadcrumbs: [String] = ["NAS"]) {
         self.folderID = folderID
@@ -2155,21 +2208,30 @@ struct SynologyFolderView: View {
     @ViewBuilder
     private func songRow(_ song: Song, index: Int) -> some View {
         if isSelecting {
-            Button {
-                if selectedIDs.contains(song.id) {
-                    selectedIDs.remove(song.id)
-                } else {
-                    selectedIDs.insert(song.id)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: selectedIDs.contains(song.id) ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(selectedIDs.contains(song.id) ? theme.accent.highlight : Color.atmusicComment)
-                    SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {}
-                }
+            let isSelected = selectedIDs.contains(song.id)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {}
             }
-            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
             .listRowBackground(Color.clear)
         } else {
             SongCell(song: song, glassRow: false, playbackContext: songs, playbackIndex: index) {
@@ -2263,17 +2325,62 @@ struct SynologyFolderView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if isSelecting && !selectedIDs.isEmpty {
-                GlassButton(title: "批量编辑(\(selectedIDs.count))", systemName: "square.and.pencil", prominent: true) {
-                    showBatchEditor = true
-                }
+                UniversalBatchActionBar(
+                    selectedCount: selectedIDs.count,
+                    totalCount: songs.count,
+                    actions: [
+                        BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                            let selected = selectedSongs
+                            player.play(songs: selected, startAt: 0)
+                            isSelecting = false
+                            selectedIDs.removeAll()
+                        },
+                        BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                            let selected = selectedSongs
+                            player.playNext(songs: selected)
+                            isSelecting = false
+                            selectedIDs.removeAll()
+                        },
+                        BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                            let selected = selectedSongs
+                            player.appendToQueue(songs: selected)
+                            isSelecting = false
+                            selectedIDs.removeAll()
+                        },
+                        BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                            showBatchAddToPlaylist = true
+                        },
+                        BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                            let selected = selectedSongs
+                            let quality: DownloadQuality
+                            let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+                            if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+                                quality = ThirdPartyAudioQuality.current
+                            } else {
+                                quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
+                            }
+                            DownloadManager.shared.startBatchDownload(songs: selected, quality: quality)
+                            isSelecting = false
+                            selectedIDs.removeAll()
+                        },
+                        BatchActionItem(id: "edit", title: "批量编辑", systemImage: "square.and.pencil", tint: Color.atmusicAmber) {
+                            showBatchEditor = true
+                        }
+                    ]
+                )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .sheet(isPresented: $showBatchEditor) {
             let selected = songs.filter { selectedIDs.contains($0.id) }
             SynologyBatchMetadataEditorSheet(songs: selected, keyword: selected.first?.name ?? "")
                 .environmentObject(player)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showBatchAddToPlaylist) {
+            AddToPlaylistSheet(songs: selectedSongs)
                 .environmentObject(theme)
         }
         .task { if synology.isLoggedIn { await load(force: false) } }
@@ -3047,6 +3154,95 @@ struct SynologyAlbumView: View {
     @State private var errorMessage: String?
     @State private var isBatchDownloading = false
     @State private var showBatchEditor = false
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+    @State private var showBatchAddToPlaylist = false
+
+    private var selectedSongs: [Song] {
+        sortedTracks.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
+        } else {
+            selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = sortedTracks.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
+
+    @ViewBuilder
+    private func albumSongRow(song: Song, index: Int, playbackIndex: Int, trackNumber: Int) -> some View {
+        if isMultiSelecting {
+            let isSelected = selectedSongKeys.contains(song.identityKey)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: playbackIndex, trackNumber: trackNumber) {}
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
+        } else {
+            SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: playbackIndex, trackNumber: trackNumber) {
+                player.play(songs: sortedTracks, startAt: playbackIndex)
+            }
+        }
+    }
 
     @MainActor
     private func batchDownloadAlbum() {
@@ -3140,10 +3336,9 @@ struct SynologyAlbumView: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     discSectionHeader(discNumber: group.disc, songs: group.songs)
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
-                                       let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
-                                       SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: sortedTracks.firstIndex(of: song) ?? 0, trackNumber: displayNo) {
-                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
-                                        }
+                                        let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
+                                        let globalIndex = sortedTracks.firstIndex(of: song) ?? 0
+                                        albumSongRow(song: song, index: globalIndex, playbackIndex: globalIndex, trackNumber: displayNo)
                                     }
                                 }
                                 .padding(.horizontal, 16)
@@ -3152,10 +3347,8 @@ struct SynologyAlbumView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 SectionHeader(title: "歌曲")
                                 ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                                   let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
-                                   SongCell(song: song, glassRow: true, playbackContext: sortedTracks, playbackIndex: index, trackNumber: displayNo) {
-                                        player.play(songs: sortedTracks, startAt: index)
-                                    }
+                                    let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                    albumSongRow(song: song, index: index, playbackIndex: index, trackNumber: displayNo)
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -3166,40 +3359,124 @@ struct SynologyAlbumView: View {
                 }
                 .atmusicScrollIndicatorsHidden()
             }
+
+            if isMultiSelecting && !selectedSongKeys.isEmpty {
+                VStack {
+                    Spacer()
+                    UniversalBatchActionBar(
+                        selectedCount: selectedSongKeys.count,
+                        totalCount: sortedTracks.count,
+                        actions: [
+                            BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                let songs = selectedSongs
+                                player.play(songs: songs, startAt: 0)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                let songs = selectedSongs
+                                player.playNext(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                let songs = selectedSongs
+                                player.appendToQueue(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                showBatchAddToPlaylist = true
+                            },
+                            BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                let songs = selectedSongs
+                                let quality: DownloadQuality
+                                let downloadQualityRaw = UserDefaults.standard.string(forKey: ThirdPartyAudioQuality.downloadStorageKey) ?? ThirdPartyAudioQuality.kb320.rawValue
+                                if UserDefaults.standard.object(forKey: ThirdPartyAudioQuality.downloadStorageKey) == nil {
+                                    quality = ThirdPartyAudioQuality.current
+                                } else {
+                                    quality = DownloadQuality(sourceValue: downloadQualityRaw) ?? ThirdPartyAudioQuality.current
+                                }
+                                DownloadManager.shared.startBatchDownload(songs: songs, quality: quality)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "edit", title: "批量编辑", systemImage: "square.and.pencil", tint: Color.atmusicAmber) {
+                                showBatchEditor = true
+                            }
+                        ]
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
-        .navigationTitle(albumName)
+        .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : albumName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        batchDownloadAlbum()
-                    } label: {
-                        Label(isBatchDownloading ? "正在加入下载..." : "下载全专歌曲", systemImage: "arrow.down.circle")
+                if isMultiSelecting {
+                    Button(selectedSongKeys.count == sortedTracks.count && !sortedTracks.isEmpty ? "取消全选" : "全选") {
+                        ATMusicHaptics.tap()
+                        if selectedSongKeys.count == sortedTracks.count {
+                            selectedSongKeys.removeAll()
+                        } else {
+                            selectedSongKeys = Set(sortedTracks.map(\.identityKey))
+                        }
                     }
-                    .disabled(sortedTracks.isEmpty || isBatchDownloading)
+                    .font(ATMusicFont.appFont(13, .semibold))
+                    .foregroundStyle(Color.atmusicAmber)
 
-                    Button {
-                        showBatchEditor = true
-                    } label: {
-                        Label("批量编辑全专信息", systemImage: "square.and.pencil")
+                    Button("完成") {
+                        ATMusicHaptics.tap()
+                        isMultiSelecting = false
+                        selectedSongKeys.removeAll()
                     }
-                    .disabled(sortedTracks.isEmpty)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("更多操作")
+                    .font(ATMusicFont.appFont(13, .semibold))
+                } else {
+                    Menu {
+                        Button {
+                            ATMusicHaptics.select()
+                            isMultiSelecting = true
+                        } label: {
+                            Label("多选歌曲", systemImage: "checklist")
+                        }
+                        .disabled(sortedTracks.isEmpty)
 
-                if isModal {
-                    Button {
-                        dismiss()
+                        Button {
+                            batchDownloadAlbum()
+                        } label: {
+                            Label(isBatchDownloading ? "正在加入下载..." : "下载全专歌曲", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(sortedTracks.isEmpty || isBatchDownloading)
+
+                        Button {
+                            showBatchEditor = true
+                        } label: {
+                            Label("批量编辑全专信息", systemImage: "square.and.pencil")
+                        }
+                        .disabled(sortedTracks.isEmpty)
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("更多操作")
+
+                    if isModal {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.atmusicComment.opacity(0.8))
+                        }
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showBatchAddToPlaylist) {
+            AddToPlaylistSheet(songs: selectedSongs)
+                .environmentObject(theme)
         }
                 .task { await load() }
         .sheet(isPresented: $showBatchEditor) {
@@ -3479,15 +3756,8 @@ struct SynologyAlbumView: View {
                                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                                     ForEach(Array(group.songs.enumerated()), id: \.element.identityKey) { index, song in
                                         let displayNo = (song.trackNumber >= 1 && song.trackNumber <= group.songs.count) ? song.trackNumber : (index + 1)
-                                        SongCell(
-                                            song: song,
-                                            glassRow: true,
-                                            playbackContext: sortedTracks,
-                                            playbackIndex: sortedTracks.firstIndex(of: song) ?? 0,
-                                            trackNumber: displayNo
-                                        ) {
-                                            player.play(songs: sortedTracks, startAt: sortedTracks.firstIndex(of: song) ?? 0)
-                                        }
+                                        let globalIndex = sortedTracks.firstIndex(of: song) ?? 0
+                                        albumSongRow(song: song, index: globalIndex, playbackIndex: globalIndex, trackNumber: displayNo)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
                                         .background {
@@ -3510,16 +3780,8 @@ struct SynologyAlbumView: View {
 
                         LazyVGrid(columns: DeviceLayoutHelper.songListColumns(for: horizontalSizeClass, spacing: 16), spacing: 8) {
                             ForEach(Array(sortedTracks.enumerated()), id: \.element.identityKey) { index, song in
-                               let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
-                                SongCell(
-                                    song: song,
-                                    glassRow: true,
-                                    playbackContext: sortedTracks,
-                                    playbackIndex: index,
-                                    trackNumber: displayNo
-                                ) {
-                                    player.play(songs: sortedTracks, startAt: index)
-                                }
+                                let displayNo = (song.trackNumber >= 1 && song.trackNumber <= sortedTracks.count) ? song.trackNumber : (index + 1)
+                                albumSongRow(song: song, index: index, playbackIndex: index, trackNumber: displayNo)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background {

@@ -504,6 +504,46 @@ struct LocalPlaylistDetailSheet: View {
     @State private var multiSelectMode = false
     @State private var selectedSongKeys: Set<String> = []
     @State private var showAddSelectedDestination = false
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = visibleSongs.map(\.element.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
 
     private var playlist: LocalPlaylist? {
         store.playlists.first { $0.id == playlistID }
@@ -552,16 +592,27 @@ struct LocalPlaylistDetailSheet: View {
                                 ForEach(visibleSongs, id: \.element.identityKey) { index, song in
                                     if multiSelectMode {
                                         HStack(spacing: 10) {
-                                            Image(systemName: selectedSongKeys.contains(song.identityKey) ? "checkmark.circle.fill" : "circle")
-                                                .font(.system(size: 20, weight: .semibold))
-                                                .foregroundStyle(selectedSongKeys.contains(song.identityKey) ? Color.atmusicAmber : Color.atmusicComment)
-                                            SongCell(song: song, glassRow: true) {
-                                                toggleSelection(song)
-                                            }
+                                            MultiSelectCheckmark(
+                                                isSelected: selectedSongKeys.contains(song.identityKey),
+                                                index: index,
+                                                rowHeight: 52,
+                                                onToggle: {
+                                                    toggleSelection(song)
+                                                    ATMusicHaptics.tap()
+                                                },
+                                                onDragChange: { startIdx, deltaRows in
+                                                    handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                                },
+                                                onDragEnd: {
+                                                    handleDragEnd()
+                                                }
+                                            )
+                                            SongCell(song: song, glassRow: true) {}
                                         }
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             toggleSelection(song)
+                                            ATMusicHaptics.tap()
                                         }
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
@@ -985,6 +1036,46 @@ struct LocalMusicManagementSheet: View {
     @State private var showBatchAddToPlaylist = false
     @State private var showBatchDeleteAlert = false
     @State private var showBatchEdit = false
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = filteredSongs.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
 
     private var filteredSongs: [Song] {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1019,13 +1110,29 @@ struct LocalMusicManagementSheet: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 36)
                         } else {
-                            ForEach(filteredSongs, id: \.identityKey) { song in
+                            ForEach(Array(filteredSongs.enumerated()), id: \.element.identityKey) { index, song in
                                 let isSelected = selectedSongKeys.contains(song.identityKey)
                                 if isMultiSelecting {
                                     HStack(spacing: 12) {
-                                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundStyle(isSelected ? Color.atmusicAmber : Color.atmusicComment.opacity(0.6))
+                                        MultiSelectCheckmark(
+                                            isSelected: isSelected,
+                                            index: index,
+                                            rowHeight: 56,
+                                            onToggle: {
+                                                ATMusicHaptics.select()
+                                                if isSelected {
+                                                    selectedSongKeys.remove(song.identityKey)
+                                                } else {
+                                                    selectedSongKeys.insert(song.identityKey)
+                                                }
+                                            },
+                                            onDragChange: { startIdx, deltaRows in
+                                                handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                                            },
+                                            onDragEnd: {
+                                                handleDragEnd()
+                                            }
+                                        )
                                         CoverImage(url: song.coverURL, size: 46, cornerRadius: 10)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(song.name)

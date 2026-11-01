@@ -1,5 +1,29 @@
 # AT Music 更新日志
 
+## 1.9.41 build 141
+
+### 全场景滑动多选覆盖、全能批量操作底栏引擎与真实硬件规格探测器
+
+本次更新针对全场景滑动多选覆盖、主流播放器批量操作功能矩阵收敛以及真实硬件信息探测进行了体系化升级：
+
+- **全场景滑动多选覆盖（Continuous Swipe Multi-Select Everywhere）**：
+  - 专辑详情页（`AlbumDetailView`，支持单CD及多CD分盘）、群晖 NAS 专辑页（`SynologyAlbumView`）、群晖 NAS 文件夹（`SynologyFolderView`）、歌手主页与全源歌手主页（`ArtistHomeSheet`）、今日推荐（`DailySongsSheet`）、网易云排行榜（`TopListDetailView`）、QQ 音乐排行榜（`QQTopListDetailView`）、我的收藏（`UnifiedFavoritesDetailView`）以及播放历史（`HistoryView`）全面接入零开销滑动多选；
+  - 列表左侧轻扫即可连续勾选/取消勾选，并提供实时行级 Haptics 触感震动反馈，在 iPhone 与 iPad 设备上均保持 120 FPS 丝滑顺畅。
+- **全能自适应批量操作浮动栏（UniversalBatchActionBar）**：
+  - 调研主流网络流媒体播放器、本地发烧级播放器及 NAS 播放器核心功能，构建通用浮动操作面板；
+  - 根据当前页面智能提供最贴合业务的批量能力：【播放】、【下一首插队】、【加入队列末尾】、【批量加入歌单】、【批量离线下载】、【批量归档NAS】、【取消收藏】、【删除历史】、【批量修改标签】；
+  - 严格适配 `liquid`、`clear`、`compact`、`nativeClean` 四套全局 UI 风格的圆角与光影材质，悬浮底栏平滑响应。
+- **真实设备硬件型号与显示参数探测器（ATMusicDeviceInfo）**：
+  - 设置页面环境信息彻底告别过去仅显示“iPhone”或“iPad”的系统默认模糊值；
+  - 接入底层 Unix 内核 `utsname` 硬件识别，精准映射真实苹果设备营销名（涵盖 iPhone 16/15/14/13 系列各机型及 iPad Pro M4/M2 等全系）；
+  - 动态计算并展示屏幕当前逻辑点数（pt）、缩放倍率（@2x/@3x）与真实物理像素分辨率（px）。
+
+### 验证
+- 严格遵循四套 UI 风格在各页面的表现与层次规范；
+- 逐一测试专辑页、NAS 文件夹、歌手页、收藏夹、历史记录等多选与批量操作；
+- 验证设置页真机型号与分辨率输出；
+- 完成 Xcode Release 编译并成功生成无签名 IPA 安装包。
+
 ## 1.9.40 build 140
 
 ### 精选胶囊四套UI严格适配、零开销滑动多选引擎与四大主页顶栏基准对齐

@@ -2641,6 +2641,120 @@ struct UnifiedFavoritesDetailView: View {
     @State private var query = ""
     @State private var selectedPlatformFilter: String = "全部"
     @State private var isSyncing = false
+    @State private var isMultiSelecting = false
+    @State private var selectedSongKeys: Set<String> = []
+    @State private var dragStartIndex: Int? = nil
+    @State private var initialSelectedKeysOnDrag: Set<String>? = nil
+    @State private var dragTargetSelected = true
+    @State private var lastDragIndex: Int? = nil
+    @State private var showBatchAddToPlaylist = false
+
+    private var selectedSongs: [Song] {
+        displayedSongs.filter { selectedSongKeys.contains($0.identityKey) }
+    }
+
+    private func toggleSelection(_ song: Song) {
+        if selectedSongKeys.contains(song.identityKey) {
+            selectedSongKeys.remove(song.identityKey)
+        } else {
+            selectedSongKeys.insert(song.identityKey)
+        }
+    }
+
+    private func handleDragChange(startIndex: Int, deltaRows: Int) {
+        let keys = displayedSongs.map(\.identityKey)
+        guard startIndex >= 0, startIndex < keys.count else { return }
+        if dragStartIndex == nil {
+            dragStartIndex = startIndex
+            initialSelectedKeysOnDrag = selectedSongKeys
+            let willSelect = !selectedSongKeys.contains(keys[startIndex])
+            dragTargetSelected = willSelect
+            lastDragIndex = nil
+        }
+        guard let start = dragStartIndex, let initial = initialSelectedKeysOnDrag else { return }
+        let current = min(max(0, start + deltaRows), keys.count - 1)
+        guard current != lastDragIndex else { return }
+        lastDragIndex = current
+        ATMusicHaptics.select()
+
+        let low = min(start, current)
+        let high = max(start, current)
+        var updated = initial
+        for idx in low...high {
+            let k = keys[idx]
+            if dragTargetSelected {
+                updated.insert(k)
+            } else {
+                updated.remove(k)
+            }
+        }
+        selectedSongKeys = updated
+    }
+
+    private func handleDragEnd() {
+        dragStartIndex = nil
+        initialSelectedKeysOnDrag = nil
+        lastDragIndex = nil
+    }
+
+    @ViewBuilder
+    private func favoriteSongRow(song: Song, index: Int) -> some View {
+        if isMultiSelecting {
+            let isSelected = selectedSongKeys.contains(song.identityKey)
+            HStack(spacing: 8) {
+                MultiSelectCheckmark(
+                    isSelected: isSelected,
+                    index: index,
+                    rowHeight: 52,
+                    onToggle: {
+                        toggleSelection(song)
+                        ATMusicHaptics.tap()
+                    },
+                    onDragChange: { startIdx, deltaRows in
+                        handleDragChange(startIndex: startIdx, deltaRows: deltaRows)
+                    },
+                    onDragEnd: {
+                        handleDragEnd()
+                    }
+                )
+                SongCell(
+                    song: song,
+                    playbackContext: displayedSongs,
+                    playbackIndex: index,
+                    subtitleText: "\(song.artists) · \(song.album)"
+                ) {}
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleSelection(song)
+                ATMusicHaptics.tap()
+            }
+        } else {
+            SongCell(
+                song: song,
+                playbackContext: displayedSongs,
+                playbackIndex: index,
+                subtitleText: "\(song.artists) · \(song.album)",
+                favoriteToggle: {
+                    Task {
+                        await favorites.toggleFavorite(song)
+                    }
+                },
+                onTap: {
+                    player.play(songs: displayedSongs, startAt: index)
+                }
+            )
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    Task {
+                        await favorites.toggleFavorite(song)
+                    }
+                } label: {
+                    Label("取消收藏", systemImage: "heart.slash")
+                }
+            }
+        }
+    }
 
     private var allSongs: [Song] {
         favorites.unifiedFavoriteSongs()
@@ -2706,29 +2820,7 @@ struct UnifiedFavoritesDetailView: View {
 
                         Section {
                             ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                                SongCell(
-                                    song: song,
-                                    playbackContext: displayedSongs,
-                                    playbackIndex: index,
-                                    subtitleText: "\(song.artists) · \(song.album)",
-                                    favoriteToggle: {
-                                        Task {
-                                            await favorites.toggleFavorite(song)
-                                        }
-                                    },
-                                    onTap: {
-                                        player.play(songs: displayedSongs, startAt: index)
-                                    }
-                                )
-                                .swipeActions(edge: .trailing) {
-                                    Button(role: .destructive) {
-                                        Task {
-                                            await favorites.toggleFavorite(song)
-                                        }
-                                    } label: {
-                                        Label("取消收藏", systemImage: "heart.slash")
-                                    }
-                                }
+                                favoriteSongRow(song: song, index: index)
                             }
                         } header: {
                             HStack {
@@ -2744,53 +2836,137 @@ struct UnifiedFavoritesDetailView: View {
                     .atmusicScrollContentBackgroundHidden()
                 }
             }
+
+            if isMultiSelecting && !selectedSongKeys.isEmpty {
+                VStack {
+                    Spacer()
+                    UniversalBatchActionBar(
+                        selectedCount: selectedSongKeys.count,
+                        totalCount: displayedSongs.count,
+                        actions: [
+                            BatchActionItem(id: "play", title: "播放", systemImage: "play.fill") {
+                                let songs = selectedSongs
+                                player.play(songs: songs, startAt: 0)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                let songs = selectedSongs
+                                player.playNext(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus") {
+                                let songs = selectedSongs
+                                player.appendToQueue(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "playlist", title: "加歌单", systemImage: "folder.badge.plus") {
+                                showBatchAddToPlaylist = true
+                            },
+                            BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle") {
+                                let songs = selectedSongs
+                                DownloadManager.shared.startBatchDownload(songs: songs)
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            },
+                            BatchActionItem(id: "unfavorite", title: "取消收藏", systemImage: "heart.slash", tint: Color.red) {
+                                let songs = selectedSongs
+                                Task {
+                                    await favorites.removeFavorites(songs)
+                                }
+                                isMultiSelecting = false
+                                selectedSongKeys.removeAll()
+                            }
+                        ]
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
         }
-        .navigationTitle("我喜欢的音乐")
+        .navigationTitle(isMultiSelecting ? (selectedSongKeys.isEmpty ? "选择歌曲" : "已选 \(selectedSongKeys.count) 首") : "我喜欢的音乐")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
-                    Button {
-                        Task {
-                            isSyncing = true
+                if isMultiSelecting {
+                    HStack(spacing: 12) {
+                        Button(selectedSongKeys.count == displayedSongs.count && !displayedSongs.isEmpty ? "取消全选" : "全选") {
                             ATMusicHaptics.tap()
-                            await favorites.syncAllFromCloud()
-                            isSyncing = false
-                            ToastCenter.shared.show("全平台红心同步已完成")
-                            ATMusicHaptics.success()
+                            if selectedSongKeys.count == displayedSongs.count {
+                                selectedSongKeys.removeAll()
+                            } else {
+                                selectedSongKeys = Set(displayedSongs.map(\.identityKey))
+                            }
                         }
-                    } label: {
-                        if isSyncing {
-                            ProgressView().tint(Color.atmusicAmber)
-                        } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(ATMusicFont.appFont(13, .semibold))
+                        .foregroundStyle(Color.atmusicAmber)
+
+                        Button("完成") {
+                            ATMusicHaptics.tap()
+                            isMultiSelecting = false
+                            selectedSongKeys.removeAll()
                         }
+                        .font(ATMusicFont.appFont(13, .semibold))
                     }
-                    .disabled(isSyncing)
-                    .accessibilityLabel("同步云端红心")
-
-                    Menu {
+                } else {
+                    HStack(spacing: 12) {
                         Button {
-                            DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                            Task {
+                                isSyncing = true
+                                ATMusicHaptics.tap()
+                                await favorites.syncAllFromCloud()
+                                isSyncing = false
+                                ToastCenter.shared.show("全平台红心同步已完成")
+                                ATMusicHaptics.success()
+                            }
                         } label: {
-                            Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                            if isSyncing {
+                                ProgressView().tint(Color.atmusicAmber)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                            }
                         }
-                        .disabled(displayedSongs.isEmpty)
+                        .disabled(isSyncing)
+                        .accessibilityLabel("同步云端红心")
 
-                        if SynologyAPI.shared.isLoggedIn {
+                        Menu {
                             Button {
-                                DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                                ATMusicHaptics.select()
+                                isMultiSelecting = true
                             } label: {
-                                Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                Label("多选歌曲", systemImage: "checklist")
                             }
                             .disabled(displayedSongs.isEmpty)
+
+                            Button {
+                                DownloadManager.shared.startBatchDownload(songs: displayedSongs)
+                            } label: {
+                                Label("下载全部歌曲", systemImage: "arrow.down.circle")
+                            }
+                            .disabled(displayedSongs.isEmpty)
+
+                            if SynologyAPI.shared.isLoggedIn {
+                                Button {
+                                    DownloadManager.shared.startBatchUploadToNAS(songs: displayedSongs)
+                                } label: {
+                                    Label("全单归档至群晖 NAS", systemImage: "externaldrive.badge.plus")
+                                }
+                                .disabled(displayedSongs.isEmpty)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                        .accessibilityLabel("更多操作")
                     }
-                    .accessibilityLabel("更多操作")
                 }
             }
+        }
+        .sheet(isPresented: $showBatchAddToPlaylist) {
+            AddToPlaylistSheet(songs: selectedSongs)
+                .environmentObject(theme)
         }
         .task {
             await favorites.syncAllFromCloud()
@@ -2945,19 +3121,7 @@ struct UnifiedFavoritesDetailView: View {
 
                     LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: rightWidth, minWidth: 280, spacing: 14), spacing: 8) {
                         ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                            SongCell(
-                                song: song,
-                                glassRow: true,
-                                playbackContext: displayedSongs,
-                                playbackIndex: index,
-                                favoriteToggle: {
-                                    Task {
-                                        await favorites.toggleFavorite(song)
-                                    }
-                                }
-                            ) {
-                                player.play(songs: displayedSongs, startAt: index)
-                            }
+                            favoriteSongRow(song: song, index: index)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background {
@@ -3031,19 +3195,7 @@ struct UnifiedFavoritesDetailView: View {
 
                 LazyVGrid(columns: DeviceLayoutHelper.songListColumns(forAvailableWidth: availableWidth - 40, minWidth: 280, spacing: 12), spacing: 6) {
                     ForEach(Array(displayedSongs.enumerated()), id: \.element.identityKey) { index, song in
-                        SongCell(
-                            song: song,
-                            glassRow: true,
-                            playbackContext: displayedSongs,
-                            playbackIndex: index,
-                            favoriteToggle: {
-                                Task {
-                                    await favorites.toggleFavorite(song)
-                                }
-                            }
-                        ) {
-                            player.play(songs: displayedSongs, startAt: index)
-                        }
+                        favoriteSongRow(song: song, index: index)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background {

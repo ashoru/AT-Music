@@ -813,31 +813,45 @@ struct PlaylistView: View {
     }
 
     private var editBottomBar: some View {
-        HStack(spacing: 14) {
-            Text(selectedKeys.isEmpty ? "未选择歌曲" : "已选 \(selectedKeys.count) 首")
-                .font(ATMusicFont.appFont(12, .medium))
-                .foregroundStyle(Color.atmusicComment)
-            Spacer()
-            if capabilities.canRemoveSongs {
-                Button("删除") { Task { await removeSelected() } }
-                    .disabled(selectedKeys.isEmpty)
-            }
-            Button(capabilities.canRemoveSongs ? "移到歌单" : "复制到歌单") {
-                showMoveSheet = true
-            }
-            .disabled(selectedKeys.isEmpty)
-            Button("下载") { batchDownloadSelected() }
-                .disabled(selectedKeys.isEmpty || isBatchDownloading)
-            if SynologyAPI.shared.isLoggedIn {
-                Button("归档 NAS") { batchUploadSelectedToNAS() }
-                    .disabled(selectedKeys.isEmpty || isBatchUploading)
-            }
-        }
-        .font(ATMusicFont.appFont(13, .semibold))
-        .foregroundStyle(Color.atmusicAmber)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(.ultraThinMaterial)
+        UniversalBatchActionBar(
+            selectedCount: selectedKeys.count,
+            totalCount: displayedTracks.count,
+            actions: [
+                BatchActionItem(id: "play", title: "播放", systemImage: "play.fill", disabled: selectedKeys.isEmpty) {
+                    let songs = selectedSongs
+                    player.play(songs: songs, startAt: 0)
+                    isEditing = false
+                    selectedKeys.removeAll()
+                },
+                BatchActionItem(id: "playNext", title: "下一首", systemImage: "text.line.first.and.arrowtriangle.forward", disabled: selectedKeys.isEmpty) {
+                    let songs = selectedSongs
+                    player.playNext(songs: songs)
+                    isEditing = false
+                    selectedKeys.removeAll()
+                },
+                BatchActionItem(id: "queue", title: "加队列", systemImage: "text.badge.plus", disabled: selectedKeys.isEmpty) {
+                    let songs = selectedSongs
+                    player.appendToQueue(songs: songs)
+                    isEditing = false
+                    selectedKeys.removeAll()
+                },
+                BatchActionItem(id: "move", title: capabilities.canRemoveSongs ? "移歌单" : "存歌单", systemImage: "folder.badge.plus", disabled: selectedKeys.isEmpty) {
+                    showMoveSheet = true
+                },
+                BatchActionItem(id: "download", title: "下载", systemImage: "arrow.down.circle", disabled: selectedKeys.isEmpty || isBatchDownloading) {
+                    batchDownloadSelected()
+                },
+                BatchActionItem(id: "archive", title: "归档NAS", systemImage: "externaldrive.badge.plus", tint: Color.atmusicAmber, disabled: selectedKeys.isEmpty || isBatchUploading || !SynologyAPI.shared.isLoggedIn) {
+                    batchUploadSelectedToNAS()
+                },
+                BatchActionItem(id: "delete", title: "删除", systemImage: "trash", tint: Color.red, disabled: selectedKeys.isEmpty || !capabilities.canRemoveSongs) {
+                    Task { await removeSelected() }
+                }
+            ]
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func toggleSelection(_ song: Song) {
