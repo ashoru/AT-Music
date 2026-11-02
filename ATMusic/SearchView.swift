@@ -2094,6 +2094,51 @@ struct AlbumDetailView: View {
     @State private var dragTargetSelected = true
     @State private var lastDragIndex: Int? = nil
     @State private var showBatchAddToPlaylist = false
+    @State private var sortedTracks: [Song] = []
+    @State private var discGroups: [(disc: Int, songs: [Song])] = []
+
+    private func recomputeSortedTracksAndDiscGroups() {
+        let sorted = tracks.sorted {
+            if $0.discNumber != $1.discNumber {
+                return $0.discNumber < $1.discNumber
+            }
+            if $0.trackNumber != $1.trackNumber {
+                return $0.trackNumber < $1.trackNumber
+            }
+            return $0.id < $1.id
+        }
+        sortedTracks = sorted
+
+        let explicit = Dictionary(grouping: sorted, by: { $0.discNumber })
+        if explicit.keys.count > 1 {
+            discGroups = explicit.keys.sorted().map { ($0, explicit[$0]!) }
+            return
+        }
+        var groups: [(disc: Int, songs: [Song])] = []
+        var currentDisc = 1
+        var currentSongs: [Song] = []
+        var prevTrack = 0
+        for song in sorted {
+            let trk = song.trackNumber
+            if trk == 1 && prevTrack >= 1 && !currentSongs.isEmpty {
+                groups.append((disc: currentDisc, songs: currentSongs))
+                currentDisc += 1
+                currentSongs = [song]
+                prevTrack = 1
+            } else {
+                currentSongs.append(song)
+                if trk > 0 { prevTrack = trk }
+            }
+        }
+        if !currentSongs.isEmpty {
+            groups.append((disc: currentDisc, songs: currentSongs))
+        }
+        if groups.count > 1 {
+            discGroups = groups
+            return
+        }
+        discGroups = explicit.keys.sorted().map { ($0, explicit[$0]!) }
+    }
 
     private var selectedSongs: [Song] {
         sortedTracks.filter { selectedSongKeys.contains($0.identityKey) }
@@ -2205,51 +2250,6 @@ struct AlbumDetailView: View {
         case .kugou: return Color.blue.opacity(0.9)
         default: return theme.accent.highlight
         }
-    }
-
-    /// 严格双键保序排列：优先盘号 discNumber，再按音轨号 trackNumber，最后按全局 ID 保序
-    private var sortedTracks: [Song] {
-        tracks.sorted {
-            if $0.discNumber != $1.discNumber {
-                return $0.discNumber < $1.discNumber
-            }
-            if $0.trackNumber != $1.trackNumber {
-                return $0.trackNumber < $1.trackNumber
-            }
-            return $0.id < $1.id
-        }
-    }
-
-    /// 多 CD 分组模型（Apple Music 规范，支持显式 discNumber 与隐式序号重置）
-    private var discGroups: [(disc: Int, songs: [Song])] {
-        let explicit = Dictionary(grouping: sortedTracks, by: { $0.discNumber })
-        if explicit.keys.count > 1 {
-            return explicit.keys.sorted().map { ($0, explicit[$0]!) }
-        }
-        // 隐式检测：若 discNumber 全为 1，但曲目号重置为 1（典型多 CD 唱片未打盘号标签）
-        var groups: [(disc: Int, songs: [Song])] = []
-        var currentDisc = 1
-        var currentSongs: [Song] = []
-        var prevTrack = 0
-        for song in sortedTracks {
-            let trk = song.trackNumber
-            if trk == 1 && prevTrack >= 1 && !currentSongs.isEmpty {
-                groups.append((disc: currentDisc, songs: currentSongs))
-                currentDisc += 1
-                currentSongs = [song]
-                prevTrack = 1
-            } else {
-                currentSongs.append(song)
-                if trk > 0 { prevTrack = trk }
-            }
-        }
-        if !currentSongs.isEmpty {
-            groups.append((disc: currentDisc, songs: currentSongs))
-        }
-        if groups.count > 1 {
-            return groups
-        }
-        return explicit.keys.sorted().map { ($0, explicit[$0]!) }
     }
 
     var body: some View {
@@ -2421,6 +2421,7 @@ struct AlbumDetailView: View {
                     .environmentObject(theme)
             }
         .task { await load() }
+        .onChange(of: tracks) { _ in recomputeSortedTracksAndDiscGroups() }
         .sheet(isPresented: $showArtistHome) {
             ArtistHomeSheet(artistName: album.artistName, artistSource: album.source)
                 .environmentObject(player)

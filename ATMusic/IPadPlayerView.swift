@@ -42,6 +42,8 @@ struct IPadPlayerView: View {
     @State private var isDraggingScrubber = false
     @State private var scrubProgress: Double = 0
     @State private var autoScrollEnabled = true
+    /// 当前高亮歌词行索引（事件驱动缓存：只在换行时更新，避免每行重复判断）
+    @State private var activeLyricLineIndex: Int? = nil
     @State private var pickedArtistName = ""
     @State private var selectedAlbum: Album?
     @State private var showArtistHome = false
@@ -614,13 +616,13 @@ struct IPadPlayerView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 380)
                 } else {
-                    VStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
+                    LazyVStack(alignment: .leading, spacing: isCompact ? 16 : 22) {
                         Color.clear.frame(height: 100)
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { item in
                             let index = item.offset
                             let line = item.element
-                            let isCurrent = isCurrentLine(at: index)
+                            let isCurrent = index == activeLyricLineIndex
 
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(line.text)
@@ -648,33 +650,38 @@ struct IPadPlayerView: View {
                     .padding(.horizontal, isCompact ? 20 : 32)
                 }
             }
+            .onAppear {
+                activeLyricLineIndex = findCurrentLineIndex(at: max(0, clock.currentTime + activeLyricOffset))
+            }
             .onChange(of: clock.currentTime) { currentTime in
-                guard autoScrollEnabled, !lyrics.isEmpty else { return }
-                if let currentLineID = findCurrentLineID(at: max(0, currentTime + activeLyricOffset)) {
-                    withAnimation(.easeInOut(duration: 0.35)) {
-                        scrollProxy.scrollTo(currentLineID, anchor: .center)
-                    }
+                guard !lyrics.isEmpty else { return }
+                let newIndex = findCurrentLineIndex(at: max(0, currentTime + activeLyricOffset))
+                guard newIndex != activeLyricLineIndex else { return }
+                activeLyricLineIndex = newIndex
+                guard autoScrollEnabled, let currentLineID = newIndex.map({ lyrics[$0].id }) else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    scrollProxy.scrollTo(currentLineID, anchor: .center)
                 }
             }
         }
     }
 
-    private func isCurrentLine(at index: Int) -> Bool {
-        guard index < lyrics.count else { return false }
-        let current = max(0, clock.currentTime + activeLyricOffset)
-        let lineTime = lyrics[index].time
-        let nextTime = index + 1 < lyrics.count ? lyrics[index + 1].time : Double.infinity
-        return current >= lineTime && current < nextTime
-    }
-
-    private func findCurrentLineID(at time: Double) -> UUID? {
-        for (index, line) in lyrics.enumerated() {
-            let nextTime = index + 1 < lyrics.count ? lyrics[index + 1].time : Double.infinity
-            if time >= line.time && time < nextTime {
-                return line.id
+    /// 二分查找当前播放时间对应的歌词行索引（歌词按时间戳升序排列）。
+    private func findCurrentLineIndex(at time: Double) -> Int? {
+        guard !lyrics.isEmpty else { return nil }
+        var low = 0
+        var high = lyrics.count - 1
+        var answer: Int?
+        while low <= high {
+            let mid = (low + high) / 2
+            if lyrics[mid].time <= time {
+                answer = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
             }
         }
-        return lyrics.first?.id
+        return answer ?? 0
     }
 
     // MARK: - 实时待播列表（Queue）

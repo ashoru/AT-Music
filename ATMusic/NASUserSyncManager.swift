@@ -393,12 +393,25 @@ final class NASUserSyncManager: ObservableObject {
         }
     }
 
+    /// 自动同步的最小间隔：短时间内多次下载触发的自动备份会被合并到下一个允许的时间点，
+    /// 而不是逐次整包上传。用户手动点击同步、以及进入后台的"最后机会"同步均不受此限制。
+    private static let minAutoSyncInterval: TimeInterval = 30
+
     func scheduleAutoSync() {
         guard autoSyncEnabled, SynologyAPI.shared.isLoggedIn else { return }
         syncDebounceTask?.cancel()
         syncDebounceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 8_000_000_000) // 8秒防抖
             guard !Task.isCancelled else { return }
+
+            if let last = lastSyncDate {
+                let elapsed = Date().timeIntervalSince(last)
+                if elapsed < Self.minAutoSyncInterval {
+                    let remaining = Self.minAutoSyncInterval - elapsed
+                    try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                }
+            }
             _ = await backupToNAS(isManual: false)
         }
     }

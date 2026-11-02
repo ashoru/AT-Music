@@ -16,6 +16,24 @@ struct NetEaseAmbientPalette: Equatable {
         isLight: false
     )
 
+    /// 按封面 URL 缓存提取结果，避免反复横跳同一首歌时重复解码+扫描
+    final class Cache {
+        static let shared = Cache()
+        private var storage: [String: (palette: NetEaseAmbientPalette, dominant: RGBColor?)] = [:]
+        private let lock = NSLock()
+
+        func value(for key: String) -> (palette: NetEaseAmbientPalette, dominant: RGBColor?)? {
+            lock.lock(); defer { lock.unlock() }
+            return storage[key]
+        }
+
+        func store(_ value: (palette: NetEaseAmbientPalette, dominant: RGBColor?), for key: String) {
+            lock.lock(); defer { lock.unlock() }
+            if storage.count > 200 { storage.removeAll() }
+            storage[key] = value
+        }
+    }
+
     static func extract(from image: UIImage) -> NetEaseAmbientPalette {
         let size = 48
         let space = CGColorSpaceCreateDeviceRGB()
@@ -460,6 +478,14 @@ struct ImmersivePlayerView: View {
             return
         }
         let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+        let cacheKey = resolved.absoluteString
+        if let cached = NetEaseAmbientPalette.Cache.shared.value(for: cacheKey) {
+            withAnimation(.easeInOut(duration: 0.55)) {
+                palette = cached.palette
+                coverDominantColor = cached.dominant
+            }
+            return
+        }
         do {
             let image: UIImage?
             if resolved.isFileURL {
@@ -474,6 +500,7 @@ struct ImmersivePlayerView: View {
             guard let image else { return }
             let extracted = NetEaseAmbientPalette.extract(from: image)
             let dominant = PaletteExtractor.dominantColor(in: image)
+            NetEaseAmbientPalette.Cache.shared.store((palette: extracted, dominant: dominant), for: cacheKey)
             withAnimation(.easeInOut(duration: 0.55)) {
                 palette = extracted
                 coverDominantColor = dominant

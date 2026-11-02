@@ -10,6 +10,7 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
 
     private var session: WCSession?
     private weak var player: PlayerManager?
+    private var lastSentSnapshotKey: String?
 
     private override init() {
         super.init()
@@ -35,13 +36,27 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
         }
 
         guard let player = player, let song = player.currentSong else {
+            let emptyKey = "empty"
             let emptyContext: [String: Any] = [
                 "isPlaying": false,
                 "hasTrack": false
             ]
-            try? session.updateApplicationContext(emptyContext)
+            if lastSentSnapshotKey != emptyKey {
+                lastSentSnapshotKey = emptyKey
+                try? session.updateApplicationContext(emptyContext)
+            }
             return
         }
+
+        // 仅用于判断"内容是否真的变化"，不含 currentTime 等持续变化的字段，避免高频重复发送
+        let snapshotKey = [
+            song.title, song.artist, song.album,
+            String(max(player.duration, song.duration)),
+            String(player.isPlaying),
+            String(player.volume),
+            song.coverURL?.absoluteString ?? "",
+            song.source.displayName
+        ].joined(separator: "|")
 
         let context: [String: Any] = [
             "hasTrack": true,
@@ -55,6 +70,9 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
             "coverURL": song.coverURL?.absoluteString ?? "",
             "source": song.source.displayName
         ]
+
+        guard snapshotKey != lastSentSnapshotKey else { return }
+        lastSentSnapshotKey = snapshotKey
 
         // 尝试发送即时消息（手表在前台时零延迟生效）
         if session.isReachable {

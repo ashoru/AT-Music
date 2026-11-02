@@ -77,6 +77,7 @@ final class DownloadTaskItem: Identifiable, ObservableObject {
 
     var lastBytesWritten: Int64 = 0
     var lastSpeedUpdate: Date = Date()
+    var lastProgressPublish: Date = .distantPast
     var sessionTask: URLSessionDownloadTask?
     var resumeData: Data?
 
@@ -177,7 +178,9 @@ final class DownloadSessionCoordinator: NSObject, URLSessionDownloadDelegate, @u
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         guard let taskID = downloadTask.taskDescription, let uuid = UUID(uuidString: taskID) else { return }
-        Task { @MainActor [weak self] in
+        // delegateQueue 已经是 OperationQueue.main，这里已在主线程上；用 assumeIsolated 直接同步调用，
+        // 避免 Task{@MainActor} 把高频回调推迟到下一个 runloop 造成额外调度开销。
+        MainActor.assumeIsolated { [weak self] in
             self?.manager?.handleDownloadProgress(id: uuid, written: totalBytesWritten, total: totalBytesExpectedToWrite)
         }
     }
@@ -595,13 +598,19 @@ final class DownloadManager: ObservableObject {
 
     func handleDownloadProgress(id: UUID, written: Int64, total: Int64) {
         guard let task = activeDownloads.first(where: { $0.id == id }) else { return }
-        task.downloadedBytes = written
-        task.totalBytes = total
-        if total > 0 {
-            task.progress = min(1.0, max(0.0, Double(written) / Double(total)))
-        }
 
         let now = Date()
+        let isFinal = total > 0 && written >= total
+        // 进度类 @Published 属性节流到 ~150ms 一次，终态（下载完成/到达总量）始终立即发布，避免卡在 99%。
+        if isFinal || now.timeIntervalSince(task.lastProgressPublish) >= 0.15 {
+            task.downloadedBytes = written
+            task.totalBytes = total
+            if total > 0 {
+                task.progress = min(1.0, max(0.0, Double(written) / Double(total)))
+            }
+            task.lastProgressPublish = now
+        }
+
         let elapsed = now.timeIntervalSince(task.lastSpeedUpdate)
         if elapsed >= 0.5 {
             let delta = written - task.lastBytesWritten

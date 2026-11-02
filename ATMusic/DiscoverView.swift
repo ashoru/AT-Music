@@ -1498,6 +1498,20 @@ struct QQTopListDetailView: View {
     @State private var dragStartIndex: Int? = nil
     @State private var initialSelectedKeysOnDrag: Set<String>? = nil
     @State private var dragTargetSelected = true
+    @State private var filteredTracks: [Song] = []
+
+    private func recomputeFilteredTracks() {
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else {
+            filteredTracks = tracks
+            return
+        }
+        filteredTracks = tracks.filter { song in
+            song.name.lowercased().contains(kw)
+                || song.artists.lowercased().contains(kw)
+                || song.album.lowercased().contains(kw)
+        }
+    }
     @State private var lastDragIndex: Int? = nil
     @State private var showBatchAddToPlaylist = false
 
@@ -1733,6 +1747,8 @@ struct QQTopListDetailView: View {
                 .environmentObject(theme)
         }
         .task { await load() }
+        .onChange(of: tracks) { _ in recomputeFilteredTracks() }
+        .onChange(of: searchText) { _ in recomputeFilteredTracks() }
     }
 
 
@@ -1814,16 +1830,6 @@ struct QQTopListDetailView: View {
         }
     }
 
-    private var filteredTracks: [Song] {
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return tracks }
-        return tracks.filter { song in
-            song.name.lowercased().contains(kw)
-                || song.artists.lowercased().contains(kw)
-                || song.album.lowercased().contains(kw)
-        }
-    }
-
     @MainActor
     private func load() async {
         let cache = DetailSongsCache.shared
@@ -1873,6 +1879,20 @@ struct QQPlaylistSongsSheet: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var filteredTracks: [Song] = []
+
+    private func recomputeFilteredTracks() {
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else {
+            filteredTracks = tracks
+            return
+        }
+        filteredTracks = tracks.filter { song in
+            song.name.lowercased().contains(kw)
+                || song.artists.lowercased().contains(kw)
+                || song.album.lowercased().contains(kw)
+        }
+    }
 
     var body: some View {
         let _ = theme.accent
@@ -1922,6 +1942,8 @@ struct QQPlaylistSongsSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索歌单内歌曲", "Search playlist songs"))
         .task { await load() }
+        .onChange(of: tracks) { _ in recomputeFilteredTracks() }
+        .onChange(of: searchText) { _ in recomputeFilteredTracks() }
     }
 
 
@@ -2001,16 +2023,6 @@ struct QQPlaylistSongsSheet: View {
         }
     }
 
-    private var filteredTracks: [Song] {
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return tracks }
-        return tracks.filter { song in
-            song.name.lowercased().contains(kw)
-                || song.artists.lowercased().contains(kw)
-                || song.album.lowercased().contains(kw)
-        }
-    }
-
     @MainActor
     private func load() async {
         loading = true
@@ -2042,6 +2054,20 @@ struct DailySongsSheet: View {
     @State private var dragTargetSelected = true
     @State private var lastDragIndex: Int? = nil
     @State private var showBatchAddToPlaylist = false
+    @State private var filteredSongs: [Song] = []
+
+    private func recomputeFilteredSongs() {
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else {
+            filteredSongs = songs
+            return
+        }
+        filteredSongs = songs.filter { song in
+            song.name.lowercased().contains(kw)
+                || song.artists.lowercased().contains(kw)
+                || song.album.lowercased().contains(kw)
+        }
+    }
 
     private var selectedSongs: [Song] {
         filteredSongs.filter { selectedSongKeys.contains($0.identityKey) }
@@ -2266,6 +2292,8 @@ struct DailySongsSheet: View {
                 AddToPlaylistSheet(songs: selectedSongs)
                     .environmentObject(theme)
             }
+            .onAppear { recomputeFilteredSongs() }
+            .onChange(of: searchText) { _ in recomputeFilteredSongs() }
     }
 
 
@@ -2353,15 +2381,6 @@ struct DailySongsSheet: View {
         }
     }
 
-    private var filteredSongs: [Song] {
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return songs }
-        return songs.filter { song in
-            song.name.lowercased().contains(kw)
-                || song.artists.lowercased().contains(kw)
-                || song.album.lowercased().contains(kw)
-        }
-    }
 }
 // MARK: - 排行榜详情
 
@@ -2395,6 +2414,20 @@ struct TopListDetailView: View {
     @State private var dragTargetSelected = true
     @State private var lastDragIndex: Int? = nil
     @State private var showBatchAddToPlaylist = false
+    @State private var filteredTracks: [Song] = []
+
+    private func recomputeFilteredTracks() {
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else {
+            filteredTracks = tracks
+            return
+        }
+        filteredTracks = tracks.filter { song in
+            song.name.lowercased().contains(kw)
+                || song.artists.lowercased().contains(kw)
+                || song.album.lowercased().contains(kw)
+        }
+    }
 
     private var selectedSongs: [Song] {
         filteredTracks.filter { selectedSongKeys.contains($0.identityKey) }
@@ -2628,6 +2661,8 @@ struct TopListDetailView: View {
                     .environmentObject(theme)
             }
         .task { await load() }
+        .onChange(of: tracks) { _ in recomputeFilteredTracks() }
+        .onChange(of: searchText) { _ in recomputeFilteredTracks() }
     }
 
 
@@ -2731,16 +2766,6 @@ struct TopListDetailView: View {
         .listRowSeparator(.hidden)
     }
 
-    private var filteredTracks: [Song] {
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return tracks }
-        return tracks.filter { song in
-            song.name.lowercased().contains(kw)
-                || song.artists.lowercased().contains(kw)
-                || song.album.lowercased().contains(kw)
-        }
-    }
-
     @MainActor
     private func load() async {
         let cache = DetailSongsCache.shared
@@ -2790,9 +2815,23 @@ struct KugouTopListDetailView: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var filteredTracks: [Song] = []
 
     init(topList: KugouTopInfo) {
         self.topList = topList
+    }
+
+    private func recomputeFilteredTracks() {
+        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kw.isEmpty else {
+            filteredTracks = tracks
+            return
+        }
+        filteredTracks = tracks.filter { song in
+            song.name.lowercased().contains(kw)
+                || song.artists.lowercased().contains(kw)
+                || song.album.lowercased().contains(kw)
+        }
     }
 
     var body: some View {
@@ -2846,6 +2885,8 @@ struct KugouTopListDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: atmusicLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
+        .onChange(of: tracks) { _ in recomputeFilteredTracks() }
+        .onChange(of: searchText) { _ in recomputeFilteredTracks() }
     }
 
 
@@ -2953,16 +2994,6 @@ struct KugouTopListDetailView: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-    }
-
-    private var filteredTracks: [Song] {
-        let kw = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !kw.isEmpty else { return tracks }
-        return tracks.filter { song in
-            song.name.lowercased().contains(kw)
-                || song.artists.lowercased().contains(kw)
-                || song.album.lowercased().contains(kw)
-        }
     }
 
     @MainActor

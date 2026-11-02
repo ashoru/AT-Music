@@ -57,6 +57,8 @@ struct PlayerView: View {
     @State private var vinylScrollTarget: Int?
     @State private var vinylIsUserScrolling = false
     @State private var vinylLyricsResumeTask: Task<Void, Never>?
+    /// 当前高亮歌词行索引（事件驱动缓存：只在换行时更新，阻断逐行 ForEach 重复二分查找）
+    @State private var activeVinylLyricIndex: Int? = nil
     @AppStorage("atmusic.hideDynamicEffects") private var lowPowerVisualMode = false
     @AppStorage("atmusic.djVisual") private var djVisualEnabled = false
     @AppStorage("atmusic.djVisualIntensity") private var djVisualIntensity = 0.8
@@ -1248,6 +1250,15 @@ struct PlayerView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            activeVinylLyricIndex = computeVinylLyricIndex(for: clock.progress)
+        }
+        .onChange(of: clock.progress) { newProgress in
+            let newIndex = computeVinylLyricIndex(for: newProgress)
+            if newIndex != activeVinylLyricIndex {
+                activeVinylLyricIndex = newIndex
+            }
+        }
         .onDisappear {
             vinylLyricsResumeTask?.cancel()
         }
@@ -1451,15 +1462,15 @@ struct PlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private var vinylCurrentLyricIndex: Int? {
+    private func computeVinylLyricIndex(for progress: Double) -> Int? {
         guard !lyrics.isEmpty else { return nil }
-        let progress = LyricTiming.effectiveProgress(clock.progress, userOffset: activeLyricOffset)
+        let effective = LyricTiming.effectiveProgress(progress, userOffset: activeLyricOffset)
         var low = 0
         var high = lyrics.count - 1
         var answer: Int?
         while low <= high {
             let mid = (low + high) / 2
-            if lyrics[mid].time <= progress {
+            if lyrics[mid].time <= effective {
                 answer = mid
                 low = mid + 1
             } else {
@@ -1467,6 +1478,11 @@ struct PlayerView: View {
             }
         }
         return answer
+    }
+
+    /// 事件驱动缓存：由 .onChange(of: clock.progress) 维护，避免逐行 ForEach 重复二分查找
+    private var vinylCurrentLyricIndex: Int? {
+        activeVinylLyricIndex
     }
 
     private var vinylCurrentVisualIndex: Int? {
@@ -2879,6 +2895,15 @@ struct PlayerView: View {
     private func extractCoverPalette() async {
         guard let url = song?.coverURL else { return }
         let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+        let cacheKey = resolved.absoluteString
+        if let cached = PaletteColorCache.shared.color(for: cacheKey) {
+            await MainActor.run {
+                withAnimation {
+                    dominantColor = cached
+                }
+            }
+            return
+        }
         do {
             let image: UIImage?
             if resolved.isFileURL {
@@ -2897,6 +2922,7 @@ struct PlayerView: View {
             }
             guard let image,
                   let dominant = PaletteExtractor.dominantColor(in: image) else { return }
+            PaletteColorCache.shared.store(dominant, for: cacheKey)
             await MainActor.run {
                 withAnimation {
                     dominantColor = dominant
@@ -3390,46 +3416,42 @@ private struct WaveBar: View {
     let width: CGFloat
     let isPlaying: Bool
 
-    @State private var phase: CGFloat = 0
-
     var body: some View {
-        ZStack(alignment: .leading) {
-            // 辉光底层光晕（已播放段模糊扩散，辉光渐变氛围）
-            WaveShape(phase: phase)
-                .stroke(accent.opacity(0.5), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                .blur(radius: 8)
-                .frame(width: width, height: 16)
-                .frame(width: max(0, width * CGFloat(ratio)), alignment: .leading)
-                .clipped()
-            // 未播放波形（暗色渐变轨道）
-            WaveShape(phase: phase)
-                .stroke(
-                    LinearGradient(colors: [accent.opacity(0.25), track.opacity(0.45), accent.opacity(0.15)],
-                                   startPoint: .leading, endPoint: .trailing),
-                    style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
-                )
-                .frame(width: width, height: 16)
-            // 已播放波形（辉光渐变高亮：白→主色→淡，双阴影辉光）
-            WaveShape(phase: phase)
-                .stroke(
-                    LinearGradient(colors: [.white.opacity(0.95), accent, accent.opacity(0.6)],
-                                   startPoint: .leading, endPoint: .trailing),
-                    style: StrokeStyle(lineWidth: 3.6, lineCap: .round)
-                )
-                .shadow(color: accent.opacity(0.8), radius: 6, y: 1)
-                .shadow(color: accent.opacity(0.45), radius: 14)
-                .frame(width: width, height: 16)
-                .frame(width: max(0, width * CGFloat(ratio)), alignment: .leading)
-                .clipped()
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isPlaying)) { context in
+            let phase: CGFloat = isPlaying
+                ? CGFloat((context.date.timeIntervalSinceReferenceDate / 3).truncatingRemainder(dividingBy: 1))
+                : 0
+            ZStack(alignment: .leading) {
+                // 辉光底层光晕（已播放段模糊扩散，辉光渐变氛围）
+                WaveShape(phase: phase)
+                    .stroke(accent.opacity(0.5), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .blur(radius: 8)
+                    .frame(width: width, height: 16)
+                    .frame(width: max(0, width * CGFloat(ratio)), alignment: .leading)
+                    .clipped()
+                // 未播放波形（暗色渐变轨道）
+                WaveShape(phase: phase)
+                    .stroke(
+                        LinearGradient(colors: [accent.opacity(0.25), track.opacity(0.45), accent.opacity(0.15)],
+                                       startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 2.6, lineCap: .round)
+                    )
+                    .frame(width: width, height: 16)
+                // 已播放波形（辉光渐变高亮：白→主色→淡，双阴影辉光）
+                WaveShape(phase: phase)
+                    .stroke(
+                        LinearGradient(colors: [.white.opacity(0.95), accent, accent.opacity(0.6)],
+                                       startPoint: .leading, endPoint: .trailing),
+                        style: StrokeStyle(lineWidth: 3.6, lineCap: .round)
+                    )
+                    .shadow(color: accent.opacity(0.8), radius: 6, y: 1)
+                    .shadow(color: accent.opacity(0.45), radius: 14)
+                    .frame(width: width, height: 16)
+                    .frame(width: max(0, width * CGFloat(ratio)), alignment: .leading)
+                    .clipped()
+            }
+            .frame(height: 20)
         }
-        .frame(height: 20)
-        .onAppear {
-            if isPlaying, phase == 0 { phase = 1 }
-        }
-        .onChange(of: isPlaying) { playing in
-            phase = playing ? 1 : 0
-        }
-        .animation(isPlaying ? .linear(duration: 3).repeatForever(autoreverses: false) : .default, value: phase)
     }
 }
 
@@ -3437,7 +3459,6 @@ private struct WaveBar: View {
 // MARK: - 歌词（居中显示 + 逐行高亮 + 自动滚动 + 点击跳转）
 
 struct LyricsSection: View {
-    @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var clock: PlaybackClock
     let lyrics: [LyricLine]
     let accent: Color
@@ -3628,6 +3649,9 @@ struct LyricsSection: View {
         }
         .onChange(of: showTranslation) { _ in
             recenterToCurrentLyric()
+        }
+        .onDisappear {
+            resumeScrollTask?.cancel()
         }
     }
 

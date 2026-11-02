@@ -444,6 +444,27 @@ struct SongCell: View {
         DownloadManager.shared.startDownload(song: displayedSong, quality: quality)
     }
 
+    /// 若通知携带的歌曲对象与本行歌曲身份匹配，返回该最新对象；否则返回 nil。
+    private func matchedSong(from note: Notification) -> Song? {
+        guard let updated = note.object as? Song else { return nil }
+        if updated.identityKey == song.identityKey
+            || LocalLibraryStore.isMatchingSong(updated, song)
+            || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
+            return updated
+        }
+        return nil
+    }
+
+    /// 通知未携带歌曲对象时，按来源重新查询最新缓存/本地数据。
+    private func fallbackRefreshedSong(includeLocal: Bool) -> Song? {
+        if song.source == .synology {
+            return SynologyAPI.shared.cachedSong(for: song)
+        } else if includeLocal && song.source == .local {
+            return LocalLibraryStore.shared.localSong(for: song.identityKey)
+        }
+        return nil
+    }
+
     private func handleRowTap() {
         ATMusicHaptics.tap()
         if let onTap {
@@ -534,57 +555,29 @@ struct SongCell: View {
             }
         }
         .onAppear {
-            if overrideSong == nil {
-                if song.source == .synology {
-                    if let matched = SynologyAPI.shared.cachedSong(for: song) {
-                        overrideSong = matched
-                    }
-                } else if song.source == .local {
-                    if let matched = LocalLibraryStore.shared.localSong(for: song.identityKey) {
-                        overrideSong = matched
-                    }
-                }
+            if overrideSong == nil, let refreshed = fallbackRefreshedSong(includeLocal: true) {
+                overrideSong = refreshed
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicSongMetadataDidUpdate)) { note in
-            if let updated = note.object as? Song {
-                if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
-                    overrideSong = updated
-                }
-            } else if song.source == .synology {
-                if let matched = SynologyAPI.shared.cachedSong(for: song) {
-                    overrideSong = matched
-                }
-            } else if song.source == .local {
-                if let matched = LocalLibraryStore.shared.localSong(for: song.identityKey) {
-                    overrideSong = matched
-                }
+            if let matched = matchedSong(from: note) {
+                overrideSong = matched
+            } else if let refreshed = fallbackRefreshedSong(includeLocal: true) {
+                overrideSong = refreshed
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicSynologyMetadataDidUpdate)) { note in
-            if let updated = note.object as? Song {
-                if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
-                    overrideSong = updated
-                }
-            } else if song.source == .synology {
-                if let matched = SynologyAPI.shared.cachedSong(for: song) {
-                    overrideSong = matched
-                }
+            if let matched = matchedSong(from: note) {
+                overrideSong = matched
+            } else if let refreshed = fallbackRefreshedSong(includeLocal: false) {
+                overrideSong = refreshed
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .atmusicCoverDidUpdate)) { note in
-            if let updated = note.object as? Song {
-                if updated.identityKey == song.identityKey || LocalLibraryStore.isMatchingSong(updated, song) || (updated.source == song.source && updated.id == song.id && updated.id != 0) {
-                    overrideSong = updated
-                }
-            } else if song.source == .synology {
-                if let matched = SynologyAPI.shared.cachedSong(for: song) {
-                    overrideSong = matched
-                }
-            } else if song.source == .local {
-                if let matched = LocalLibraryStore.shared.localSong(for: song.identityKey) {
-                    overrideSong = matched
-                }
+            if let matched = matchedSong(from: note) {
+                overrideSong = matched
+            } else if let refreshed = fallbackRefreshedSong(includeLocal: true) {
+                overrideSong = refreshed
             }
         }
         .onChange(of: song) { _ in

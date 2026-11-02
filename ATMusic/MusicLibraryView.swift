@@ -1622,18 +1622,19 @@ struct LocalMusicBrowserView: View {
     @State private var importing = false
     @State private var importMessage = ""
 
-    private var albums: [(name: String, artist: String, coverURL: URL?, songs: [Song])] {
+    @State private var albums: [(name: String, artist: String, coverURL: URL?, songs: [Song])] = []
+    @State private var artists: [(name: String, coverURL: URL?, songs: [Song])] = []
+
+    private func recomputeLibraryGroups() {
         let grouped = Dictionary(grouping: store.importedSongs) { song in
             let album = song.album.trimmingCharacters(in: .whitespacesAndNewlines)
             return album.isEmpty ? "未知专辑" : album
         }
-        return grouped.map { name, songs in
+        albums = grouped.map { name, songs in
             (name, songs.first?.artists ?? "", songs.first?.coverURL, songs)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
 
-    private var artists: [(name: String, coverURL: URL?, songs: [Song])] {
         var map: [String: [Song]] = [:]
         for song in store.importedSongs {
             let names = song.artists
@@ -1644,7 +1645,7 @@ struct LocalMusicBrowserView: View {
                 map[name, default: []].append(song)
             }
         }
-        return map.map { name, songs in (name, songs.first?.coverURL, songs) }
+        artists = map.map { name, songs in (name, songs.first?.coverURL, songs) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -1778,6 +1779,8 @@ struct LocalMusicBrowserView: View {
             }
             Button("取消", role: .cancel) {}
         }
+        .onAppear { recomputeLibraryGroups() }
+        .onChange(of: store.importedSongs) { _ in recomputeLibraryGroups() }
     }
 
     private func importFiles(_ urls: [URL]) {
@@ -1835,14 +1838,18 @@ struct LocalFileCollectionView: View {
     @EnvironmentObject private var player: PlayerManager
     let songs: [Song]
     @State private var query = ""
+    @State private var displayedSongs: [Song] = []
 
-    private var displayedSongs: [Song] {
+    private func recomputeDisplayedSongs() {
         let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let sorted = songs.sorted {
             originalFilename(for: $0).localizedStandardCompare(originalFilename(for: $1)) == .orderedAscending
         }
-        guard !keyword.isEmpty else { return sorted }
-        return sorted.filter { song in
+        guard !keyword.isEmpty else {
+            displayedSongs = sorted
+            return
+        }
+        displayedSongs = sorted.filter { song in
             originalFilename(for: song).lowercased().contains(keyword)
                 || song.name.lowercased().contains(keyword)
                 || song.artists.lowercased().contains(keyword)
@@ -1913,6 +1920,8 @@ struct LocalFileCollectionView: View {
         .navigationTitle("文件")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "搜索本地文件")
+        .onAppear { recomputeDisplayedSongs() }
+        .onChange(of: query) { _ in recomputeDisplayedSongs() }
     }
 
     private func originalFilename(for song: Song) -> String {
@@ -1989,7 +1998,7 @@ struct LocalAlbumCollectionView: View {
 
     var body: some View {
         List {
-            ForEach(Array(albums.enumerated()), id: \.offset) { _, album in
+            ForEach(albums, id: \.name) { album in
                 NavigationLink {
                     LocalSongCollectionView(title: album.name, songs: album.songs)
                 } label: {
@@ -2016,7 +2025,7 @@ struct LocalArtistCollectionView: View {
 
     var body: some View {
         List {
-            ForEach(Array(artists.enumerated()), id: \.offset) { _, artist in
+            ForEach(artists, id: \.name) { artist in
                 NavigationLink {
                     LocalSongCollectionView(title: artist.name, songs: artist.songs)
                 } label: {

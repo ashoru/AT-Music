@@ -119,6 +119,25 @@ struct CoverPalette {
     }
 }
 
+// MARK: - 主色提取结果缓存（按封面 URL 复用，避免同一封面重复解码+扫描）
+
+final class PaletteColorCache {
+    static let shared = PaletteColorCache()
+    private var storage: [String: RGBColor] = [:]
+    private let lock = NSLock()
+
+    func color(for key: String) -> RGBColor? {
+        lock.lock(); defer { lock.unlock() }
+        return storage[key]
+    }
+
+    func store(_ color: RGBColor, for key: String) {
+        lock.lock(); defer { lock.unlock() }
+        if storage.count > 200 { storage.removeAll() }
+        storage[key] = color
+    }
+}
+
 // MARK: - 主色提取器（缩略图色相聚类，纯 CPU 极快）
 
 enum PaletteExtractor {

@@ -146,8 +146,8 @@ final class ATMusicEqualizer: ObservableObject {
         selectedCustomPresetName = nil
         configurationLock.lock()
         processingGains = updatedGains
-        rebuildCoefficientsLocked(using: updatedGains)
         configurationLock.unlock()
+        updateCoefficients(using: updatedGains)
         schedulePersist()
         notifySettingsChanged()
     }
@@ -175,8 +175,8 @@ final class ATMusicEqualizer: ObservableObject {
         configurationLock.lock()
         processingGains = normalized
         processingPreampLinear = 1
-        rebuildCoefficientsLocked(using: normalized)
         configurationLock.unlock()
+        updateCoefficients(using: normalized)
         persistNow()
         notifySettingsChanged()
     }
@@ -191,8 +191,8 @@ final class ATMusicEqualizer: ObservableObject {
         configurationLock.lock()
         processingGains = normalized
         processingPreampLinear = Self.linearGain(for: normalizedPreamp)
-        rebuildCoefficientsLocked(using: normalized)
         configurationLock.unlock()
+        updateCoefficients(using: normalized)
         persistNow()
         notifySettingsChanged()
     }
@@ -331,6 +331,25 @@ final class ATMusicEqualizer: ObservableObject {
         coefficients = zip(Self.bandFrequencies, Self.normalizedGains(gains)).map { frequency, gain in
             BiquadCoefficients.peaking(frequency: frequency, gain: gain, sampleRate: sampleRate)
         }
+    }
+
+    /// Computes the new coefficient array outside the lock (the expensive part),
+    /// then swaps the whole array in under a brief lock so the audio render
+    /// callback in `process(bufferList:frameCount:)` never observes a
+    /// partially-updated set of coefficients.
+    private func updateCoefficients(using gains: [Double]) {
+        configurationLock.lock()
+        let currentSampleRate = sampleRate
+        configurationLock.unlock()
+
+        let normalizedGains = Self.normalizedGains(gains)
+        let newCoefficients = zip(Self.bandFrequencies, normalizedGains).map { frequency, gain in
+            BiquadCoefficients.peaking(frequency: frequency, gain: gain, sampleRate: currentSampleRate)
+        }
+
+        configurationLock.lock()
+        coefficients = newCoefficients
+        configurationLock.unlock()
     }
 
     fileprivate func prepare(with format: AudioStreamBasicDescription) {
