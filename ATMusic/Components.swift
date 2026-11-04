@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import CryptoKit
 import CoreImage.CIFilterBuiltins
 
 // MARK: - 工具
@@ -791,6 +792,135 @@ enum ATMusicRemoteCoverCache {
     }
 }
 
+/// 远程封面的磁盘缓存：弥补 `ATMusicRemoteCoverCache` 只有内存的缺口。
+///
+/// 设计要点（对应 1.9.47 build 147 核查出的问题）：
+/// - 只存下载回来的原图数据，不存按尺寸下采样后的图：列表小图、歌单头图、播放器大图
+///   共用同一份原图，各自按需下采样，不会互相污染尺寸。
+/// - 键是“稳定键”，不是原始 URL：NAS `cover.cgi` 的 `_sid`、缓存破坏参数与内外网主机
+///   都不进键，换会话、换内外网不会让整单缓存失效；平台封面沿用 `URL.coverIdentity`
+///   已有的临时参数过滤规则。
+/// - 本地文件封面不进这层缓存：它们本身就在磁盘上，文件路径已经直接读源文件，再拷一份纯属浪费。
+/// - 换封面立即生效靠调用方已有的强制重载：`ATMusicCoverImageLoader.load(force: true)`
+///   会先删掉该稳定键对应的磁盘文件，再走网络拿新图、重新落盘；旧图绝不会被
+///   当成新图读出来。已下载歌曲的本地 Artwork 文件不在此目录，清封面缓存不会删用户文件。
+enum ATMusicDiskCoverCache {
+    /// 磁盘上限 300 MB：平台封面单张通常几十 KB，300 MB 可容纳数千张，远大于
+    /// 内存缓存的 200 张上限，又不至于和 2 GB 默认音频缓存抢空间。
+    static let limitBytes: Int64 = 300 * 1024 * 1024
+
+    private static let fm = FileManager.default
+
+    static var directory: URL {
+        let dir = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ATMusicCoverCache", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 某条封面 URL 对应的稳定键；本地文件返回 nil（不进磁盘缓存）。
+    static func stableKey(for url: URL) -> String? {
+        if url.isFileURL { return nil }
+        let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
+        if resolved.isFileURL { return nil }
+
+        // NAS：只认“哪个封面”，不认“哪次会话、哪台主机”。
+        // cover.cgi?method=getsongcover&id=… 或 method=getcover&album_name=…&artist_name=…
+        // _sid、_atmusic_refresh、内外网主机/端口变化时，键保持不变。
+        if resolved.path.contains("cover.cgi"),
+           let comp = URLComponents(url: resolved, resolvingAgainstBaseURL: false) {
+            let items = comp.queryItems ?? []
+            let value = { (name: String) in items.first(where: { $0.name == name })?.value ?? "" }
+            let method = value("method")
+            let songId = value("id")
+            if !method.isEmpty, !songId.isEmpty {
+                return "nas:\(method):\(songId)"
+            }
+            let album = value("album_name")
+            let artist = value("artist_name")
+            if !album.isEmpty || !artist.isEmpty {
+                return "nas:\(method):album:\(album)|\(artist)"
+            }
+            // 兜底：去掉主机与临时参数，只留路径 + 其余查询（已排序，避免参数顺序影响键）。
+            let rest = items
+                .filter { !["_sid", "_atmusic_refresh", "_atmusic_verify", "_", "t"].contains($0.name) }
+                .sorted { $0.name < $1.name }
+                .map { "\($0.name)=\($0.value ?? "")" }
+                .joined(separator: "&")
+            return "nas:\(resolved.path)?\(rest)"
+        }
+
+        // 平台封面：coverIdentity 已过滤 _sid、_atmusic_refresh 等临时参数。
+        return resolved.coverIdentity
+    }
+
+    private static func fileURL(for url: URL) -> URL? {
+        guard let key = stableKey(for: url) else { return nil }
+        let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent("\(hash).cover")
+    }
+
+    /// 读磁盘原图数据；命中时顺手刷新修改时间，供超限清理按“最近使用”淘汰。
+    static func data(for url: URL) -> Data? {
+        guard let file = fileURL(for: url), fm.fileExists(atPath: file.path) else { return nil }
+        guard let data = try? Data(contentsOf: file), !data.isEmpty else {
+            try? fm.removeItem(at: file)
+            return nil
+        }
+        try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+        return data
+    }
+
+    static func store(_ data: Data, for url: URL) {
+        guard !data.isEmpty, let file = fileURL(for: url) else { return }
+        try? data.write(to: file, options: .atomic)
+        trimIfNeeded()
+    }
+
+    static func remove(for url: URL?) {
+        guard let url, let file = fileURL(for: url) else { return }
+        try? fm.removeItem(at: file)
+    }
+
+    static func removeAll() {
+        let dir = directory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for file in files { try? fm.removeItem(at: file) }
+    }
+
+    static func usageBytes() -> Int64 {
+        let dir = directory
+        guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else { return 0 }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    /// 超过上限时按修改时间从旧到新删，直到回到上限 90%，避免每次写入都触发清理。
+    private static func trimIfNeeded() {
+        let dir = directory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { return }
+        var entries: [(url: URL, size: Int64, date: Date)] = []
+        var total: Int64 = 0
+        for file in files {
+            guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let size = values.fileSize else { continue }
+            total += Int64(size)
+            entries.append((file, Int64(size), values.contentModificationDate ?? .distantPast))
+        }
+        guard total > limitBytes else { return }
+        let target = limitBytes * 9 / 10
+        for entry in entries.sorted(by: { $0.date < $1.date }) {
+            if total <= target { break }
+            if (try? fm.removeItem(at: entry.url)) != nil { total -= entry.size }
+        }
+    }
+}
+
 extension URL {
     var coverIdentity: String {
         let resolved = ManagedAudioPath.resolveFileURL(self) ?? self
@@ -835,6 +965,11 @@ final class ATMusicCoverImageLoader: ObservableObject {
         if force {
             ATMusicRemoteCoverCache.remove(for: resolvedURL)
             ATMusicRemoteCoverCache.remove(for: url)
+            // 换封面立即生效的关键：稳定键对应的磁盘旧图也必须删，否则强制重载
+            // 会先命中磁盘旧图，新图永远读不出来。NAS 的 _sid/内外网主机变化不影响
+            // 这个键，所以这里删的正是编辑前那张图的磁盘文件。
+            ATMusicDiskCoverCache.remove(for: resolvedURL)
+            ATMusicDiskCoverCache.remove(for: url)
             if resolvedURL.isFileURL {
                 ATMusicImageFileCache.remove(resolvedURL.path)
             }
@@ -858,6 +993,31 @@ final class ATMusicCoverImageLoader: ObservableObject {
             if let cached = ATMusicRemoteCoverCache.image(for: url) {
                 loadedURL = resolvedURL
                 image = cached
+                isLoading = false
+                loadFailed = false
+                return
+            }
+        }
+
+        // 内存未命中时先读磁盘：跨启动后这里是唯一不走网络的路径。
+        // 本地文件封面不进磁盘缓存，上面文件分支已处理，这里只针对远程封面。
+        if !force, !resolvedURL.isFileURL {
+            let diskDecoded: UIImage? = await Task.detached(priority: .utility) {
+                guard let diskData = ATMusicDiskCoverCache.data(for: resolvedURL)
+                    ?? ATMusicDiskCoverCache.data(for: url) else { return nil }
+                if let downsampled = ImageDownsampler.downsample(data: diskData, maxPixelSize: targetPixelSize) {
+                    return downsampled
+                }
+                return UIImage(data: diskData)?.preparingForDisplay()
+            }.value
+            guard !Task.isCancelled, currentTargetURL == url else {
+                isLoading = false
+                return
+            }
+            if let diskDecoded {
+                loadedURL = resolvedURL
+                ATMusicRemoteCoverCache.store(diskDecoded, for: resolvedURL)
+                image = diskDecoded
                 isLoading = false
                 loadFailed = false
                 return
@@ -933,6 +1093,11 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 scheduleAutoRetryIfNeeded(for: url)
                 return
             }
+            // 网络拿到原图数据先落盘（存原图，各尺寸各自下采样），再进内存缓存。
+            // 即使这次是从系统 URLCache 命中返回的，落盘后下次也不再依赖它。
+            await Task.detached(priority: .utility) {
+                ATMusicDiskCoverCache.store(data, for: resolvedURL)
+            }.value
             loadedURL = resolvedURL
             ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
             image = decoded

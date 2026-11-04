@@ -424,6 +424,9 @@ final class DownloadManager: ObservableObject {
                 if let data = try? Data(contentsOf: resolved), !data.isEmpty {
                     return data
                 }
+            } else if let diskData = ATMusicDiskCoverCache.data(for: resolved), !diskData.isEmpty {
+                // 列表已落盘的封面直接复用，下载时不再为同一张图多发一次网络请求。
+                return diskData
             } else {
                 var req = URLRequest(url: resolved)
                 req.timeoutInterval = 15
@@ -442,6 +445,8 @@ final class DownloadManager: ObservableObject {
                 if let data = try? Data(contentsOf: resolved), !data.isEmpty {
                     return data
                 }
+            } else if let diskData = ATMusicDiskCoverCache.data(for: resolved), !diskData.isEmpty {
+                return diskData
             } else {
                 var req = URLRequest(url: resolved)
                 req.timeoutInterval = 15

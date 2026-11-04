@@ -2910,6 +2910,10 @@ struct PlayerView: View {
                 image = UIImage(contentsOfFile: resolved.path)
             } else if let cached = ATMusicRemoteCoverCache.image(for: resolved) {
                 image = cached
+            } else if let diskData = ATMusicDiskCoverCache.data(for: resolved),
+                      let diskImage = UIImage(data: diskData) {
+                // 播放器大封面已落盘时，取色不再为同一首歌多发一次网络请求。
+                image = diskImage
             } else {
                 var req = URLRequest(url: resolved)
                 req.timeoutInterval = 6

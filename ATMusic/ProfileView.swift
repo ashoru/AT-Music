@@ -826,15 +826,9 @@ struct ProfileView: View {
                     .foregroundStyle(statsRankColor(rank))
                     .frame(width: 18)
 
-                AsyncImage(url: song.coverURL) { phase in
-                    if case .success(let img) = phase {
-                        img.resizable().scaledToFill()
-                    } else {
-                        Color.atmusicGlassFill
-                    }
-                }
-                .frame(width: 36, height: 36)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                // 原来这里是 AsyncImage，不走封面内存/磁盘缓存；改成统一 CoverImage，
+                // 常听 Top 歌曲也享受磁盘封面缓存，换封面时同样走强制重载。
+                CoverImage(url: song.coverURL, size: 36, cornerRadius: 8)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.name)
@@ -1337,6 +1331,7 @@ struct SettingsView: View {
     @AppStorage(MusicCacheManager.prefetchEnabledKey) private var prefetchNextSong = true
     @AppStorage(MusicCacheManager.limitMBKey) private var musicCacheLimitMB = MusicCacheManager.defaultLimitMB
     @ObservedObject private var musicCache = MusicCacheManager.shared
+    @ObservedObject private var cacheCoordinator = ATMusicCacheCoordinator.shared
     @AppStorage("atmusic.download.wifiOnly") private var downloadWifiOnly = true
     @AppStorage("atmusic.download.lanConcurrency") private var lanConcurrency = 5
     @AppStorage("atmusic.download.wanConcurrency") private var wanConcurrency = 2
@@ -1545,6 +1540,50 @@ struct SettingsView: View {
                 .font(ATMusicFont.appFont(13, .semibold))
             }
             .disabled(musicCache.usageBytes == 0)
+
+            // 下面两键与上面“清除音乐缓存”（歌曲音频）并列：封面、歌词各清各的，
+            // 不会因为清封面就把已缓存的歌或歌词一起清掉。清封面只清
+            // Caches/ATMusicCoverCache 与内存封面，不动已下载歌曲的本地 Artwork 文件。
+            Button(role: .destructive) {
+                cacheCoordinator.clearImageCache()
+                ToastCenter.shared.show(atmusicLocalized("已清除封面缓存", "Cleared cover cache"))
+                ATMusicHaptics.tap()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                    Text(atmusicLocalized("清除封面缓存", "Clear cover cache"))
+                    Spacer()
+                    if cacheCoordinator.imageUsageBytes > 0 {
+                        Text(ByteCountFormatter.string(fromByteCount: cacheCoordinator.imageUsageBytes, countStyle: .file))
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                }
+                .font(ATMusicFont.appFont(13, .semibold))
+            }
+            .disabled(cacheCoordinator.imageUsageBytes == 0)
+
+            Button(role: .destructive) {
+                let count = cacheCoordinator.clearLyricCache()
+                ToastCenter.shared.show(atmusicLocalized("已清空 \(count) 个歌词缓存文件", "Cleared \(count) lyric cache files"))
+                ATMusicHaptics.tap()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                    Text(atmusicLocalized("清除歌词缓存", "Clear lyric cache"))
+                    Spacer()
+                    if cacheCoordinator.lyricUsageBytes > 0 {
+                        Text(ByteCountFormatter.string(fromByteCount: cacheCoordinator.lyricUsageBytes, countStyle: .file))
+                            .font(ATMusicFont.appFont(11))
+                            .foregroundStyle(Color.atmusicComment)
+                    }
+                }
+                .font(ATMusicFont.appFont(13, .semibold))
+            }
+            .disabled(cacheCoordinator.lyricUsageBytes == 0)
+        }
+        .onAppear {
+            cacheCoordinator.refreshAll()
         }
     }
 

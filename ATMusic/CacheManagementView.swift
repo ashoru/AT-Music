@@ -67,6 +67,8 @@ final class ATMusicCacheCoordinator: ObservableObject {
 
     func refreshImage() {
         var bytes = Int64(URLCache.shared.currentDiskUsage)
+        // 新磁盘封面缓存（ATMusicCoverCache）计入封面占用，清封面时一并清理。
+        bytes += ATMusicDiskCoverCache.usageBytes()
         // 扫描应用 Caches 下可能存在的其它图片临时目录
         let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let candidateDirs = ["ImageCache", "ATMusicImageCache", "fsCachedData"]
@@ -81,6 +83,10 @@ final class ATMusicCacheCoordinator: ObservableObject {
 
     func clearImageCache() {
         URLCache.shared.removeAllCachedResponses()
+        // 内存 + 磁盘封面缓存一起清，只清 Caches/ATMusicCoverCache，不动已下载歌曲
+        // 的本地 Artwork 文件（在 Documents/ATMusicAudio 下，用户文件不受影响）。
+        ATMusicRemoteCoverCache.removeAll()
+        ATMusicDiskCoverCache.removeAll()
         let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let candidateDirs = ["ImageCache", "ATMusicImageCache"]
         for sub in candidateDirs {
