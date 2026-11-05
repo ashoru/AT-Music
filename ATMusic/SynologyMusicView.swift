@@ -1509,6 +1509,7 @@ struct SynologyPlaylistCollectionView: View {
                 coverURL: previewSongs[playlistID]?.coverURL ?? playlist.coverURL,
                 title: playlist.name,
                 subtitle: "\(playlist.trackCount) 首",
+                showsChevron: false,
                 systemImage: "music.note.list"
             )
         }
@@ -1811,6 +1812,7 @@ struct SynologyArtistCollectionView: View {
                         title: artist.name,
                         subtitle: "歌手",
                         circular: true,
+                        showsChevron: false,
                         systemImage: "person.crop.circle"
                     )
                 }
@@ -1839,6 +1841,8 @@ private struct SynologyLibraryRow: View {
     let title: String
     let subtitle: String
     var circular = false
+    /// List 里的 NavigationLink 系统自带一个 >，此时须关掉自绘的 >，否则一行两个箭头。
+    var showsChevron = true
     let systemImage: String
 
     var body: some View {
@@ -1865,9 +1869,11 @@ private struct SynologyLibraryRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.atmusicComment)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.atmusicComment)
+            }
         }
         .frame(minHeight: 64)
         .overlay(alignment: .bottom) {
@@ -2278,6 +2284,7 @@ struct SynologyFolderView: View {
                 coverURL: folderOverviews[item.id]?.previewSong?.coverURL,
                 title: item.name,
                 subtitle: "文件夹",
+                showsChevron: false,
                 systemImage: "folder.fill"
             )
         }

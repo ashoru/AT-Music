@@ -48,6 +48,16 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.47-build-151",
+            version: "1.9.47",
+            title: "修复 NAS 文件夹浏览每行两个箭头",
+            features: [],
+            fixes: [
+                "修复 NAS 文件夹浏览每行出现两个 > 的问题：List 里的 NavigationLink 系统自带一个箭头，行组件又自绘一个，现只在 List + NavigationLink 的行上关掉自绘箭头，只留系统自带的一个",
+                "同类问题一并修复：歌单全部页、常听歌手全部页的行原来也是两个箭头，现已同样只剩一个；专辑、最近添加与音乐库入口页的自绘箭头保留，改完仍各只有一个箭头"
+            ]
+        ),
+        VersionLog(
             id: "1.9.47-build-150",
             version: "1.9.47",
             title: "修复批量改 NAS 封面后内嵌封面被清空",

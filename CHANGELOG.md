@@ -1,5 +1,13 @@
 # AT Music 更新日志
 
+## 1.9.47 build 151
+
+### 修复 NAS 文件夹浏览每行两个箭头
+
+- **根因**：NAS 文件夹浏览页（`SynologyFolderView`）是 SwiftUI `List`，`List` 里的 `NavigationLink` 系统自己会在行尾画一个 `>`；而共用的行组件 `SynologyLibraryRow` 自己又画了一个 `chevron.right`，一行就出现两个 `>`。
+- **修复**：给 `SynologyLibraryRow` 加 `showsChevron` 开关（默认开），只在 `List` + `NavigationLink` 的行上关掉自绘箭头，留系统自带的那一个。
+- **同类问题一并修了**：歌单全部页、常听歌手全部页的行原来也是两个箭头，现已同样只剩一个；专辑/最近添加页用的是 `Button`（系统不画箭头）、音乐库入口页用的是 `VStack`（`NavigationLink` 在 `VStack` 里不画系统箭头），这两处自绘箭头保留，改完仍各只有一个箭头。
+
 ## 1.9.47 build 150
 
 ### 修复批量改 NAS 封面后内嵌封面被清空
