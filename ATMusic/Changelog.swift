@@ -48,6 +48,22 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.47-build-150",
+            version: "1.9.47",
+            title: "修复批量改 NAS 封面后内嵌封面被清空",
+            notices: [
+                "本版只修代码，不含 Taylor Swift DELUXE 专辑 16 首歌的封面恢复（恢复等用户确认后另做）；批量重传后 Audio Station 需几分钟重建索引，期间点播可能报错跳下一首，过一阵恢复正常，文件本身无损坏。"
+            ],
+            features: [
+                "文件夹封面上传前先查目录：文件夹里已有 Cover.jpg 时沿用其原名，不再硬传 cover.jpg 让 DSM 存成冲突文件"
+            ],
+            fixes: [
+                "修复文件夹批量编辑与播放窗口单首改封面后，文件内嵌封面被写成空的问题：物理内嵌成功后不再调 tag_editor.cgi 以 image_from_folder 二次改写文件，DSM 索引与缩略图改由媒体索引器自行刷新",
+                "修复文件夹已有 Cover.jpg 时再传 cover.jpg 被 DSM 存成冲突文件、原图换不掉的问题",
+                "写后真回验：封面写完真读回文件验内嵌封面在不在，验不到直接按失败报错，不再只记日志悄悄当成功"
+            ]
+        ),
+        VersionLog(
             id: "1.9.47-build-149",
             version: "1.9.47",
             title: "封面磁盘缓存、NAS 换封面立即生效与设置页单独清理",

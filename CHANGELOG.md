@@ -1,5 +1,19 @@
 # AT Music 更新日志
 
+## 1.9.47 build 150
+
+### 修复批量改 NAS 封面后内嵌封面被清空
+
+- **根因**：文件夹批量编辑与播放窗口单首改封面都走 `applyMetadata`。物理内嵌本身是好的（写器单测、实测均能完整写入封面），但写完后 App 还要调一次 Audio Station 的 `tag_editor.cgi`，并且传 `coverType=image_from_folder`，DSM 收到后把文件重写一遍，刚写好的内嵌封面就被清成空的 `covr`。2026-11-05 Taylor Swift《The Life of a Showgirl》DELUXE 专辑 16 首 M4A 实测全部中招，内嵌封面 payload 全为 0，Audio Station 只能回落到文件夹旧 Cover.jpg，看起来像“改完又还原了”。
+- **修复**：物理内嵌成功后不再调 `tag_editor.cgi` 二次改写文件（标签、封面、歌词已全在文件里）；只有物理写回失败时才走这条兜底路。DSM 索引与缩略图改由媒体索引器在文件变更后自行刷新。
+- **文件夹封面大小写冲突**：文件夹里已有 `Cover.jpg` 时再传 `cover.jpg`，即使 `overwrite=true`，DSM 也会因大小写冲突另存一份 `cover_DiskStation_*_UploadDBCaseConflict.jpg`，原图根本没换。现在上传前先查目录，沿用已存在封面图的原名；查不到才用 `cover.jpg`。
+- **写后真回验**：封面写完真读回文件，验内嵌封面字节在不在，验不到直接按失败抛错，不再只记一句日志悄悄当作写成功。
+
+### 注意
+- 本版只修代码，不含上述 16 首歌的封面恢复（恢复等用户确认后另做）。
+- 批量重传歌曲后，Audio Station 需几分钟重建索引，期间点播可能报错并跳下一首，过一阵恢复正常，文件本身无损坏（04《Father Figure》已用 afinfo 验过，AAC 44.1kHz、212.7 秒，解析正常）。
+
+
 ## 1.9.47 build 149
 
 > 注意：build 148 属于 NAS 多后端线（另库），群晖 only 线跳过 148，本版直接为 build 149。

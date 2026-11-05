@@ -2012,12 +2012,16 @@ final class SynologyAPI: ObservableObject {
         }
 
         // 4. 引擎二：Audio Station 数据库索引同步（协同通知 DSM 刷新数据库及缩略图）
+        // 2026-11-05 教训：物理内嵌成功时绝不能再调 tag_editor.cgi——它会按 coverType=image_from_folder
+        // 把文件重写一遍，文件里的内嵌封面会被清成空的 covr（Taylor Swift DELUXE 专辑 16 首实测）。
+        // 物理写回已把标签、封面、歌词全写进文件，DSM 的媒体索引器会在文件变更后自行重建索引与缩略图，
+        // 这里不再用 tag_editor.cgi 当“通知”，避免它二次改写文件。只有物理写回失败时才走这条兜底路。
         var previousCoverDigest: String?
-        if coverPath != nil && !skipVerification {
+        if coverPath != nil && !skipVerification && !physicalWriteSucceeded {
             previousCoverDigest = try? await coverDigest(song: song)
         }
 
-        if !patch.isEmpty || coverPath != nil || lyricsWasRequested {
+        if !physicalWriteSucceeded && (!patch.isEmpty || coverPath != nil || lyricsWasRequested) {
             do {
                 var tag = try await tagEditorPayload(path: path, song: song, patch: patch, lyricsOverride: lyrics)
                 if let coverType, let coverPath {
@@ -2049,6 +2053,8 @@ final class SynologyAPI: ObservableObject {
                     throw error
                 }
             }
+        } else if physicalWriteSucceeded {
+            ATMusicLogger.shared.log("ℹ️ [Dual-Engine] 物理写回已落盘，跳过 tag_editor.cgi 二次改写，DSM 索引与缩略图由媒体索引器自行刷新", level: .info)
         }
 
         // 5. 歌词 API 协同与同名 .lrc 侧车文件落盘
@@ -2328,16 +2334,19 @@ final class SynologyAPI: ObservableObject {
         let destinationFolder = rawFolder.hasPrefix("/") ? rawFolder : ("/" + rawFolder)
         // Audio Station 的 coverPath 需与原音频文件的路径前缀风格保持一致
         let audioPrefixFolder = path.hasPrefix("/") ? destinationFolder : (destinationFolder.hasPrefix("/") ? String(destinationFolder.dropFirst()) : destinationFolder)
-        let filename = "cover.jpg"
-        let fullPath = audioPrefixFolder + "/" + filename
-
-        // 如果在当前会话已成功上传过同一目录的封面，直接复用其 NAS 路径，杜绝全专批量写入时重复上传同一张图片导致 NAS 拥堵与超时
+        // 2026-11-05 教训：文件夹里若已有 Cover.jpg（首字母大写），再传 cover.jpg 即使 overwrite=true，
+        // DSM 也会因大小写冲突另存一份 cover_DiskStation_*_UploadDBCaseConflict.jpg，原图根本没换。
+        // 先查目录，沿用已存在的那份封面图原名；查不到或没有才用 cover.jpg。
+        // 如果在当前会话已成功上传过同一目录的封面，直接复用其 NAS 路径，杜绝全专批量写入时重复查目录与上传同一张图片导致 NAS 拥堵与超时
         uploadedCoverLock.lock()
-        if let existing = uploadedCoverFolders[destinationFolder], existing == fullPath {
+        if let existing = uploadedCoverFolders[destinationFolder] {
             uploadedCoverLock.unlock()
-            return fullPath
+            return existing
         }
         uploadedCoverLock.unlock()
+
+        let filename = await existingCoverFileName(in: destinationFolder) ?? "cover.jpg"
+        let fullPath = audioPrefixFolder + "/" + filename
 
         let boundary = "ATMusic-\(UUID().uuidString)"
         var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
@@ -2384,6 +2393,31 @@ final class SynologyAPI: ObservableObject {
         uploadedCoverLock.unlock()
         ATMusicLogger.shared.log("✅ File Station 封面上传成功：\(fullPath)", level: .info)
         return fullPath
+    }
+
+    /// 查某目录下是否已有一份封面图（cover.jpg / Cover.jpg / cover.png 等，不分大小写），返回其原名。
+    /// 查不到或列表失败返回 nil，调用方回落到 cover.jpg。
+    private func existingCoverFileName(in folder: String) async -> String? {
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.List"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "list"),
+            URLQueryItem(name: "folder_path", value: folder),
+            URLQueryItem(name: "filetype", value: "file"),
+            URLQueryItem(name: "limit", value: "1000"),
+            URLQueryItem(name: "offset", value: "0"),
+            URLQueryItem(name: "sort_by", value: "name"),
+            URLQueryItem(name: "sort_direction", value: "asc")
+        ]
+        guard let json = try? await get("/webapi/entry.cgi", query: query),
+              let data = json["data"] as? [String: Any],
+              let files = data["files"] as? [[String: Any]] else { return nil }
+        let coverNames: Set<String> = ["cover.jpg", "cover.jpeg", "cover.png", "folder.jpg"]
+        for file in files {
+            guard let name = Self.stringValue(file["name"]), !name.isEmpty else { continue }
+            if coverNames.contains(name.lowercased()) { return name }
+        }
+        return nil
     }
 
     /// 将本机选图限制到合理尺寸再上传。原图（常见为数 MB 的 HEIC/JPEG）不再阻塞 NAS 写入。

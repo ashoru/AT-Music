@@ -215,12 +215,29 @@ enum AudioTagEmbedder {
         } catch {
             throw AudioTagWriteError.unreadable(error.localizedDescription)
         }
+        // 2026-11-05 教训：写完必须真读回文件验一遍内嵌封面在不在。只看 tags.coverData 非空就报
+        // hasCover=true，会让“写完封面被清空”全程无报错（DELUXE 专辑 16 首实测）。验不到就抛错，
+        // 调用方按失败处理，绝不静默当作写成功。
+        if let cover = tags.coverData, !cover.isEmpty {
+            try Self.verifyEmbeddedCover(coverData: cover, in: rebuilt)
+        }
         return AudioTagWriteReport(
             container: kind.displayName,
             byteCount: rebuilt.count,
             hasCover: (tags.coverData?.isEmpty == false),
             hasLyrics: (tags.lyrics?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         )
+    }
+
+    /// 写后回验：重建后的文件里必须找得到这张封面图的字节（MP4 covr / ID3 APIC / FLAC 图片块
+    /// 都是原样存图，找得到即证明内嵌成功）。找不到说明写器或后续步骤把封面丢了，直接抛错。
+    static func verifyEmbeddedCover(coverData: Data, in rebuilt: Data) throws {
+        let probeLength = min(coverData.count, 65_536)
+        guard probeLength > 0 else { return }
+        let probe = coverData.prefix(probeLength)
+        guard rebuilt.range(of: probe) != nil else {
+            throw AudioTagWriteError.damaged("写入后文件中未找到内嵌封面（可能被后续步骤清空），已按失败处理")
+        }
     }
 
     // MARK: - 归档上传用：写到临时副本
