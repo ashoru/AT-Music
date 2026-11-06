@@ -70,6 +70,9 @@ struct IPadRootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var activeDestination: IPadSidebarDestination = .tab(.discover)
     @State private var showSettingsSheet = false
+    /// 详情重建计数：点侧栏行就 +1，详情用 .id() 重建、回到该页根部
+    ///（正在看的歌单是详情页自己导航栈里推上去的，只换目的地清不掉它）。
+    @State private var detailResetID = 0
 
     private var uiStyle: ATMusicUIStyle {
         uiStyleRaw == "outline" ? .clear : (ATMusicUIStyle(rawValue: uiStyleRaw) ?? .liquid)
@@ -172,6 +175,7 @@ struct IPadRootView: View {
         Button {
             ATMusicHaptics.select()
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                detailResetID += 1
                 activeDestination = destination
                 if case .tab(let tab) = destination {
                     selection = tab
@@ -241,6 +245,7 @@ struct IPadRootView: View {
         Button {
             ATMusicHaptics.select()
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                detailResetID += 1
                 activeDestination = .tab(.profile)
                 selection = .profile
             }
@@ -289,42 +294,27 @@ struct IPadRootView: View {
         .padding(.bottom, 12)
     }
 
-    /// 悬浮胶囊的底：Apple Music 式悬浮毛玻璃（磨砂玻璃），不是实色填充、也不是全清玻璃。
-    /// Apple Music 的胶囊是乳白磨砂的：能透出底下内容的模糊影子、边缘有亮边、下面有柔和投影，
-    /// 四种 UI 风格下都一样。之前按风格切换的做法在紧凑 / 简洁风格下是实色填充、
-    /// 在液态下是全清玻璃，两种都不像磨砂玻璃，所以这里不跟风格走，直接按 Apple Music 的做法写死磨砂底。
+    /// 胶囊的底：与手机迷你播放器完全一致的构造（MiniPlayerView.swift dock）——
+    /// ATMusicGlass + 斜向高光 + 亮边描边；阴影与裁剪照手机的做法放在胶囊外面。
+    /// 之前 iPad 这边自己拼的 thinMaterial + 竖向渐变，透明度和玻璃感都跟手机不一样，
+    /// 所以直接照搬手机那套（形状仍是真胶囊，iPad / Apple Music 的形态）。
     private var capsuleBackground: some View {
-        Capsule()
-            .fill(.thinMaterial)
+        ATMusicGlass(shape: Capsule(), forceLiquid: false)
             .overlay {
-                Capsule().fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(colorScheme == .dark ? 0.10 : 0.28),
-                            Color.white.opacity(colorScheme == .dark ? 0.04 : 0.10)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                LinearGradient(
+                    colors: [.white.opacity(0.25), .clear, .white.opacity(0.05)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
                 )
             }
             .overlay {
                 Capsule().strokeBorder(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(colorScheme == .dark ? 0.35 : 0.55),
-                            Color.white.opacity(colorScheme == .dark ? 0.10 : 0.20)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        colors: [.white.opacity(0.45), .white.opacity(0.08)],
+                        startPoint: .top, endPoint: .bottom
                     ),
-                    lineWidth: 1
+                    lineWidth: 0.8
                 )
             }
-            .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.35 : 0.18),
-                radius: 16, x: 0, y: 8
-            )
     }
 
     // MARK: - 悬浮播放胶囊（对标 Apple Music iPad：全屏底部居中的独立胶囊）
@@ -332,34 +322,48 @@ struct IPadRootView: View {
     /// Apple Music iPad 的迷你播放器是内容区底部居中的独立悬浮胶囊（没在播也显示），
     /// 不贴在侧栏底部、也不只在侧栏折叠时才出现。胶囊排列也是苹果的顺序：
     /// 左边上一首 / 播放 / 下一首，中间封面 + 歌名 / 歌手，右边隔空播放。
-    /// 实测尺寸（Apple Music iPadOS 26 官方图，11 英寸 iPad，逐像素量过）：
-    /// 真胶囊（圆角 = 高度一半）、高约 64、宽约内容区 88%（两侧各留约 32）、下边距约 24。
-    private var floatingPlayerCapsule: some View {
-        Button {
+    /// 封面后的光晕、裁剪与投影都照手机迷你播放器的做法。
+    /// 尺寸分两档（内容区宽 ≥740 为横屏档）：横屏封面 48、播放键 26、按键框 44、
+    /// 胶囊限宽 600，不拉太长、内容不拥挤；竖屏保持 64 高那档。
+    private func floatingPlayerCapsule(isWide: Bool) -> some View {
+        let coverSize: CGFloat = isWide ? 48 : 40
+        let playSize: CGFloat = isWide ? 26 : 20
+        let skipSize: CGFloat = isWide ? 20 : 16
+        let buttonFrame: CGFloat = isWide ? 44 : 38
+        let titleSize: CGFloat = isWide ? 17 : 16
+        let artistSize: CGFloat = isWide ? 14 : 13
+        return Button {
             if player.currentSong != nil {
                 ATMusicHaptics.tap()
                 showPlayer = true
             }
         } label: {
-            HStack(spacing: 10) {
-                HStack(spacing: 2) {
-                    capsuleTransportButton(systemName: "backward.fill", size: 16) { player.previous() }
-                    capsuleTransportButton(systemName: player.isPlaying ? "pause.fill" : "play.fill", size: 20) { player.togglePlayPause() }
-                    capsuleTransportButton(systemName: "forward.fill", size: 16) { player.next() }
+            HStack(spacing: isWide ? 14 : 10) {
+                HStack(spacing: isWide ? 4 : 2) {
+                    capsuleTransportButton(systemName: "backward.fill", size: skipSize, frame: buttonFrame) { player.previous() }
+                    capsuleTransportButton(systemName: player.isPlaying ? "pause.fill" : "play.fill", size: playSize, frame: buttonFrame) { player.togglePlayPause() }
+                    capsuleTransportButton(systemName: "forward.fill", size: skipSize, frame: buttonFrame) { player.next() }
                 }
                 .disabled(player.currentSong == nil)
                 .opacity(player.currentSong == nil ? 0.35 : 1)
 
                 if let song = player.currentSong {
-                    CoverImage(url: song.coverURL, size: 40, cornerRadius: 8)
-                        .frame(width: 40, height: 40)
+                    ZStack {
+                        Circle()
+                            .fill(theme.accent.highlight.opacity(0.32))
+                            .frame(width: coverSize + 6, height: coverSize + 6)
+                            .blur(radius: 9)
+                        CoverImage(url: song.coverURL, size: coverSize, cornerRadius: 8)
+                            .frame(width: coverSize, height: coverSize)
+                    }
+                    .frame(width: coverSize + 6, height: coverSize + 6)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title)
-                            .font(ATMusicFont.appFont(16, .semibold))
+                            .font(ATMusicFont.appFont(titleSize, .semibold))
                             .foregroundStyle(Color.atmusicLabel)
                             .lineLimit(1)
                         Text(song.artist)
-                            .font(ATMusicFont.appFont(13))
+                            .font(ATMusicFont.appFont(artistSize))
                             .foregroundStyle(Color.atmusicComment)
                             .lineLimit(1)
                     }
@@ -371,9 +375,9 @@ struct IPadRootView: View {
                             .font(.system(size: 17))
                             .foregroundStyle(Color.atmusicComment)
                     }
-                    .frame(width: 40, height: 40)
+                    .frame(width: coverSize + 6, height: coverSize + 6)
                     Text("未在播放")
-                        .font(ATMusicFont.appFont(16, .semibold))
+                        .font(ATMusicFont.appFont(titleSize, .semibold))
                         .foregroundStyle(Color.atmusicComment)
                         .lineLimit(1)
                 }
@@ -386,17 +390,19 @@ struct IPadRootView: View {
                 )
                 .frame(width: 32, height: 32)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 10)
+            .padding(.leading, isWide ? 20 : 14)
+            .padding(.trailing, isWide ? 16 : 10)
             .padding(.vertical, 12)
             .background { capsuleBackground }
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.16), radius: 12, y: 6)
             .contentShape(Capsule())
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
         .iPadTransitionSource(in: nowPlayingTransition)
     }
 
-    private func capsuleTransportButton(systemName: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+    private func capsuleTransportButton(systemName: String, size: CGFloat, frame: CGFloat, action: @escaping () -> Void) -> some View {
         Button {
             ATMusicHaptics.tap()
             action()
@@ -404,7 +410,7 @@ struct IPadRootView: View {
             Image(systemName: systemName)
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(Color.atmusicLabel)
-                .frame(width: 38, height: 38)
+                .frame(width: frame, height: frame)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -414,20 +420,27 @@ struct IPadRootView: View {
 
     @ViewBuilder
     private var detailHostContent: some View {
-        ZStack(alignment: .bottom) {
-            detailMainView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // 注意：这里不能再给内容留底部空带——详情页自己的滚动内容
-                // 已有 120~190 的底部留白（主页 190），最后一行不会被胶囊盖住；
-                // 容器再缩 100 会把背景（GlassBackdrop）也截断，底部露出一截
-                // 系统白底，胶囊浮在白条上、磨砂效果全看不见（158 版教训）。
-                // 内容与背景都要伸到底、压到胶囊下面，磨砂才能透出底下的模糊影子。
+        GeometryReader { proxy in
+            // 横屏内容区宽（约 894）与竖屏（约 534）用 740 分界。
+            let isWide = proxy.size.width >= 740
+            ZStack(alignment: .bottom) {
+                detailMainView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // 注意：这里不能再给内容留底部空带——详情页自己的滚动内容
+                    // 已有 120~190 的底部留白（主页 190），最后一行不会被胶囊盖住；
+                    // 容器再缩 100 会把背景（GlassBackdrop）也截断，底部露出一截
+                    // 系统白底，胶囊浮在白条上、磨砂效果全看不见（158 版教训）。
+                    // 内容与背景都要伸到底、压到胶囊下面，磨砂才能透出底下的模糊影子。
+                    .id(detailResetID)
 
-            // 悬浮播放胶囊：横屏全屏、1/2 分屏、1/3 分屏、侧栏折叠，全部在内容区底部居中常驻
-            //（对标 Apple Music：宽约内容区 88%，两侧各留约 32；没在播时显示“未在播放”，也不消失）。
-            floatingPlayerCapsule
-                .padding(.horizontal, 32)
-                .padding(.bottom, 24)
+                // 悬浮播放胶囊：横屏全屏、1/2 分屏、1/3 分屏、侧栏折叠，全部在内容区底部居中常驻
+                //（对标 Apple Music：竖屏宽约内容区 88%，两侧各留约 32；横屏限宽 600，不拉太长；
+                // 没在播时显示“未在播放”，也不消失；胶囊在详情 ZStack 最上层，所有页面都有）。
+                floatingPlayerCapsule(isWide: isWide)
+                    .frame(maxWidth: isWide ? 600 : .infinity)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
+            }
         }
     }
 

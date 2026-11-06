@@ -48,6 +48,19 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.47-build-159",
+            version: "1.9.47",
+            title: "iPad 播放胶囊：外观与手机一致，横屏放大，侧栏切页修好",
+            features: [
+                "iPad 播放胶囊外观与手机迷你播放器完全一致（ATMusicGlass + 斜向高光 + 亮边 + 投影）",
+                "横屏胶囊放大：封面 48、播放键 26、按键框 44，限宽 600 不拉太长"
+            ],
+            fixes: [
+                "修复从歌单里点侧栏行没反应：点侧栏行现在重建详情、回到该页根部",
+                "播放胶囊在所有页面都有（详情层最上层），浅色背景上也看得见"
+            ]
+        ),
+        VersionLog(
             id: "1.9.47-build-158",
             version: "1.9.47",
             title: "iPad 播放胶囊：磨砂效果终于能看见了",
