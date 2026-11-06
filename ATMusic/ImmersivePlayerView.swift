@@ -613,7 +613,7 @@ struct ImmersivePlayerView: View {
     // MARK: - 封面模式：全宽 1:1 封面（定版双向柔和消融）
     private func fullWidthCover(width: CGFloat) -> some View {
         CoverImage(
-            url: song?.coverURL,
+            url: player.playerCoverURL(for: song),
             size: width,
             cornerRadius: 0,
             width: width,

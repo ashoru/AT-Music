@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import UIKit
+import AVFoundation
 
 struct SynologyFolderItem: Identifiable, Hashable, Codable {
     enum Kind: String, Hashable, Codable {
@@ -2563,6 +2564,66 @@ final class SynologyAPI: ObservableObject {
         }
 
         return data
+    }
+
+    /// 只取正在播的一首 NAS 歌的文件头（前 2MB），提取文件内嵌封面原图。
+    ///
+    /// 用途：cover.cgi（Audio Station）给的只是 DSM 预生成的 480px 缩略图，
+    /// 文件内嵌图更大（实测 Midnights《Anti-Hero》内嵌 600px，cover.cgi 只有 480px），
+    /// 播放器大封面直接读内嵌图更清晰。MP3/FLAC 的封面在文件头，M4A 的 covr 在 moov 里，
+    /// 本库文件 moov 在文件头，2MB 足够。只给当前播放歌曲调一次，列表绝不能调。
+    /// 读法：FileStation 下载 + Range + AsyncBytes，2MB 处主动截断，服务器不认 Range
+    /// 也不会整文件下下来；取不到（moov 在文件尾、无内嵌图）返回 nil，调用方回落 cover.cgi。
+    func embeddedCoverData(for song: Song) async -> Data? {
+        guard song.source == .synology,
+              let path = song.synologyPath, !path.isEmpty,
+              !sid.isEmpty else { return nil }
+        var components = URLComponents(string: baseURL + "/webapi/entry.cgi")
+        components?.queryItems = [
+            URLQueryItem(name: "api", value: "SYNO.FileStation.Download"),
+            URLQueryItem(name: "version", value: "2"),
+            URLQueryItem(name: "method", value: "download"),
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "mode", value: "download"),
+            URLQueryItem(name: "_sid", value: sid)
+        ]
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("bytes=0-2097151", forHTTPHeaderField: "Range")
+        request.setValue("ATMusic/1.0", forHTTPHeaderField: "User-Agent")
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let http = response as? HTTPURLResponse, (200...206).contains(http.statusCode) else { return nil }
+            var head = Data()
+            head.reserveCapacity(2_097_152)
+            for try await byte in bytes {
+                head.append(byte)
+                if head.count >= 2_097_152 { break }
+            }
+            guard !head.isEmpty else { return nil }
+            // DSM 的 JSON 报错体（文件不存在/令牌过期）只有几百字节，直接排除。
+            if head.count < 4096,
+               let json = try? JSONSerialization.jsonObject(with: head) as? [String: Any],
+               (json["success"] as? Bool) == false { return nil }
+            // 写临时文件（保留原扩展名，AVFoundation 靠扩展名识别容器），
+            // 用系统 AVAsset 读内嵌封面，与离线下载是同一路提取逻辑。
+            let ext = (path as NSString).pathExtension
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("atmusic-emb-\(UUID().uuidString)")
+                .appendingPathExtension(ext.isEmpty ? "tmp" : ext)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            try head.write(to: tmp)
+            let asset = AVURLAsset(url: tmp)
+            if let artwork = asset.commonMetadata.first(where: { $0.commonKey == .commonKeyArtwork })?.dataValue,
+               !artwork.isEmpty {
+                return artwork
+            }
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     func optimizedCoverData(_ data: Data) -> Data {

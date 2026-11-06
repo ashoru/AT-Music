@@ -765,26 +765,64 @@ enum ImageDownsampler {
 }
 
 enum ATMusicRemoteCoverCache {
-    private static let images: NSCache<NSURL, UIImage> = {
-        let cache = NSCache<NSURL, UIImage>()
+    private static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 80 * 1024 * 1024 // 80 MB 显存硬顶，彻底杜绝 OOM 闪退
         cache.countLimit = 200
         return cache
     }()
 
-    static func image(for url: URL?) -> UIImage? {
+    /// 内存缓存按 (URL, 目标像素尺寸) 分键，与 CoverImage.targetPixelSize 的档位对齐。
+    /// 之前是按 URL 单键：列表 48pt 先解出 180px 存进去，播放器后来直接命中这张小图放大，
+    /// 就是封面发糊的根因（网易原图 1500px 也照样糊）。尺寸 0 是“原图”键，存已知最大的那张整图。
+    private static let sizeTiers: [CGFloat] = [180, 420, 750, 1200]
+
+    private static func key(for url: URL, targetPixelSize: CGFloat) -> NSString {
+        "\(url.absoluteString)|\(Int(targetPixelSize))" as NSString
+    }
+
+    private static func pixelSize(of image: UIImage) -> CGFloat {
+        if let cg = image.cgImage { return CGFloat(max(cg.width, cg.height)) }
+        return max(image.size.width, image.size.height) * image.scale
+    }
+
+    /// 取图：先找精确尺寸；没有时退到“原图”键，但只有原图像素 ≥ 目标尺寸才返回，
+    /// 否则返回 nil，让调用方从磁盘原图按正确尺寸重解，绝不拿小图放大。
+    static func image(for url: URL?, targetPixelSize: CGFloat = 0) -> UIImage? {
         guard let url else { return nil }
-        return images.object(forKey: url as NSURL)
+        if targetPixelSize > 0,
+           let exact = images.object(forKey: key(for: url, targetPixelSize: targetPixelSize)) {
+            return exact
+        }
+        if let original = images.object(forKey: key(for: url, targetPixelSize: 0)),
+           targetPixelSize <= 0 || pixelSize(of: original) >= targetPixelSize {
+            return original
+        }
+        return nil
     }
 
-    static func store(_ image: UIImage, for url: URL) {
+    /// 存图：带尺寸时只存该尺寸键，并把“原图”键刷新为两者中像素更大的那张；
+    /// 不带尺寸时（用户改图、下载提取等已备好的整图）只存“原图”键，各尺寸视图靠
+    /// 上面的原图回落读取，像素不够时再走磁盘重解。
+    static func store(_ image: UIImage, for url: URL, targetPixelSize: CGFloat? = nil) {
         let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? (Int(image.size.width * image.size.height) * 4)
-        images.setObject(image, forKey: url as NSURL, cost: cost)
+        if let size = targetPixelSize {
+            images.setObject(image, forKey: key(for: url, targetPixelSize: size), cost: cost)
+        }
+        let originalKey = key(for: url, targetPixelSize: 0)
+        if let existing = images.object(forKey: originalKey) {
+            guard pixelSize(of: image) > pixelSize(of: existing) else { return }
+        }
+        images.setObject(image, forKey: originalKey, cost: cost)
     }
 
+    /// 清掉该 URL 全部尺寸的内存图（换封面强制重载时用，免得旧尺寸残留）。
     static func remove(for url: URL?) {
         guard let url else { return }
-        images.removeObject(forKey: url as NSURL)
+        images.removeObject(forKey: key(for: url, targetPixelSize: 0))
+        for tier in sizeTiers {
+            images.removeObject(forKey: key(for: url, targetPixelSize: tier))
+        }
     }
 
     static func removeAll() {
@@ -944,16 +982,18 @@ final class ATMusicCoverImageLoader: ObservableObject {
     @Published private(set) var loadFailed: Bool = false
 
     private var currentTargetURL: URL?
+    private var currentTargetPixelSize: CGFloat = 1200
     private var retryCount = 0
     private var retryTask: Task<Void, Never>?
 
-    func load(_ url: URL?, targetPixelSize: CGFloat = 800, isRetry: Bool = false, force: Bool = false) async {
+    func load(_ url: URL?, targetPixelSize: CGFloat = 1200, isRetry: Bool = false, force: Bool = false) async {
         if !isRetry {
             retryCount = 0
             retryTask?.cancel()
             retryTask = nil
         }
         currentTargetURL = url
+        currentTargetPixelSize = targetPixelSize
         guard let url else {
             image = nil
             loadedURL = nil
@@ -983,14 +1023,14 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 loadFailed = false
                 return
             }
-            if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL) {
+            if let cached = ATMusicRemoteCoverCache.image(for: resolvedURL, targetPixelSize: targetPixelSize) {
                 loadedURL = resolvedURL
                 image = cached
                 isLoading = false
                 loadFailed = false
                 return
             }
-            if let cached = ATMusicRemoteCoverCache.image(for: url) {
+            if let cached = ATMusicRemoteCoverCache.image(for: url, targetPixelSize: targetPixelSize) {
                 loadedURL = resolvedURL
                 image = cached
                 isLoading = false
@@ -1016,7 +1056,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
             }
             if let diskDecoded {
                 loadedURL = resolvedURL
-                ATMusicRemoteCoverCache.store(diskDecoded, for: resolvedURL)
+                ATMusicRemoteCoverCache.store(diskDecoded, for: resolvedURL, targetPixelSize: targetPixelSize)
                 image = diskDecoded
                 isLoading = false
                 loadFailed = false
@@ -1046,7 +1086,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
             }
             if let decoded {
                 loadedURL = resolvedURL
-                ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
+                ATMusicRemoteCoverCache.store(decoded, for: resolvedURL, targetPixelSize: targetPixelSize)
                 image = decoded
                 isLoading = false
                 loadFailed = false
@@ -1099,7 +1139,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
                 ATMusicDiskCoverCache.store(data, for: resolvedURL)
             }.value
             loadedURL = resolvedURL
-            ATMusicRemoteCoverCache.store(decoded, for: resolvedURL)
+            ATMusicRemoteCoverCache.store(decoded, for: resolvedURL, targetPixelSize: targetPixelSize)
             image = decoded
             isLoading = false
             loadFailed = false
@@ -1125,7 +1165,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
         retryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            await self.load(url, isRetry: true)
+            await self.load(url, targetPixelSize: self.currentTargetPixelSize, isRetry: true)
         }
     }
 
@@ -1134,7 +1174,7 @@ final class ATMusicCoverImageLoader: ObservableObject {
         retryCount = 0
         retryTask?.cancel()
         retryTask = nil
-        await load(url, isRetry: true, force: true)
+        await load(url, targetPixelSize: currentTargetPixelSize, isRetry: true, force: true)
     }
 }
 
@@ -1155,13 +1195,13 @@ struct CoverImage: View {
         if maxSide <= 0 { return 750 }
         if maxSide <= 64 { return 180 }
         if maxSide <= 140 { return 420 }
-        return 800
+        return 1200
     }
 
     private var displayedImage: UIImage? {
         let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
-        if let cached = ATMusicRemoteCoverCache.image(for: resolved) { return cached }
-        if let url, let cached = ATMusicRemoteCoverCache.image(for: url) { return cached }
+        if let cached = ATMusicRemoteCoverCache.image(for: resolved, targetPixelSize: targetPixelSize) { return cached }
+        if let url, let cached = ATMusicRemoteCoverCache.image(for: url, targetPixelSize: targetPixelSize) { return cached }
         if (loader.loadedURL == resolved || loader.loadedURL == url), let image = loader.image { return image }
         return nil
     }
@@ -1216,7 +1256,7 @@ struct CoverImage: View {
         }
         .task(id: url) {
             let resolved = ManagedAudioPath.resolveFileURL(url) ?? url
-            if ATMusicRemoteCoverCache.image(for: resolved) == nil {
+            if ATMusicRemoteCoverCache.image(for: resolved, targetPixelSize: targetPixelSize) == nil {
                 await loader.load(resolved, targetPixelSize: targetPixelSize)
             }
         }

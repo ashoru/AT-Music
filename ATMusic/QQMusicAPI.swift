@@ -139,7 +139,10 @@ final class QQMusicAPI {
         return try? JSONSerialization.jsonObject(with: Data(slice.utf8)) as? [String: Any]
     }
 
-    private static func photoURL(_ mid: String?, size: String = "300x300") -> URL? {
+    /// 专辑图尺寸：QQ 专辑原图上限就是 800（实测 T002R1000x1000 会 404），
+    /// 列表/播放器共用同一条 URL，磁盘缓存原图、各尺寸各自下采样，
+    /// 800 在播放器 3x 全宽屏上只放大 1.46 倍；原来 300 放大 3.9 倍必糊。
+    private static func photoURL(_ mid: String?, size: String = "800x800") -> URL? {
         guard let mid, !mid.isEmpty else { return nil }
         return URL(string: "https://y.gtimg.cn/music/photo_new/T002R\(size)M000\(mid).jpg")
     }
@@ -165,6 +168,14 @@ final class QQMusicAPI {
             value = "https://y.gtimg.cn" + value
         } else if !value.hasPrefix("https://") {
             value = "https://y.gtimg.cn/" + value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        // API 直接给的专辑图常带 T002R300x300：同一张图只给 300px，播放器放大 3.9 倍必糊；
+        // QQ 专辑原图上限 800，300/500/150 档一律改写成 800（T001 歌手头像不动，头像只在小尺寸显示）。
+        if value.contains("T002R") {
+            value = value
+                .replacingOccurrences(of: "T002R300x300", with: "T002R800x800")
+                .replacingOccurrences(of: "T002R500x500", with: "T002R800x800")
+                .replacingOccurrences(of: "T002R150x150", with: "T002R800x800")
         }
         return URL(string: value)
             ?? value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))

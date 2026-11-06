@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import MediaPlayer
 import SwiftUI
 import UIKit
@@ -273,9 +274,25 @@ final class PlayerManager: NSObject, ObservableObject {
         queue.indices.contains(currentIndex) ? queue[currentIndex] : nil
     }
 
+    /// 播放器大封面 URL：当前 NAS 歌曲已取到内嵌高清图时用内嵌文件，否则用歌曲 coverURL。
+    /// 内嵌文件被系统清掉时也回落 cover.cgi，不会显示占位图。
+    func playerCoverURL(for song: Song?) -> URL? {
+        guard let song,
+              song.identityKey == currentSong?.identityKey,
+              let embedded = embeddedCoverFileURL,
+              FileManager.default.fileExists(atPath: embedded.path) else { return song?.coverURL }
+        return embedded
+    }
+
     /// 当前播放歌曲的解析后歌词，供主界面、微播放器与布局编辑器实时联动
     @Published var currentLyrics: [LyricLine] = []
     @Published var currentLyricsSongIdentity: String? = nil
+
+    /// 当前播放 NAS 歌曲的文件内嵌高清封面（仅正在播的一首；列表不读文件）。
+    /// 有值时播放器大封面优先用它（文件内嵌图比 cover.cgi 的 480px 缩略图大），没有时回落 cover.cgi。
+    @Published private(set) var embeddedCoverFileURL: URL?
+    private var embeddedCoverFetchTask: Task<Void, Never>?
+    private var coverUpdateObserver: NSObjectProtocol?
 
     func updateCurrentLyrics(_ lyrics: [LyricLine], for identityKey: String? = nil) {
         self.currentLyrics = lyrics
@@ -424,6 +441,13 @@ final class PlayerManager: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.syncRemoteLikeCommandState()
         }
+        coverUpdateObserver = NotificationCenter.default.addObserver(
+            forName: .atmusicCoverDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            self?.handleCoverDidUpdate(note.object as? URL)
+        }
     }
 
     deinit {
@@ -441,6 +465,9 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         if let favoritesObserver {
             NotificationCenter.default.removeObserver(favoritesObserver)
+        }
+        if let coverUpdateObserver {
+            NotificationCenter.default.removeObserver(coverUpdateObserver)
         }
         flushListeningSeconds()
     }
@@ -474,6 +501,82 @@ final class PlayerManager: NSObject, ObservableObject {
 
     func playSong(_ song: Song, in context: [Song]) {
         play(songs: context, startAt: context.firstIndex(of: song) ?? 0)
+    }
+
+    // MARK: - NAS 内嵌高清封面（仅当前播放歌曲）
+
+    private func embeddedCoverFile(for song: Song) -> URL {
+        let digest = SHA256.hash(data: Data(song.identityKey.utf8)).map { String(format: "%02x", $0) }.joined()
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ATMusicEmbeddedCover", isDirectory: true)
+            .appendingPathComponent(digest + ".jpg")
+    }
+
+    /// 切歌时刷新内嵌封面：NAS 歌先看缓存文件有没有，没有就后台只取文件头 2MB 提取。
+    /// 非 NAS 歌直接清掉，避免上一首的内嵌图串到下一首。
+    private func refreshEmbeddedCoverForCurrentSong(_ song: Song) {
+        embeddedCoverFetchTask?.cancel()
+        embeddedCoverFetchTask = nil
+        guard song.source == .synology, song.synologyPath != nil else {
+            if embeddedCoverFileURL != nil { embeddedCoverFileURL = nil }
+            return
+        }
+        let fileURL = embeddedCoverFile(for: song)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            embeddedCoverFileURL = fileURL
+            return
+        }
+        embeddedCoverFileURL = nil
+        let key = song.identityKey
+        embeddedCoverFetchTask = Task { [weak self] in
+            guard let self else { return }
+            guard let data = await SynologyAPI.shared.embeddedCoverData(for: song), !data.isEmpty else { return }
+            guard !Task.isCancelled, self.currentSong?.identityKey == key else { return }
+            do {
+                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: fileURL, options: .atomic)
+            } catch { return }
+            guard !Task.isCancelled, self.currentSong?.identityKey == key else { return }
+            Self.trimEmbeddedCoverCache(keeping: fileURL)
+            await MainActor.run { [weak self] in
+                guard let self, self.currentSong?.identityKey == key else { return }
+                self.embeddedCoverFileURL = fileURL
+                self.updateNowPlaying()
+            }
+        }
+    }
+
+    /// 内嵌封面缓存只留最近 100 首，避免越攒越大（单张几十到几百 KB）。
+    private static func trimEmbeddedCoverCache(keeping fileURL: URL) {
+        let dir = fileURL.deletingLastPathComponent()
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let jpgs = files.filter { $0.pathExtension.lowercased() == "jpg" }
+        guard jpgs.count > 100 else { return }
+        let sorted = jpgs.sorted {
+            let d0 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let d1 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return d0 > d1
+        }
+        for stale in sorted.dropFirst(100) {
+            try? FileManager.default.removeItem(at: stale)
+        }
+    }
+
+    /// 改封面后内嵌图已变旧：清掉当前这首的内嵌文件并重取（批量改写 object 为 nil 时也重取一次）。
+    private func handleCoverDidUpdate(_ updatedURL: URL?) {
+        guard let song = currentSong, song.source == .synology else { return }
+        if let updatedURL, let coverURL = song.coverURL {
+            let updated = ManagedAudioPath.resolveFileURL(updatedURL) ?? updatedURL
+            let current = ManagedAudioPath.resolveFileURL(coverURL) ?? coverURL
+            guard updated.coverIdentity == current.coverIdentity || updated == current else { return }
+        }
+        embeddedCoverFetchTask?.cancel()
+        embeddedCoverFetchTask = nil
+        if let fileURL = embeddedCoverFileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        embeddedCoverFileURL = nil
+        refreshEmbeddedCoverForCurrentSong(song)
     }
 
     /// 元数据写回后替换队列中的同一首歌曲，让当前播放页和播放队列立即显示新标签。
@@ -1148,6 +1251,7 @@ final class PlayerManager: NSObject, ObservableObject {
         guard ensurePlaybackAllowed() else { return }
         guard let song = currentSong else { return }
         enrichSongMetadataIfNeeded(song)
+        refreshEmbeddedCoverForCurrentSong(song)
         currentLyrics = []
         currentLyricsSongIdentity = nil
         let cacheQuality = playbackCacheQuality()
@@ -3157,7 +3261,9 @@ final class PlayerManager: NSObject, ObservableObject {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: validProgress,
             MPNowPlayingInfoPropertyPlaybackRate: validRate,
         ]
-        if let artworkURL = song.coverURL {
+        // 锁屏封面也优先用内嵌高清图（当前 NAS 歌已取到时）；没有时回落 cover.cgi。
+        // 锁屏取图本身就是读原图数据（不经过按尺寸分的内存缓存），所以这里只换 URL 就够了。
+        if let artworkURL = embeddedCoverFileURL ?? song.coverURL {
             let artworkKey = song.identityKey + "|" + artworkURL.absoluteString
             if let cached = Self.nowPlayingArtworkCache.object(forKey: artworkURL as NSURL),
                let artwork = Self.nowPlayingArtwork(cached) {

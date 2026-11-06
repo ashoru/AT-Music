@@ -271,7 +271,7 @@ struct IPadPlayerView: View {
             Spacer(minLength: 0)
 
             // 大尺寸专辑封面（带播放呼吸动效）
-            CoverImage(url: song?.coverURL, size: 360, cornerRadius: 22)
+            CoverImage(url: player.playerCoverURL(for: song), size: 360, cornerRadius: 22)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .shadow(color: .black.opacity(colorScheme == .dark ? 0.50 : 0.28), radius: 24, x: 0, y: 12)

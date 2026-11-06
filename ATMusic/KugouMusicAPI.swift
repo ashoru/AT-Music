@@ -1951,9 +1951,11 @@ final class KugouMusicAPI {
         }
         guard !title.isEmpty, !hash.isEmpty || !albumAudioId.isEmpty else { return nil }
         let album = string(raw["album_name"] ?? raw["albumname"] ?? raw["album"] ?? (raw["albuminfo"] as? [String: Any])?["name"])
+        // 歌曲专辑图：酷狗 {size} 模板实测支持到 1000（1000x1000 正常返回），
+        // 原来只取 300，播放器放大 3.9 倍必糊；列表/播放器共用同一条 URL，磁盘缓存原图。
         let cover = normalizeURL(
             string(raw["pic"] ?? raw["img"] ?? raw["image"] ?? raw["cover"] ?? raw["album_sizable_cover"] ?? raw["sizable_cover"] ?? trans["union_cover"])
-                .replacingOccurrences(of: "{size}", with: "300")
+                .replacingOccurrences(of: "{size}", with: "1000")
         )
         let durRaw = double(raw["timelength"] ?? raw["time_length"] ?? raw["timelen"] ?? raw["duration"] ?? raw["interval"])
         let seconds = durRaw > 1000 ? durRaw / 1000.0 : durRaw

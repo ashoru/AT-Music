@@ -1559,7 +1559,7 @@ struct PlayerView: View {
                     .allowsHitTesting(false)
 
                     // 封面（静态）
-                    CoverImage(url: song?.coverURL, size: size, cornerRadius: coverRadius, emptyHint: player.isBuffering ? "等待开始播放…" : nil)
+                    CoverImage(url: player.playerCoverURL(for: song), size: size, cornerRadius: coverRadius, emptyHint: player.isBuffering ? "等待开始播放…" : nil)
                         .matchedGeometryEffect(id: "playerCover", in: coverNS)
                         .id(song?.identityKey ?? "empty-cover")
                         .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive))
@@ -2908,7 +2908,7 @@ struct PlayerView: View {
             let image: UIImage?
             if resolved.isFileURL {
                 image = UIImage(contentsOfFile: resolved.path)
-            } else if let cached = ATMusicRemoteCoverCache.image(for: resolved) {
+            } else if let cached = ATMusicRemoteCoverCache.image(for: resolved, targetPixelSize: 420) {
                 image = cached
             } else if let diskData = ATMusicDiskCoverCache.data(for: resolved),
                       let diskImage = UIImage(data: diskData) {

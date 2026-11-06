@@ -461,7 +461,7 @@ final class DownloadManager: ObservableObject {
         // 4. 检查内存缓存
         if let coverURL = song.coverURL {
             let resolved = ManagedAudioPath.resolveFileURL(coverURL) ?? coverURL
-            if let cached = ATMusicRemoteCoverCache.image(for: resolved) ?? ATMusicRemoteCoverCache.image(for: coverURL) {
+            if let cached = ATMusicRemoteCoverCache.image(for: resolved, targetPixelSize: 1200) ?? ATMusicRemoteCoverCache.image(for: coverURL, targetPixelSize: 1200) {
                 if let jpeg = cached.jpegData(compressionQuality: 0.88) {
                     return jpeg
                 }

@@ -219,7 +219,7 @@ final class CoverBlurView: UIView {
             return
         }
 
-        if let existing = ATMusicRemoteCoverCache.image(for: resolved) {
+        if let existing = ATMusicRemoteCoverCache.image(for: resolved, targetPixelSize: 180) {
             Self.blurQueue.async { [weak self] in
                 guard let self else { return }
                 let blurred = Self.makeBlurredImage(existing)
