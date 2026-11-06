@@ -48,6 +48,51 @@ enum ChangelogStore {
 
         static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.9.47-build-158",
+            version: "1.9.47",
+            title: "iPad 播放胶囊：磨砂效果终于能看见了",
+            features: [],
+            fixes: [
+                "修复播放胶囊看不见底下模糊、底部多一截白条：根因是详情区容器被底部留白缩了 100，背景也被截断；容器改回全高，内容与背景都伸到胶囊下面",
+                "胶囊乳白罩调淡，透出的磨砂模糊更明显"
+            ]
+        ),
+        VersionLog(
+            id: "1.9.47-build-157",
+            version: "1.9.47",
+            title: "iPad 播放胶囊改成 Apple Music 式悬浮毛玻璃",
+            features: [
+                "iPad 播放胶囊底改成 Apple Music 式悬浮毛玻璃（磨砂材质 + 乳白渐变 + 亮边 + 投影），四种 UI 风格下都一样"
+            ],
+            fixes: [
+                "修复播放胶囊看着不像毛玻璃：之前按风格切换，实色填充 / 全清玻璃两种都不对",
+                "修复收起侧栏按钮重复：删掉侧栏顶部自加的开关，只留系统在详情页左上角的那个"
+            ]
+        ),
+        VersionLog(
+            id: "1.9.47-build-156",
+            version: "1.9.47",
+            title: "iPad 播放胶囊按 Apple Music 实测重做成真胶囊",
+            features: [
+                "iPad 播放胶囊按 Apple Music iPadOS 26 实拍尺寸重做：真胶囊形状、高约 64、宽约内容区 88%、下边距约 24，封面与播放键同步加大"
+            ],
+            fixes: [
+                "修复 155 版播放胶囊看着像一条固定栏：根因是 16pt 小圆角矩形 + 50 高 + 定宽 560，改成两端全圆的真胶囊"
+            ]
+        ),
+        VersionLog(
+            id: "1.9.47-build-155",
+            version: "1.9.47",
+            title: "iPad 主页严格对齐 Apple Music：播放胶囊独立悬浮",
+            features: [
+                "iPad 播放胶囊改为全屏底部居中的独立悬浮胶囊（Apple Music 式排列：左边控制、中间封面歌名、右边隔空播放），没在播也常驻显示",
+                "iPad 侧栏顶部三行按 Apple Music 顺序：全网搜索 / 主页 / 精选乐馆，右上角加侧栏收起开关；底部改为头像 + 昵称的账户区"
+            ],
+            fixes: [
+                "修复 iPad 横屏全屏时播放胶囊贴在侧栏底部、没有单独拿出来的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.9.47-build-154",
             version: "1.9.47",
             title: "播放次数统计：只有真听够了才记一次",
