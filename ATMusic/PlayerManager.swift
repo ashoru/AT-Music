@@ -195,6 +195,10 @@ final class PlayerManager: NSObject, ObservableObject {
     private var lastCountedSongID: String?
     private var lastListeningProgress: Double?
     private var pendingListeningSeconds = 0.0
+    /// 播放次数累计：本次连续播放里真实播了多少秒（只计实际播放，暂停/卡顿/快进不计）。
+    private var playCountAccumulatedSeconds = 0.0
+    /// 累计所属的歌曲；切歌时清零重算。
+    private var playCountSongID: String?
     private var wasPlayingBeforeInterruption = false
     private var lastPublishedProgress: Double = -1
     private var lastPersistedProgress: Double = -1
@@ -2468,11 +2472,16 @@ final class PlayerManager: NSObject, ObservableObject {
         loadFailed = false
         // 开始当前歌曲后即可后台解析/下载下一首；MusicCacheManager 会自动去重。
         refreshPrefetchTarget()
-        // 修复：播放次数原先在 loadCurrent 里预计数，URL 加载失败/手动重试也会 +1，
-        // 导致统计异常；改为真正开始播放时计数，且同一首歌同一会话只计一次。
-        if let song = currentSong, lastCountedSongID != song.identityKey {
-            bumpPlayCount(song)
-            lastCountedSongID = song.identityKey
+        // 播放次数：开播时不再预计数（播放失败、听几秒就切歌都会误记）。
+        // 累计在时间观察器里按真实播放秒数算，达到「一半或 60 秒，先到为准」才记一次。
+        // 切歌或重播同一首时重新累计（上一轮已记过的重播允许再记一次；失败重试没记过的保留累计）。
+        if playCountSongID != currentSong?.identityKey {
+            playCountSongID = currentSong?.identityKey
+            playCountAccumulatedSeconds = 0
+            lastCountedSongID = nil
+        } else if lastCountedSongID == currentSong?.identityKey {
+            playCountAccumulatedSeconds = 0
+            lastCountedSongID = nil
         }
         lastListeningProgress = nil
         currentIsThirdParty = isThirdParty
@@ -2505,6 +2514,13 @@ final class PlayerManager: NSObject, ObservableObject {
                     self.loadCurrent()
                     return
                 }
+            }
+            // 播完一首歌：播到自然结尾就算听过一次（后台播完也一样）；
+            // 位置不到门槛就结束的是坏源或极短文件，不记。
+            if self.lastCountedSongID != loadedSong.identityKey,
+               (self.player?.currentTime().seconds ?? 0) >= self.playCountThreshold(for: loadedSong) {
+                self.bumpPlayCount(loadedSong)
+                self.lastCountedSongID = loadedSong.identityKey
             }
             if self.playMode == .repeatOne {
                 self.restartCurrent()
@@ -2980,6 +2996,30 @@ final class PlayerManager: NSObject, ObservableObject {
         }
     }
 
+    /// 记一次播放的门槛：播满一半，或播满 60 秒，先到为准。
+    /// 60 秒是上限——10 分钟的长歌不用等 5 分钟才记一次；30 秒内的短歌按一半算。
+    private func playCountThreshold(for song: Song) -> Double {
+        let itemSeconds = player?.currentItem?.duration.seconds ?? .nan
+        let total: Double
+        if itemSeconds.isFinite, itemSeconds > 0 {
+            total = itemSeconds
+        } else if song.duration > 0 {
+            total = song.duration
+        } else {
+            return 60
+        }
+        return min(total / 2, 60)
+    }
+
+    /// 按当前累计检查一次是否达到记数门槛，到了就记一次（同一轮播放只记一次）。
+    private func checkPlayCountThreshold() {
+        guard let song = currentSong,
+              lastCountedSongID != song.identityKey,
+              playCountAccumulatedSeconds >= playCountThreshold(for: song) else { return }
+        bumpPlayCount(song)
+        lastCountedSongID = song.identityKey
+    }
+
     private func loadPlayCounts() {
         guard let data = defaults.data(forKey: countsKey),
               let saved = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
@@ -3049,6 +3089,18 @@ final class PlayerManager: NSObject, ObservableObject {
         isInBackground = false
         removeBackgroundBoundaryObserver()
         recordBackgroundPlaybackDurationIfNeeded()
+
+        // 后台听歌也要记数：同首歌在后台前进的位置如实补进累计，再按门槛检查一次。
+        // （后台切了歌的不补——播完那首由播完回调记数。）
+        if isPlaying, let song = currentSong, song.identityKey == playCountSongID,
+           let player = player {
+            let now = player.currentTime().seconds
+            let entry = lastListeningProgress ?? progress
+            if now.isFinite, now - entry > 0 {
+                playCountAccumulatedSeconds += now - entry
+                checkPlayCountThreshold()
+            }
+        }
 
         if let player = self.player {
             let currentSec = player.currentTime().seconds
@@ -3135,12 +3187,24 @@ final class PlayerManager: NSObject, ObservableObject {
             guard let self, let player = self.player else { return }
             guard self.loadGeneration == playbackGeneration else { return }
             if time.seconds.isFinite {
+                // 播放次数累计：切歌或回开头重听时重新累计，并允许再计一次。
+                if let song = self.currentSong {
+                    if self.playCountSongID != song.identityKey {
+                        self.playCountSongID = song.identityKey
+                        self.playCountAccumulatedSeconds = 0
+                        self.lastCountedSongID = nil
+                    } else if let previous = self.lastListeningProgress, time.seconds < 5, previous - time.seconds > 5 {
+                        self.playCountAccumulatedSeconds = 0
+                        self.lastCountedSongID = nil
+                    }
+                }
                 if let previous = self.lastListeningProgress,
                    self.isPlaying,
                    player.timeControlStatus == .playing {
                     let elapsed = time.seconds - previous
                     if elapsed > 0, elapsed < 0.6 {
                         self.pendingListeningSeconds += elapsed
+                        self.playCountAccumulatedSeconds += elapsed
                         if self.pendingListeningSeconds >= 5 {
                             let wholeSeconds = Int(self.pendingListeningSeconds)
                             self.pendingListeningSeconds -= Double(wholeSeconds)
@@ -3148,6 +3212,7 @@ final class PlayerManager: NSObject, ObservableObject {
                         }
                     }
                 }
+                self.checkPlayCountThreshold()
                 self.lastListeningProgress = time.seconds
                 if abs(time.seconds - self.lastPublishedProgress) >= 0.25 {
                     self.lastPublishedProgress = time.seconds

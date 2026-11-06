@@ -1754,6 +1754,30 @@ struct LocalBatchMetadataEditorSheet: View {
             startTrack: TrackSequencing.parseNumber(trackStart, range: 1...999) ?? 1
         )
     }
+    /// 多选歌曲里自带的不同封面：同一专辑只列一张（按专辑名 + 专辑演出者去重），
+    /// 没专辑名的歌按单首算；点选后直接当全部选中歌曲的统一封面用。
+    private var distinctSelectedCovers: [(song: Song, url: URL)] {
+        var seen = Set<String>()
+        var result: [(song: Song, url: URL)] = []
+        for song in songs {
+            guard let url = song.coverURL else { continue }
+            let album = song.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let key: String
+            if album.isEmpty {
+                key = "song:\(song.identityKey)"
+            } else {
+                var who = song.artists.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if let artist = song.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines), !artist.isEmpty {
+                    who = artist.lowercased()
+                }
+                key = "album:\(album)|\(who)"
+            }
+            guard seen.insert(key).inserted else { continue }
+            result.append((song: song, url: url))
+        }
+        return result
+    }
+
 
     var body: some View {
         NavigationView {
@@ -1863,6 +1887,43 @@ struct LocalBatchMetadataEditorSheet: View {
                                 .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                             .buttonStyle(.plain)
+                            // 从所选歌曲里直接挑一张现成封面：点哪张就用哪张当统一封面，不用再去在线搜。
+                            if !distinctSelectedCovers.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("从所选歌曲中选择")
+                                        .font(ATMusicFont.appFont(13, .semibold))
+                                        .foregroundStyle(Color.atmusicComment)
+                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
+                                        ForEach(distinctSelectedCovers.prefix(12), id: \.song.identityKey) { entry in
+                                            Button {
+                                                selectedCoverURL = entry.url
+                                                selectedCoverData = nil
+                                                selectedCoverThumbnail = nil
+                                            } label: {
+                                                VStack(spacing: 4) {
+                                                    CoverImage(url: entry.url, size: 64, cornerRadius: 10)
+                                                        .overlay {
+                                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                                .stroke(selectedCoverURL == entry.url ? Color.atmusicAmber : Color.clear, lineWidth: 2)
+                                                        }
+                                                    Text(entry.song.album.isEmpty ? entry.song.name : entry.song.album)
+                                                        .font(ATMusicFont.appFont(10))
+                                                        .foregroundStyle(Color.atmusicLabel)
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                    if distinctSelectedCovers.count > 12 {
+                                        Text("仅显示前 12 张不同封面")
+                                            .font(ATMusicFont.appFont(11))
+                                            .foregroundStyle(Color.atmusicComment)
+                                    }
+                                }
+                                .padding(12)
+                                .background(Color.atmusicCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
                         }
 
                         // 3. 元数据输入字段
