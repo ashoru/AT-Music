@@ -13,6 +13,9 @@ final class QQMusicAuth: ObservableObject {
     @Published private(set) var vipBadge: String?
     /// 是否拥有 VIP / SVIP 会员身份
     var isVIP: Bool { vipBadge != nil }
+    /// 登录态疑似过期：曾经有会员标识、现在拉不到了，或主动刷新失败。
+    /// 账号页据此提示用户点「重新同步登录状态」，不据此登出。
+    @Published private(set) var sessionNeedsResync = false
 
     private var cookies: [String: String] = [:]
     private var qrsig = ""
@@ -153,7 +156,108 @@ final class QQMusicAuth: ObservableObject {
             self.isLoggedIn = false
             self.nickname = ""
             self.vipBadge = nil
+            self.sessionNeedsResync = false
         }
+    }
+
+    // MARK: - Cookie 续期（被动吸收 + 主动刷新 + 网页重同步）
+
+    /// 把响应里的 Set-Cookie 合并进已存登录态，只收登录相关名，有变化才持久化。
+    /// 供 QQMusicAPI 的统一请求出口调用：服务端轮换凭证时 App 不再拿旧快照硬撑。
+    /// （扫码链的 collectCookies 不走这里：它还要收 qrsig 等临时 Cookie。）
+    func absorbSetCookies(from response: URLResponse) {
+        guard let http = response as? HTTPURLResponse,
+              let url = http.url,
+              let headers = http.allHeaderFields as? [String: String] else { return }
+        let setCookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
+        guard !setCookies.isEmpty else { return }
+        var incoming: [String: String] = [:]
+        for cookie in setCookies where Self.webCookieNames.contains(cookie.name) {
+            incoming[cookie.name] = cookie.value
+        }
+        guard !incoming.isEmpty else { return }
+        mergeCookies(incoming)
+    }
+
+    /// 合并一组 Cookie（新值覆盖旧值），有变化才写盘。主线程执行，避免与 UI 读取竞态。
+    func mergeCookies(_ incoming: [String: String]) {
+        updatePublishedState {
+            var changed = false
+            for (key, value) in incoming where !value.isEmpty {
+                if self.cookies[key] != value {
+                    self.cookies[key] = value
+                    changed = true
+                }
+            }
+            if changed {
+                self.defaults.set(self.cookies, forKey: self.cookieKey)
+            }
+        }
+    }
+
+    /// 主动刷新音乐域凭证（QQConnectLogin.LoginServer/QQLogin + musickey）。
+    /// 上游实现（jsososo /user/refresh）只覆盖 QQ 登录、微信登录未验证：
+    /// 只有 qm_keyst / qqmusic_key / music_key 任一存在时才尝试，否则直接返回 false，
+    /// 调用方回落到网页重同步。成功返回 true 并更新 qm_keyst / qqmusic_key。
+    @MainActor
+    func refreshLogin() async -> Bool {
+        guard isLoggedIn else { return false }
+        let musicID = uin
+        guard !musicID.isEmpty, musicID != "0" else { return false }
+        guard let key = cookies["qm_keyst"] ?? cookies["qqmusic_key"] ?? cookies["music_key"],
+              !key.isEmpty else {
+            ATMusicLogger.shared.log("QQ 刷新登录：无音乐域凭证（仅 wxskey），跳过主动刷新", level: .debug)
+            return false
+        }
+        do {
+            guard let newKey = try await QQMusicAPI.shared.refreshMusicKey(musicid: musicID, musickey: key),
+                  !newKey.isEmpty else {
+                ATMusicLogger.shared.log("QQ 刷新登录：服务端未返回新 musickey", level: .warn)
+                return false
+            }
+            mergeCookies(["qm_keyst": newKey, "qqmusic_key": newKey])
+            sessionNeedsResync = false
+            ATMusicLogger.shared.log("QQ 刷新登录：musickey 已刷新", level: .info)
+            return true
+        } catch {
+            ATMusicLogger.shared.log("QQ 刷新登录失败：\(error.localizedDescription)", level: .warn)
+            return false
+        }
+    }
+
+    /// 从 WKWebView 默认 Cookie 存储重同步登录态（账号页「重新同步登录状态」）。
+    /// 合并后先校验再落盘：网页端也过期时不碰已存状态，返回失败原因；成功返回 nil。
+    /// 调用方在主线程（Cookie 读取回调已切回主线程），与 importCookies 同一约定。
+    func resyncCookies(from webCookies: [String: String]) -> String? {
+        guard !webCookies.isEmpty else {
+            return "网页里没有读到登录 Cookie，请先在登录页完成登录"
+        }
+        var candidate = cookies
+        for (key, value) in webCookies where !value.isEmpty {
+            candidate[key] = value
+        }
+        if let issue = Self.loginValidationMessage(candidate) {
+            return issue
+        }
+        cookies = candidate
+        defaults.set(cookies, forKey: cookieKey)
+        updatePublishedState {
+            self.sessionNeedsResync = false
+            self.isLoggedIn = true
+            NotificationCenter.default.post(name: .atmusicQQLoginDidUpdate, object: nil)
+        }
+        Task { await self.fetchVIPStatus() }
+        Task { await self.fetchProfile() }
+        return nil
+    }
+
+    /// 启动自检：登录态在，但会员标识丢了，提示去账号页重同步。
+    /// 只读会员接口的结果，不据此登出（登录态判定仍以存没存 Cookie 为准）。
+    @MainActor
+    func validateSession() async {
+        guard isLoggedIn else { return }
+        await fetchVIPStatus()
+        await fetchProfile()
     }
 
     // MARK: - 网页登录 / Cookie 导入
@@ -166,6 +270,7 @@ final class QQMusicAuth: ObservableObject {
         updatePublishedState {
             self.isLoggedIn = true
             self.nickname = resolvedNickname
+            self.sessionNeedsResync = false
         }
         defaults.set(cookies, forKey: cookieKey)
         defaults.set(resolvedNickname, forKey: nickKey)
@@ -455,7 +560,8 @@ final class QQMusicAuth: ObservableObject {
     /// 携带登录 Cookie 请求，接口字段各家实现略有差异，这里做递归宽松解析：
     /// - 命中 svip 相关字段且数值 > 0 -> SVIP
     /// - 命中 vipType / vip_type 且数值 > 0 -> VIP
-    /// - 请求失败或字段缺失 -> nil（不阻塞登录，也不弹错误）
+    /// - 请求失败或业务码异常 -> 保持旧标识（网络抖动不该把 VIP 标抖掉），不据此清标
+    /// - 接口明确成功且无会员字段、且曾有标识 -> 先主动刷新凭证再查一次，仍无才清标并提示重同步
     @MainActor
     func fetchVIPStatus() async {
         guard isLoggedIn, !uin.isEmpty, uin != "0" else {
@@ -465,24 +571,74 @@ final class QQMusicAuth: ObservableObject {
             }
             return
         }
+        let hadBadge = vipBadge != nil
+        // 1) 主 uin 查一次；查不到再用备用身份候选各试一次（微信登录 wxuin 未必被会员接口认）。
+        var (badge, succeeded) = await fetchVIPBadge(for: uin)
+        if badge == nil, succeeded {
+            for candidate in playlistIdentityCandidates where candidate != uin && candidate != "0" {
+                let attempt = await fetchVIPBadge(for: candidate)
+                if attempt.badge != nil || attempt.succeeded {
+                    badge = attempt.badge
+                    succeeded = attempt.succeeded
+                    break
+                }
+            }
+        }
+        // 2) 全部失败：保持旧标，重试一次主 uin；仍失败直接返回，不碰标识。
+        if !succeeded {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let retry = await fetchVIPBadge(for: uin)
+            if retry.badge != nil || retry.succeeded {
+                badge = retry.badge
+                succeeded = retry.succeeded
+            }
+        }
+        guard succeeded else { return }
+        // 3) 曾有会员、现在查不到：先主动刷新凭证再查一次，刷新失败才清标并提示重同步。
+        if badge == nil, hadBadge {
+            if await refreshLogin() {
+                let afterRefresh = await fetchVIPBadge(for: uin)
+                if afterRefresh.succeeded { badge = afterRefresh.badge }
+            }
+            if badge == nil {
+                sessionNeedsResync = true
+            }
+        }
+        if badge != vipBadge {
+            vipBadge = badge
+            defaults.set(badge ?? "", forKey: vipKey)
+        }
+        if badge != nil {
+            sessionNeedsResync = false
+        }
+    }
+
+    /// 单次 get_vip_info。succeeded=false 表示请求失败或业务码异常，结果不可信、不能据此清标。
+    private func fetchVIPBadge(for uinValue: String) async -> (badge: String?, succeeded: Bool) {
         do {
             let payload: [String: Any] = [
-                "comm": ["ct": 24, "cv": 0, "uin": uin],
+                "comm": ["ct": 24, "cv": 0, "uin": uinValue],
                 "req_0": [
                     "module": "music.member.getVipInfo",
                     "method": "get_vip_info",
-                    "param": ["uin": uin]
+                    "param": ["uin": uinValue]
                 ]
             ]
             let json = try await musicu(payload)
-            let badge = Self.parseVIPBadge(json)
-            if badge != vipBadge {
-                vipBadge = badge
-                defaults.set(badge ?? "", forKey: vipKey)
-            }
+            // 业务码非 0 = 凭证/风控问题，结果不可信。
+            if let code = Self.businessCode(json), code != 0 { return (nil, false) }
+            return (Self.parseVIPBadge(json), true)
         } catch {
-            // 尽力而为：接口波动不影响登录与播放
+            return (nil, false)
         }
+    }
+
+    /// musicu 业务码：顶层 code 优先，其次 req_0 / req；都没有返回 nil（按成功处理，沿用旧行为）。
+    private static func businessCode(_ json: [String: Any]) -> Int? {
+        if let code = json["code"] as? Int { return code }
+        if let req = json["req_0"] as? [String: Any], let code = req["code"] as? Int { return code }
+        if let req = json["req"] as? [String: Any], let code = req["code"] as? Int { return code }
+        return nil
     }
 
     /// 递归扫描响应 JSON 中的会员字段（兼容不同返回结构）
@@ -496,8 +652,10 @@ final class QQMusicAuth: ObservableObject {
                     if lower.contains("svip") {
                         if let n = v as? Int, n > 0 { svipFlag = true }
                         if let b = v as? Bool, b { svipFlag = true }
+                        if let s = v as? String, let n = Int(s), n > 0 { svipFlag = true }
                     } else if lower == "viptype" || lower == "vip_type" {
                         if let n = v as? Int, n > 0 { vipLevel = max(vipLevel, n) }
+                        if let s = v as? String, let n = Int(s), n > 0 { vipLevel = max(vipLevel, n) }
                     }
                     walk(v)
                 }
@@ -584,6 +742,8 @@ final class QQMusicAuth: ObservableObject {
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         request.httpBody = body
         let (data, response) = try await session.data(for: request)
+        // 被动续期：会员接口的响应也可能带新凭证，顺手收下。
+        absorbSetCookies(from: response)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw NetEaseError.network

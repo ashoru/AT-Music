@@ -83,6 +83,8 @@ struct ATMusicApp: App {
                 player.resumePersistedPlaybackIfEnabled()
                 FontManager.reinstallIfNeeded()
                 theme.restoreWallpapersIfNeeded()
+                // QQ 登录态启动自检：曾有会员标识、现在拉不到时在账号页提示重同步。
+                await QQMusicAuth.shared.validateSession()
                 NASUserSyncManager.shared.checkAndAutoSyncOnLaunch()
             }
             .onChange(of: scenePhase) { phase in

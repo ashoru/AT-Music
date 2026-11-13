@@ -1017,6 +1017,8 @@ struct AccountHubSheet: View {
     @State private var confirmNeteaseLogout = false
     @State private var confirmQQLogout = false
     @State private var confirmKugouLogout = false
+    @State private var qqResyncing = false
+    @State private var qqResyncMessage = ""
 
     private var isEnglish: Bool { languageRaw == AppLanguage.english.rawValue }
     private var displayPlatformSummary: String {
@@ -1040,6 +1042,7 @@ struct AccountHubSheet: View {
                         SectionHeader(title: "账号")
                         if platformPrefs.isEnabled(SearchProvider.netease) { neteaseCard }
                         if platformPrefs.isEnabled(SearchProvider.qq) { qqCard }
+                        if platformPrefs.isEnabled(SearchProvider.qq), qqAuth.isLoggedIn { qqResyncRow }
                         if platformPrefs.isEnabled(SearchProvider.kugou) { kugouCard }
                         if platformPrefs.isEnabled(SearchProvider.synology) { synologyCard }
                         Text(isEnglish ? "Sign in to \(displayPlatformSummary) to sync playlists and improve playback availability" : "\(platformPrefs.summaryText) 登录后可同步歌单并提升可播成功率")
@@ -1210,6 +1213,59 @@ struct AccountHubSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+    }
+
+    /// QQ 登录态重同步：网页登录态通常比 App 快照活得久，VIP 标掉了点一下恢复，不用重新扫码。
+    private var qqResyncRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if qqAuth.sessionNeedsResync {
+                Text("QQ 会员标识丢失，可能是登录态过期，点下方「重新同步」恢复（一般不用重新扫码）")
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(Color.atmusicAmber)
+                    .padding(.horizontal, 4)
+            }
+            Button {
+                ATMusicHaptics.tap()
+                resyncQQNow()
+            } label: {
+                HStack(spacing: 6) {
+                    if qqResyncing {
+                        ProgressView().tint(Color.atmusicAmber)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    Text(qqResyncing ? "正在同步…" : "重新同步登录状态")
+                }
+                .font(ATMusicFont.appFont(13, .medium))
+                .foregroundStyle(Color.atmusicAmber)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background { ATMusicSurface(shape: Capsule()) }
+            }
+            .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+            .disabled(qqResyncing)
+            if !qqResyncMessage.isEmpty {
+                Text(qqResyncMessage)
+                    .font(ATMusicFont.appFont(12))
+                    .foregroundStyle(qqResyncMessage.hasPrefix("✓") ? Color.atmusicSage : Color.red.opacity(0.85))
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private func resyncQQNow() {
+        qqResyncing = true
+        qqResyncMessage = ""
+        QQWebCookieStore.readLoginCookies { dict in
+            if let issue = QQMusicAuth.shared.resyncCookies(from: dict) {
+                self.qqResyncMessage = issue
+                self.qqResyncing = false
+            } else {
+                self.qqResyncMessage = "✓ 已重新同步登录状态"
+                self.qqResyncing = false
+                ToastCenter.shared.show("QQ 登录状态已重新同步")
+            }
+        }
     }
 
     private var kugouCard: some View {

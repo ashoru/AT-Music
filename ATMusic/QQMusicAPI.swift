@@ -41,6 +41,11 @@ final class QQMusicAPI {
         request.setValue(cookie.isEmpty ? "uin=0; qqmusic_fromtag=66" : cookie, forHTTPHeaderField: "Cookie")
         do {
             let (data, response) = try await session.data(for: request)
+            // 被动续期：服务端轮换凭证时把 Set-Cookie 收进登录态，别拿旧快照硬撑。
+            // 只在本次带了真实登录 Cookie 时收，避免匿名请求把无关 Cookie 写进来。
+            if !cookie.isEmpty {
+                QQMusicAuth.shared.absorbSetCookies(from: response)
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             ATMusicLogger.shared.log("QQ HTTP GET 完成 status=\(status) bytes=\(data.count) elapsed=\(Self.elapsed(startedAt))", level: .debug)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -81,6 +86,10 @@ final class QQMusicAPI {
         ATMusicLogger.shared.log("QQ musicu POST 开始 timeout=\(timeout)s cookie=\(Self.cookieSummary(cookie)) payload=\(Self.jsonSummary(payload))", level: .debug)
         do {
             let (data, response) = try await session.data(for: request)
+            // 被动续期：同上，musicu 是 QQ 请求的主通道，续期主要靠这里。
+            if !cookie.isEmpty {
+                QQMusicAuth.shared.absorbSetCookies(from: response)
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             ATMusicLogger.shared.log("QQ musicu POST 完成 status=\(status) bytes=\(data.count) elapsed=\(Self.elapsed(startedAt))", level: .debug)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -113,6 +122,10 @@ final class QQMusicAPI {
         comps.queryItems = body.map { URLQueryItem(name: $0.key, value: "\($0.value)") }
         request.httpBody = comps.query?.data(using: .utf8)
         let (data, response) = try await session.data(for: request)
+        // 被动续期：同上。
+        if !cookie.isEmpty {
+            QQMusicAuth.shared.absorbSetCookies(from: response)
+        }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw NetEaseError.network
         }
@@ -121,6 +134,29 @@ final class QQMusicAPI {
             throw NetEaseError.decoding(String(snippet))
         }
         return json
+    }
+
+    /// 主动刷新 musickey（QQConnectLogin.LoginServer/QQLogin + musickey 参数）。
+    /// 对应 jsososo /user/refresh 的上游调用；上游走 musics.fcg 且要签名，本 App 改走
+    /// musicu.fcg（与扫码登录换 musickey 同一路，不额外引签名实现）。服务端不认该路由
+    /// 时返回空，调用方按失败处理、回落到网页重同步。成功返回新 musickey。
+    func refreshMusicKey(musicid: String, musickey: String) async throws -> String? {
+        let payload: [String: Any] = [
+            "comm": ["g_tk": 5381, "platform": "yqq", "ct": 24, "cv": 0],
+            "req": [
+                "module": "QQConnectLogin.LoginServer",
+                "method": "QQLogin",
+                "param": ["musicid": musicid, "musickey": musickey, "expired_in": 7776000]
+            ]
+        ]
+        let json = try await musicu(payload, cookie: QQMusicAuth.shared.cookieHeader, timeout: 10)
+        if let req = json["req"] as? [String: Any],
+           let data = req["data"] as? [String: Any],
+           let newKey = data["musickey"] as? String, !newKey.isEmpty {
+            return newKey
+        }
+        ATMusicLogger.shared.log("QQ refreshMusicKey：响应无新 musickey json=\(Self.jsonSummary(json))", level: .warn)
+        return nil
     }
 
     /// 兼容纯 JSON 与 JSONP（`callback({...})`）两种响应；QQ 部分老接口会前置 `while(1);` 防护前缀

@@ -96,6 +96,14 @@ struct QQWebLoginPanel: View {
 
     /// 从 WKWebView 默认 Cookie 存储读取登录态 Cookie
     private func readCookies(_ completion: @escaping ([String: String]) -> Void) {
+        QQWebCookieStore.readLoginCookies(completion)
+    }
+}
+
+/// 读取 WKWebView 默认 Cookie 存储里的 QQ 登录态（网页登录态通常比 App 快照活得久）。
+/// 供登录页「同步登录状态」与账号页「重新同步」共用。
+enum QQWebCookieStore {
+    static func readLoginCookies(_ completion: @escaping ([String: String]) -> Void) {
         let wanted = QQMusicAuth.webCookieNames
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
             var dict: [String: String] = [:]
